@@ -1,6 +1,6 @@
 # Story 1.2: Interfaces Publiques du Conteneur DI
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -30,47 +30,47 @@ Afin de comprendre le contrat du DI sans lire l'implémentation.
 
 ## Tasks / Subtasks
 
-- [ ] Tâche 1 : Créer `core/errors.go` — erreurs sentinelles (AC: #4)
-  - [ ] Déclarer `var ErrNotFound = errors.New("helix: not found")`
-  - [ ] Déclarer `var ErrCyclicDep = errors.New("helix: cyclic dependency")`
-  - [ ] Déclarer `var ErrUnresolvable = errors.New("helix: cannot resolve component")`
-  - [ ] Déclarer le type erreur structuré `CyclicDepError` avec champ `Path []string` et méthode `Error() string`
-  - [ ] Écrire `core/errors_test.go` — vérifier que les sentinelles sont des erreurs, que `CyclicDepError.Error()` formate le chemin
+- [x] Tâche 1 : Créer `core/errors.go` — erreurs sentinelles (AC: #4)
+  - [x] Déclarer `var ErrNotFound = errors.New("helix: not found")`
+  - [x] Déclarer `var ErrCyclicDep = errors.New("helix: cyclic dependency")`
+  - [x] Déclarer `var ErrUnresolvable = errors.New("helix: cannot resolve component")`
+  - [x] Déclarer le type erreur structuré `CyclicDepError` avec champ `Path []string` et méthode `Error() string`
+  - [x] Écrire `core/errors_test.go` — vérifier que les sentinelles sont des erreurs, que `CyclicDepError.Error()` formate le chemin
 
-- [ ] Tâche 2 : Créer `core/resolver.go` — interface Resolver + type DependencyGraph (AC: #2)
-  - [ ] Définir `type DependencyGraph struct` avec champs `Nodes []string` et `Edges map[string][]string`
-  - [ ] Définir l'interface `Resolver` avec `Register(component any) error`, `Resolve(target any) error`, `Graph() DependencyGraph`
-  - [ ] Écrire `core/resolver_test.go` — vérifier que `DependencyGraph{}` est zéro-valeur saine (pas de nil panic)
+- [x] Tâche 2 : Créer `core/resolver.go` — interface Resolver + type DependencyGraph (AC: #2)
+  - [x] Définir `type DependencyGraph struct` avec champs `Nodes []string` et `Edges map[string][]string`
+  - [x] Définir l'interface `Resolver` avec `Register(component any) error`, `Resolve(target any) error`, `Graph() DependencyGraph`
+  - [x] Écrire `core/resolver_test.go` — vérifier que `DependencyGraph{}` est zéro-valeur saine (pas de nil panic)
 
-- [ ] Tâche 3 : Créer `core/lifecycle.go` — interface Lifecycle (AC: #6)
-  - [ ] Définir `type Lifecycle interface { OnStart() error; OnStop() error }`
-  - [ ] Aucun test requis (interface pure — la conformité est vérifiée au compile-time par les implémenteurs)
+- [x] Tâche 3 : Créer `core/lifecycle.go` — interface Lifecycle (AC: #6)
+  - [x] Définir `type Lifecycle interface { OnStart() error; OnStop() error }`
+  - [x] Aucun test requis (interface pure — la conformité est vérifiée au compile-time par les implémenteurs)
 
-- [ ] Tâche 4 : Créer `core/options.go` — type Option + options fonctionnelles (AC: #3)
-  - [ ] Définir `type Option func(*Container)`
-  - [ ] Implémenter `WithResolver(r Resolver) Option` — injecte le resolver dans le container
-  - [ ] Écrire `core/options_test.go` — vérifier que `WithResolver` remplace bien le resolver du container
+- [x] Tâche 4 : Créer `core/options.go` — type Option + options fonctionnelles (AC: #3)
+  - [x] Définir `type Option func(*Container)`
+  - [x] Implémenter `WithResolver(r Resolver) Option` — injecte le resolver dans le container
+  - [x] Écrire `core/options_test.go` — vérifier que `WithResolver` remplace bien le resolver du container
 
-- [ ] Tâche 5 : Créer `core/container.go` — struct Container + méthodes + NewContainer (AC: #1, #3)
-  - [ ] Définir `type Container struct { resolver Resolver }` (champ non-exporté)
-  - [ ] Implémenter `Register(component any) error` — délègue à `c.resolver.Register(component)` ; retourne `ErrUnresolvable` si resolver nil
-  - [ ] Implémenter `Resolve(target any) error` — délègue à `c.resolver.Resolve(target)` ; retourne `ErrUnresolvable` si resolver nil
-  - [ ] Implémenter `NewContainer(opts ...Option) *Container` — crée un container vide, applique les options
-  - [ ] Écrire `core/container_test.go` avec table-driven tests :
+- [x] Tâche 5 : Créer `core/container.go` — struct Container + méthodes + NewContainer (AC: #1, #3)
+  - [x] Définir `type Container struct { resolver Resolver }` (champ non-exporté)
+  - [x] Implémenter `Register(component any) error` — délègue à `c.resolver.Register(component)` ; retourne `ErrUnresolvable` si resolver nil
+  - [x] Implémenter `Resolve(target any) error` — délègue à `c.resolver.Resolve(target)` ; retourne `ErrUnresolvable` si resolver nil
+  - [x] Implémenter `NewContainer(opts ...Option) *Container` — crée un container vide, applique les options
+  - [x] Écrire `core/container_test.go` avec table-driven tests :
     - `Register` avec resolver nil → `ErrUnresolvable`
     - `Resolve` avec resolver nil → `ErrUnresolvable`
     - `NewContainer()` crée un container non-nil
     - `NewContainer(WithResolver(r))` injecte le resolver
 
-- [ ] Tâche 6 : Créer `core/registry.go` — type ComponentRegistration (prépare Story 1.3)
-  - [ ] Définir `type Scope string` avec constantes `ScopeSingleton Scope = "singleton"` et `ScopePrototype Scope = "prototype"`
-  - [ ] Définir `type ComponentRegistration struct { Component any; Scope Scope; Lazy bool }`
-  - [ ] Aucun test requis (types de données purs — utilisés par ReflectResolver en Story 1.3)
+- [x] Tâche 6 : Créer `core/registry.go` — type ComponentRegistration (prépare Story 1.3)
+  - [x] Définir `type Scope string` avec constantes `ScopeSingleton Scope = "singleton"` et `ScopePrototype Scope = "prototype"`
+  - [x] Définir `type ComponentRegistration struct { Component any; Scope Scope; Lazy bool }`
+  - [x] Aucun test requis (types de données purs — utilisés par ReflectResolver en Story 1.3)
 
-- [ ] Tâche 7 : Valider les contraintes d'import et qualité (AC: #5, #7)
-  - [ ] Vérifier `go build ./core/...` sans erreur
-  - [ ] Vérifier `go test ./core/...` — tous les tests passent
-  - [ ] Confirmer manuellement qu'aucun `import "github.com/enokdev/helix/..."` n'apparaît dans `core/`
+- [x] Tâche 7 : Valider les contraintes d'import et qualité (AC: #5, #7)
+  - [x] Vérifier `go build ./core/...` sans erreur
+  - [x] Vérifier `go test ./core/...` — tous les tests passent
+  - [x] Confirmer manuellement qu'aucun `import "github.com/enokdev/helix/..."` n'apparaît dans `core/`
 
 ## Dev Notes
 
@@ -326,6 +326,33 @@ Claude Sonnet 4.6 (claude-sonnet-4-6)
 
 ### Debug Log References
 
+_Aucun blocage._
+
 ### Completion Notes List
 
+- 6 fichiers créés dans `core/` : `errors.go`, `resolver.go`, `lifecycle.go`, `options.go`, `container.go`, `registry.go`
+- 4 fichiers de test créés : `errors_test.go`, `resolver_test.go`, `options_test.go`, `container_test.go`
+- `Container` implémenté comme struct avec délégation au `Resolver` via le pattern functional options
+- `CyclicDepError` implémente `Unwrap()` pour compatibilité `errors.Is(err, ErrCyclicDep)`
+- `core/` vérifié : zéro import vers d'autres packages Helix
+- `go build ./...` ✅ — `go test ./...` ✅ (core: ok, zéro régression)
+- `stubResolver` défini dans `options_test.go` (package `core`) — réutilisé dans `container_test.go` grâce à la co-location des tests
+
 ### File List
+
+- `core/errors.go`
+- `core/errors_test.go`
+- `core/resolver.go`
+- `core/resolver_test.go`
+- `core/lifecycle.go`
+- `core/options.go`
+- `core/options_test.go`
+- `core/container.go`
+- `core/container_test.go`
+- `core/registry.go`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (statut mis à jour)
+- `_bmad-output/implementation-artifacts/1-2-interfaces-publiques-du-conteneur-di.md` (story file)
+
+### Change Log
+
+- 2026-04-14 : Implémentation des interfaces publiques du conteneur DI : Container, Resolver, Lifecycle, Option, Scope, ComponentRegistration, erreurs sentinelles + tests unitaires table-driven.
