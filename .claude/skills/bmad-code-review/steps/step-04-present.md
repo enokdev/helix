@@ -107,6 +107,22 @@ If `{sprint_status}` file exists:
 
 If `{sprint_status}` file does not exist, note that story status was updated in the story file only.
 
+#### Close GitHub issue when done
+
+If `{new_status}` = `done` AND `{story_key}` is set:
+
+1. Extract the story number from `{story_key}` (e.g., `1-3-reflectresolver-...` → epic `1`, story `3`).
+2. Search for the corresponding GitHub issue:
+   ```bash
+   gh issue list --repo enokdev/helix --search "Story 1.3" --json number,title --limit 5
+   ```
+3. If a matching issue is found, close it with a comment:
+   ```bash
+   gh issue close <number> --repo enokdev/helix --comment "Story implémentée et validée. ✅"
+   ```
+   Closing the issue automatically updates the linked task in the GitHub Project `https://github.com/orgs/enokdev/projects/1`.
+4. If no matching issue is found, warn the user but do not block.
+
 #### Completion summary
 
 > **Review Complete!**

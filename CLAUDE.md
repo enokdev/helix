@@ -82,3 +82,42 @@ go test ./core/...   # run tests for a specific package
 - **Phase 2**: Repository pattern, auto-configuration, lifecycle management
 - **Phase 3**: Observability, security module, CLI tool
 - **Phase 4**: Cloud/microservices modules (Consul service discovery, circuit breaker), plugin system
+
+## Commit Message Format
+
+**ALWAYS** use conventional commits format. **NEVER** add a `Co-Authored-By` line or any other trailer.
+
+Format: `<type>(<scope>): <description>`
+
+Examples:
+```
+feat(core): implémenter le conteneur DI avec ReflectResolver
+fix(web): corriger le routing par convention pour les méthodes DELETE
+test(data): ajouter les tests d'intégration pour GormRepository
+refactor(config): extraire la logique de priorité ENV > YAML > DEFAULT
+```
+
+Types: `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `perf`
+Scopes: `core`, `web`, `data`, `config`, `starter`, `observability`, `scheduler`, `cli`
+
+## GitHub Project Integration
+
+**Repository:** `enokdev/helix` — **Project:** `https://github.com/orgs/enokdev/projects/1`
+
+### When a story reaches `done` status
+
+When a story is marked `done` (either during code-review or manually), **always** execute the following:
+
+1. Find the corresponding GitHub issue by searching for the story number:
+   ```bash
+   gh issue list --repo enokdev/helix --search "Story <N>.<M>" --json number,title
+   ```
+2. Close the issue (this automatically closes the linked project task):
+   ```bash
+   gh issue close <number> --repo enokdev/helix --comment "Story implémentée et validée. ✅"
+   ```
+
+### Story → Issue mapping convention
+
+GitHub issues were created with titles following the pattern: `Story N.M — <titre>`.  
+Example: story key `1-3-reflectresolver-...` → search `"Story 1.3"` to find the issue number.
