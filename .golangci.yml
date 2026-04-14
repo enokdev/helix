@@ -9,7 +9,7 @@ linters:
     - errcheck
     - gofumpt
     - revive
-    - unused
+    - deadcode
 
 linters-settings:
   gofumpt:

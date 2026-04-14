@@ -1,6 +1,6 @@
 # Story 1.1: Initialisation du Projet & Structure de Base
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -62,6 +62,18 @@ Afin d'avoir une base solide sur laquelle construire le framework.
   - [x] Créer `CONTRIBUTING.md`
   - [x] Créer `LICENSE` (MIT recommandé)
   - [x] Créer `.gitignore` (binaires Go, `.env`, `_bmad-output/`)
+
+### Review Findings
+
+- [x] [Review][Patch] Fichier `.goreleaser.yml` manquant — le job release plantera au premier push de tag `v*` [`.github/workflows/release.yml`]
+- [x] [Review][Patch] Linter `unused` déprécié dans golangci-lint v1.57+ et `version: latest` flottant — risque de rupture CI au prochain upgrade [`.golangci.yml`, `.github/workflows/ci.yml`]
+- [x] [Review][Patch] Trigger `pull_request` limité à `[main]` — les PRs vers `develop` ne déclenchent pas la CI [`.github/workflows/ci.yml`]
+- [x] [Review][Patch] `goreleaser-action@v6 version: latest` flottant vs Go 1.21 fixe — mismatch toolchain potentiel ; utiliser `go-version-file: go.mod` [`.github/workflows/release.yml`]
+- [x] [Review][Patch] Pattern `.gitignore` non-rooté `helix` ignore tout répertoire nommé `helix` dans l'arbre — remplacer par `/helix` uniquement [`.gitignore`]
+- [x] [Review][Defer] Repo `enokdev/helix` hardcodé dans skill BMad step-04-present.md — pré-existant, hors scope story [`.claude/skills/bmad-code-review/steps/step-04-present.md`] — deferred, pre-existing
+- [x] [Review][Defer] Conflit Co-Authored-By entre règle projet (CLAUDE.md) et politique plateforme Copilot — décision intentionnelle, documentée [`CLAUDE.md`] — deferred, pre-existing
+- [x] [Review][Defer] `data/gorm` package shadowing `gorm.io/gorm` — pertinent uniquement lors de l'implémentation (story 4.2) [`data/gorm/doc.go`] — deferred, pre-existing
+- [x] [Review][Defer] Linter `unused` peut générer des faux positifs sur packages scaffold vides — à surveiller dès ajout de code [`.golangci.yml`] — deferred, pre-existing
 
 ## Dev Notes
 
