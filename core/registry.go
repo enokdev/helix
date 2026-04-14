@@ -20,3 +20,13 @@ type ComponentRegistration struct {
 	// Lazy defers instantiation until the first Resolve call.
 	Lazy bool
 }
+
+// NewComponentRegistration creates a ComponentRegistration with safe defaults
+// (ScopeSingleton, Lazy = false). Use this instead of a struct literal to avoid
+// the zero-value trap where Scope would be "" instead of ScopeSingleton.
+func NewComponentRegistration(component any) ComponentRegistration {
+	return ComponentRegistration{
+		Component: component,
+		Scope:     ScopeSingleton,
+	}
+}

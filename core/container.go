@@ -10,8 +10,11 @@ type Container struct {
 }
 
 // Register adds a component to the container's resolver registry.
-// Returns ErrUnresolvable if no Resolver has been configured.
+// Returns ErrUnresolvable if no Resolver has been configured or component is nil.
 func (c *Container) Register(component any) error {
+	if component == nil {
+		return fmt.Errorf("core: register: %w", ErrUnresolvable)
+	}
 	if c.resolver == nil {
 		return fmt.Errorf("core: register %T: %w", component, ErrUnresolvable)
 	}
@@ -19,8 +22,11 @@ func (c *Container) Register(component any) error {
 }
 
 // Resolve populates target with the registered component matching its type.
-// Returns ErrUnresolvable if no Resolver has been configured.
+// Returns ErrUnresolvable if no Resolver has been configured or target is nil.
 func (c *Container) Resolve(target any) error {
+	if target == nil {
+		return fmt.Errorf("core: resolve: %w", ErrUnresolvable)
+	}
 	if c.resolver == nil {
 		return fmt.Errorf("core: resolve %T: %w", target, ErrUnresolvable)
 	}

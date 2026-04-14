@@ -1,6 +1,6 @@
 # Story 1.2: Interfaces Publiques du Conteneur DI
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -356,3 +356,12 @@ _Aucun blocage._
 ### Change Log
 
 - 2026-04-14 : Implémentation des interfaces publiques du conteneur DI : Container, Resolver, Lifecycle, Option, Scope, ComponentRegistration, erreurs sentinelles + tests unitaires table-driven.
+
+### Review Findings
+
+- [x] [Review][Decision] ComponentRegistration.Scope zero value est `""` et non `ScopeSingleton` — **Résolu** : ajout de `NewComponentRegistration()` dans `core/registry.go` + `core/registry_test.go`. [core/registry.go]
+- [x] [Review][Decision] `WithResolver(nil)` accepté silencieusement — **Résolu** : panic ajouté dans `WithResolver` + test `TestWithResolver_NilPanics`. [core/options.go]
+- [x] [Review][Decision] `Register(nil)` / `Resolve(nil)` transférés au resolver sans garde — **Résolu** : garde nil ajouté dans `Container.Register` et `Container.Resolve` + tests table-driven mis à jour. [core/container.go]
+- [x] [Review][Defer] `DependencyGraph.Edges` nil map — un consumer qui écrit dans la map retournée par `Graph()` sur une valeur zero panique ; aucune implémentation de `Graph()` n'existe encore (Story 1.3). [core/resolver.go] — deferred, pré-existant
+- [x] [Review][Defer] `CyclicDepError` avec `Path` nil ou vide — `Error()` retourne `"helix: cyclic dependency: "` (message tronqué) ; aucune code path ne crée `CyclicDepError` dans cette story. [core/errors.go] — deferred, pré-existant
+- [x] [Review][Defer] Absence de synchronisation sur `Container` — accès concurrent à `c.resolver` est une data race détectable par le race detector Go ; les exigences de concurrence ne sont pas encore définies. [core/container.go] — deferred, pré-existant

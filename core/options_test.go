@@ -17,6 +17,15 @@ func TestWithResolver(t *testing.T) {
 	}
 }
 
+func TestWithResolver_NilPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("WithResolver(nil) should panic")
+		}
+	}()
+	WithResolver(nil)
+}
+
 func TestNewContainer_NoOptions(t *testing.T) {
 	c := NewContainer()
 	if c == nil {

@@ -47,7 +47,7 @@ development_status:
   # ─────────────────────────────────────────────
   epic-1: in-progress
   1-1-initialisation-du-projet-structure-de-base: done
-  1-2-interfaces-publiques-du-conteneur-di: review
+  1-2-interfaces-publiques-du-conteneur-di: done
   1-3-reflectresolver-enregistrement-resolution-singleton: backlog
   1-4-detection-des-cycles-de-dependances: backlog
   1-5-scope-prototype-lazy-loading: backlog

@@ -19,6 +19,12 @@ func TestContainer_Register(t *testing.T) {
 			wantErr:   ErrUnresolvable,
 		},
 		{
+			name:      "nil component returns ErrUnresolvable",
+			resolver:  &stubResolver{},
+			component: nil,
+			wantErr:   ErrUnresolvable,
+		},
+		{
 			name:      "with resolver delegates to resolver",
 			resolver:  &stubResolver{},
 			component: &struct{}{},
@@ -47,6 +53,12 @@ func TestContainer_Resolve(t *testing.T) {
 			name:    "nil resolver returns ErrUnresolvable",
 			resolver: nil,
 			target:  &struct{}{},
+			wantErr: ErrUnresolvable,
+		},
+		{
+			name:    "nil target returns ErrUnresolvable",
+			resolver: &stubResolver{},
+			target:  nil,
 			wantErr: ErrUnresolvable,
 		},
 		{
