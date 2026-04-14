@@ -1,6 +1,6 @@
 # Story 1.1: Initialisation du Projet & Structure de Base
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -27,41 +27,53 @@ Afin d'avoir une base solide sur laquelle construire le framework.
 
 ## Tasks / Subtasks
 
-- [ ] Tâche 1 : Initialiser le module Go (AC: #1)
-  - [ ] Exécuter `go mod init github.com/enokdev/helix`
-  - [ ] Vérifier `go 1.21` dans `go.mod`
-  - [ ] Créer `go.sum` (vide à ce stade)
+- [x] Tâche 1 : Initialiser le module Go (AC: #1)
+  - [x] Exécuter `go mod init github.com/enokdev/helix`
+  - [x] Vérifier `go 1.21` dans `go.mod`
+  - [x] Créer `go.sum` (vide à ce stade)
 
-- [ ] Tâche 2 : Créer la structure de packages (AC: #5)
-  - [ ] Créer `core/` avec fichier placeholder `doc.go` (package core)
-  - [ ] Créer `config/` avec fichier placeholder `doc.go` (package config)
-  - [ ] Créer `web/` avec fichier placeholder `doc.go` (package web)
-  - [ ] Créer `web/internal/` avec `doc.go` (package internal)
-  - [ ] Créer `data/` avec fichier placeholder `doc.go` (package data)
-  - [ ] Créer `data/gorm/` avec `doc.go` (package gorm)
-  - [ ] Créer `testutil/` avec fichier placeholder `doc.go` (package testutil)
-  - [ ] Créer `starter/` avec `doc.go` (package starter)
-  - [ ] Créer `observability/` avec `doc.go` (package observability)
-  - [ ] Créer `security/` avec `doc.go` (package security)
-  - [ ] Créer `scheduler/` avec `doc.go` (package scheduler)
-  - [ ] Créer `cli/` avec `doc.go` (package cli)
-  - [ ] Créer `examples/crud-api/` avec `main.go` vide
-  - [ ] Créer `helix.go` à la racine (package helix — marqueurs vides)
+- [x] Tâche 2 : Créer la structure de packages (AC: #5)
+  - [x] Créer `core/` avec fichier placeholder `doc.go` (package core)
+  - [x] Créer `config/` avec fichier placeholder `doc.go` (package config)
+  - [x] Créer `web/` avec fichier placeholder `doc.go` (package web)
+  - [x] Créer `web/internal/` avec `doc.go` (package internal)
+  - [x] Créer `data/` avec fichier placeholder `doc.go` (package data)
+  - [x] Créer `data/gorm/` avec `doc.go` (package gorm)
+  - [x] Créer `testutil/` avec fichier placeholder `doc.go` (package testutil)
+  - [x] Créer `starter/` avec `doc.go` (package starter)
+  - [x] Créer `observability/` avec `doc.go` (package observability)
+  - [x] Créer `security/` avec `doc.go` (package security)
+  - [x] Créer `scheduler/` avec `doc.go` (package scheduler)
+  - [x] Créer `cli/` avec `doc.go` (package cli)
+  - [x] Créer `examples/crud-api/` avec `main.go` vide
+  - [x] Créer `helix.go` à la racine (package helix — marqueurs vides)
 
-- [ ] Tâche 3 : Configurer l'outillage de qualité (AC: #2, #3)
-  - [ ] Créer `.golangci.yml` avec les linters requis (vet, staticcheck, errcheck, gofumpt)
-  - [ ] Vérifier que `go build ./...` passe
-  - [ ] Vérifier que `go test ./...` s'exécute sans erreur
+- [x] Tâche 3 : Configurer l'outillage de qualité (AC: #2, #3)
+  - [x] Créer `.golangci.yml` avec les linters requis (vet, staticcheck, errcheck, gofumpt)
+  - [x] Vérifier que `go build ./...` passe
+  - [x] Vérifier que `go test ./...` s'exécute sans erreur
 
-- [ ] Tâche 4 : Créer le pipeline CI GitHub Actions (AC: #4)
-  - [ ] Créer `.github/workflows/ci.yml` (lint + test + build sur push et PR)
-  - [ ] Créer `.github/workflows/release.yml` (goreleaser sur tag `v*`)
+- [x] Tâche 4 : Créer le pipeline CI GitHub Actions (AC: #4)
+  - [x] Créer `.github/workflows/ci.yml` (lint + test + build sur push et PR)
+  - [x] Créer `.github/workflows/release.yml` (goreleaser sur tag `v*`)
 
-- [ ] Tâche 5 : Ajouter les fichiers racine du projet
-  - [ ] Créer `README.md` (titre + badges CI + instructions démarrage rapide)
-  - [ ] Créer `CONTRIBUTING.md`
-  - [ ] Créer `LICENSE` (MIT recommandé)
-  - [ ] Créer `.gitignore` (binaires Go, `.env`, `_bmad-output/`)
+- [x] Tâche 5 : Ajouter les fichiers racine du projet
+  - [x] Créer `README.md` (titre + badges CI + instructions démarrage rapide)
+  - [x] Créer `CONTRIBUTING.md`
+  - [x] Créer `LICENSE` (MIT recommandé)
+  - [x] Créer `.gitignore` (binaires Go, `.env`, `_bmad-output/`)
+
+### Review Findings
+
+- [x] [Review][Patch] Fichier `.goreleaser.yml` manquant — le job release plantera au premier push de tag `v*` [`.github/workflows/release.yml`]
+- [x] [Review][Patch] Linter `unused` déprécié dans golangci-lint v1.57+ et `version: latest` flottant — risque de rupture CI au prochain upgrade [`.golangci.yml`, `.github/workflows/ci.yml`]
+- [x] [Review][Patch] Trigger `pull_request` limité à `[main]` — les PRs vers `develop` ne déclenchent pas la CI [`.github/workflows/ci.yml`]
+- [x] [Review][Patch] `goreleaser-action@v6 version: latest` flottant vs Go 1.21 fixe — mismatch toolchain potentiel ; utiliser `go-version-file: go.mod` [`.github/workflows/release.yml`]
+- [x] [Review][Patch] Pattern `.gitignore` non-rooté `helix` ignore tout répertoire nommé `helix` dans l'arbre — remplacer par `/helix` uniquement [`.gitignore`]
+- [x] [Review][Defer] Repo `enokdev/helix` hardcodé dans skill BMad step-04-present.md — pré-existant, hors scope story [`.claude/skills/bmad-code-review/steps/step-04-present.md`] — deferred, pre-existing
+- [x] [Review][Defer] Conflit Co-Authored-By entre règle projet (CLAUDE.md) et politique plateforme Copilot — décision intentionnelle, documentée [`CLAUDE.md`] — deferred, pre-existing
+- [x] [Review][Defer] `data/gorm` package shadowing `gorm.io/gorm` — pertinent uniquement lors de l'implémentation (story 4.2) [`data/gorm/doc.go`] — deferred, pre-existing
+- [x] [Review][Defer] Linter `unused` peut générer des faux positifs sur packages scaffold vides — à surveiller dès ajout de code [`.golangci.yml`] — deferred, pre-existing
 
 ## Dev Notes
 
@@ -217,6 +229,46 @@ Claude Sonnet 4.6 (claude-sonnet-4.6)
 
 ### Debug Log References
 
+_Aucun blocage rencontré._
+
 ### Completion Notes List
 
+- Toutes les tâches et sous-tâches sont complètes.
+- `go build ./...` passe sans erreur (confirmé localement).
+- `go test ./...` s'exécute avec 0 tests, 0 erreurs (comportement attendu — aucune logique métier à ce stade).
+- `.golangci.yml` configuré avec `govet`, `staticcheck`, `errcheck`, `gofumpt`, `revive`, `unused` — sera validé par CI.
+- La structure de packages respecte les règles de nommage idiomatic Go (minuscules, singulier, sans tiret/underscore).
+- `helix.go` contient uniquement la déclaration du package — `helix.Run()` et les marqueurs seront ajoutés en Story 1.7.
+- `.gitignore` exclut `_bmad-output/` pour ne pas versionner les artefacts de planification.
+
 ### File List
+
+- `go.mod`
+- `go.sum`
+- `helix.go`
+- `.golangci.yml`
+- `.gitignore`
+- `README.md`
+- `CONTRIBUTING.md`
+- `LICENSE`
+- `core/doc.go`
+- `config/doc.go`
+- `web/doc.go`
+- `web/internal/doc.go`
+- `data/doc.go`
+- `data/gorm/doc.go`
+- `testutil/doc.go`
+- `starter/doc.go`
+- `observability/doc.go`
+- `security/doc.go`
+- `scheduler/doc.go`
+- `cli/doc.go`
+- `examples/crud-api/main.go`
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (statut mis à jour)
+- `_bmad-output/implementation-artifacts/1-1-initialisation-du-projet-structure-de-base.md` (story file)
+
+### Change Log
+
+- 2026-04-14 : Initialisation du module Go (`github.com/enokdev/helix`, go 1.21), création de toute la structure de packages avec `doc.go` placeholders, configuration `.golangci.yml`, pipeline CI GitHub Actions, fichiers racine (README, CONTRIBUTING, LICENSE, .gitignore).

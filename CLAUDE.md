@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Helix** is a Go backend framework inspired by Spring Boot, built on top of [Fiber](https://gofiber.io/). It aims to provide idiomatic Go equivalents of Spring Boot concepts: DI/IoC, auto-configuration, a repository pattern, observability endpoints, and a CLI tool. The project is currently in its **pre-code / planning phase** — only a PRD (`prd.md`) exists so far.
+**Helix** is a Go backend framework inspired by Spring Boot, built on top of [Fiber](https://gofiber.io/). It provides idiomatic Go equivalents of Spring Boot concepts: DI/IoC, auto-configuration, a repository pattern, observability endpoints, and a CLI tool.
 
-## Planned Architecture
+## Package Layout
 
 ```
 helix/
- ├── core/           # DI container, lifecycle management, config
+ ├── core/           # DI container, lifecycle management
  ├── web/            # Fiber HTTP integration, routing, middleware
  ├── data/           # Repository pattern, ORM adapters (GORM/Ent/sqlc)
  ├── config/         # YAML/JSON/TOML/ENV loader (priority: ENV > YAML > DEFAULT)
@@ -26,7 +26,7 @@ helix/
 - **Idiomatic Go**: no magic, no global state, explicit dependency wiring
 - **Performance targets**: startup < 100ms, low API latency
 
-## Key Interfaces to Implement
+## Key Interfaces
 
 **DI Container**
 ```go
@@ -37,25 +37,25 @@ container.Resolve(&UserService{})
 
 **Repository generic interface**
 ```go
-type Repository[T any] interface {
+type Repository[T any, ID any] interface {
     FindAll() ([]T, error)
-    FindByID(id int) (*T, error)
+    FindByID(id ID) (*T, error)
     Save(entity *T) error
-    Delete(id int) error
+    Delete(id ID) error
 }
 ```
 
 **Lifecycle hooks**
 ```go
 type Lifecycle interface {
-    OnStart()
-    OnStop()
+    OnStart() error
+    OnStop() error
 }
 ```
 
-**Observability endpoints**: `/health`, `/metrics` (Prometheus), `/info`
+**Observability endpoints**: `/actuator/health`, `/actuator/metrics`, `/actuator/info`
 
-## Planned Starters
+## Starters
 
 | Starter       | Responsibility              |
 |---------------|-----------------------------|
@@ -65,23 +65,15 @@ type Lifecycle interface {
 | config        | YAML config loader          |
 | observability | Prometheus + slog           |
 
-## Development Setup (once code exists)
-
-This will be a standard Go module project. Expected commands once initialized:
+## Development Commands
 
 ```bash
-go mod tidy          # install dependencies
+go mod tidy          # sync dependencies
 go build ./...       # build all packages
 go test ./...        # run all tests
 go test ./core/...   # run tests for a specific package
+golangci-lint run    # lint (must pass before commit)
 ```
-
-## Roadmap Phases
-
-- **Phase 1 (MVP)**: DI container, YAML config loader, Fiber HTTP integration
-- **Phase 2**: Repository pattern, auto-configuration, lifecycle management
-- **Phase 3**: Observability, security module, CLI tool
-- **Phase 4**: Cloud/microservices modules (Consul service discovery, circuit breaker), plugin system
 
 ## Commit Message Format
 
@@ -91,10 +83,10 @@ Format: `<type>(<scope>): <description>`
 
 Examples:
 ```
-feat(core): implémenter le conteneur DI avec ReflectResolver
-fix(web): corriger le routing par convention pour les méthodes DELETE
-test(data): ajouter les tests d'intégration pour GormRepository
-refactor(config): extraire la logique de priorité ENV > YAML > DEFAULT
+feat(core): implement ReflectResolver with singleton scope
+fix(web): correct convention routing for DELETE methods
+test(data): add integration tests for GormRepository
+refactor(config): extract ENV > YAML > DEFAULT priority logic
 ```
 
 Types: `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `perf`
@@ -104,20 +96,15 @@ Scopes: `core`, `web`, `data`, `config`, `starter`, `observability`, `scheduler`
 
 **Repository:** `enokdev/helix` — **Project:** `https://github.com/orgs/enokdev/projects/1`
 
-### When a story reaches `done` status
+### Closing completed work items
 
-When a story is marked `done` (either during code-review or manually), **always** execute the following:
+When a work item is marked `done` in the internal tracking system, close the corresponding GitHub issue:
 
-1. Find the corresponding GitHub issue by searching for the story number:
+1. Find the issue by searching for the feature number:
    ```bash
    gh issue list --repo enokdev/helix --search "Story <N>.<M>" --json number,title
    ```
-2. Close the issue (this automatically closes the linked project task):
+2. Close it:
    ```bash
-   gh issue close <number> --repo enokdev/helix --comment "Story implémentée et validée. ✅"
+   gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
    ```
-
-### Story → Issue mapping convention
-
-GitHub issues were created with titles following the pattern: `Story N.M — <titre>`.  
-Example: story key `1-3-reflectresolver-...` → search `"Story 1.3"` to find the issue number.

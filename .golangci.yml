@@ -1,0 +1,16 @@
+run:
+  go: "1.21"
+  timeout: 5m
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - gofumpt
+    - revive
+    - deadcode
+
+linters-settings:
+  gofumpt:
+    extra-rules: true

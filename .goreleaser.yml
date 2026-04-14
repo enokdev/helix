@@ -1,0 +1,21 @@
+version: 2
+
+project_name: helix
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - skip: true # helix is a library; no binary to ship
+
+release:
+  draft: true
+  name_template: "v{{ .Version }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
