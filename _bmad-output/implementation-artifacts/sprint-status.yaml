@@ -1,0 +1,146 @@
+# generated: 2026-04-14
+# last_updated: 2026-04-14
+# project: helix
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-04-14
+last_updated: 2026-04-14
+project: helix
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+
+  # ─────────────────────────────────────────────
+  # Epic 1: Application Bootstrap & DI Container
+  # ─────────────────────────────────────────────
+  epic-1: backlog
+  1-1-initialisation-du-projet-structure-de-base: backlog
+  1-2-interfaces-publiques-du-conteneur-di: backlog
+  1-3-reflectresolver-enregistrement-resolution-singleton: backlog
+  1-4-detection-des-cycles-de-dependances: backlog
+  1-5-scope-prototype-lazy-loading: backlog
+  1-6-hooks-de-cycle-de-vie-graceful-shutdown: backlog
+  1-7-point-dentree-helix-run-marqueurs-de-composants: backlog
+  epic-1-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 2: Configuration Centralisée
+  # ─────────────────────────────────────────────
+  epic-2: backlog
+  2-1-loader-yaml-chaine-de-priorite: backlog
+  2-2-profils-de-configuration: backlog
+  2-3-rechargement-dynamique-de-la-configuration: backlog
+  epic-2-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 3: Couche HTTP Déclarative
+  # ─────────────────────────────────────────────
+  epic-3: backlog
+  3-1-abstraction-http-adaptateur-fiber: backlog
+  3-2-routing-par-convention-de-nommage: backlog
+  3-3-routes-custom-via-directives: backlog
+  3-4-extracteurs-types-validation-automatique: backlog
+  3-5-mapping-automatique-retour-http-status: backlog
+  3-6-error-handler-centralise: backlog
+  3-7-guards-interceptors-declaratifs: backlog
+  epic-3-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 4: Data Layer & Repository Pattern
+  # ─────────────────────────────────────────────
+  epic-4: backlog
+  4-1-interface-repository-generique: backlog
+  4-2-adaptateur-gorm-implementation-repository: backlog
+  4-3-generation-automatique-de-requetes-query-auto: backlog
+  4-4-transactions-declaratives-helix-transactional: backlog
+  epic-4-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 5: Infrastructure de Test
+  # ─────────────────────────────────────────────
+  epic-5: backlog
+  5-1-helix-newtestapp-container-de-test: backlog
+  5-2-helix-mockbean-remplacement-automatique-par-mock: backlog
+  epic-5-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 6: Observabilité
+  # ─────────────────────────────────────────────
+  epic-6: backlog
+  6-1-endpoints-actuator-health-info: backlog
+  6-2-metriques-prometheus-actuator-metrics: backlog
+  6-3-logging-structure-avec-slog: backlog
+  6-4-tracing-opentelemetry-opt-in: backlog
+  epic-6-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 7: Auto-Configuration & Starters
+  # ─────────────────────────────────────────────
+  epic-7: backlog
+  7-1-interface-starter-mecanisme-de-condition: backlog
+  7-2-starter-web-auto-activation-fiber: backlog
+  7-3-starter-data-auto-activation-db: backlog
+  7-4-starters-observability-security-scheduling: backlog
+  epic-7-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 8: Sécurité
+  # ─────────────────────────────────────────────
+  epic-8: backlog
+  8-1-jwt-generation-validation-refresh: backlog
+  8-2-rbac-guards-de-roles-declaratifs: backlog
+  8-3-helix-securityconfigurer-regles-globales: backlog
+  epic-8-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 9: Scheduling
+  # ─────────────────────────────────────────────
+  epic-9: backlog
+  9-1-scheduler-interface-adaptateur-robfig-cron: backlog
+  9-2-taches-planifiees-declaratives-helix-scheduled: backlog
+  epic-9-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 10: CLI & Génération de Code
+  # ─────────────────────────────────────────────
+  epic-10: backlog
+  10-1-moteur-de-generation-de-code-scanner-ast: backlog
+  10-2-di-codegen-compile-time-helix-generate-wire: backlog
+  10-3-scaffold-projet-modules-helix-new-generate-module: backlog
+  10-4-contextes-de-domaine-ddd-light-helix-generate-context: backlog
+  10-5-migrations-db-cli-helix-db-migrate: backlog
+  10-6-helix-run-helix-build: backlog
+  epic-10-retrospective: optional
