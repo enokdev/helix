@@ -2,17 +2,14 @@
 
 ## Project State
 
-Helix is in **pre-code / planning phase**. No Go source files exist yet. The PRD (`prd.md`) and all planning artifacts in `_bmad-output/` are written in **French**.
-
-The next implementation step is Story 1.1 (project scaffold): `_bmad-output/implementation-artifacts/1-1-initialisation-du-projet-structure-de-base.md`
+Helix is an **active Go backend framework** under development. The module is initialized, the package structure is in place, and the `core/` DI container interfaces are implemented. Planning documents are written in **French** and live in `_bmad-output/`.
 
 ## Source of Truth
 
-- **PRD**: `prd.md` (French) — product requirements
 - **Architecture**: `_bmad-output/planning-artifacts/architecture.md` — all technical decisions
-- **Epics & Stories**: `_bmad-output/planning-artifacts/epics.md` — full backlog
-- **Sprint Status**: `_bmad-output/implementation-artifacts/sprint-status.yaml` — current progress
-- **Story Specs**: `_bmad-output/implementation-artifacts/*.md` — detailed story files with acceptance criteria
+- **Feature Specifications**: `_bmad-output/planning-artifacts/epics.md` — full requirements breakdown
+- **Development Progress**: `_bmad-output/implementation-artifacts/sprint-status.yaml` — current status
+- **Implementation Specs**: `_bmad-output/implementation-artifacts/*.md` — detailed specs with acceptance criteria
 
 When architecture docs conflict with `prd.md`, the architecture doc takes precedence (it was derived from the PRD and refined).
 
@@ -20,9 +17,9 @@ When architecture docs conflict with `prd.md`, the architecture doc takes preced
 
 - Module: `github.com/enokdev/helix`
 - Minimum Go: **1.21** (required for `slog` and stable generics)
-- Linting: `golangci-lint` with vet, staticcheck, errcheck, gofumpt
+- Linting: `golangci-lint` with vet, staticcheck, errcheck, gofumpt, deadcode, revive
 - Formatting: `gofumpt` (not just `gofmt`)
-- Testing: `go test ./...` + `testify/assert` + `testify/mock`
+- Testing: `go test ./...` stdlib + `testify/assert` + `testify/mock`
 - CI: GitHub Actions — lint, test, build on push/PR; goreleaser on `v*` tags
 
 ## Commands
@@ -41,6 +38,7 @@ Strict import hierarchy — violations will cause circular dependencies:
 - `core/` — **zero imports** of other Helix packages
 - `config/` — **zero imports** of other Helix packages
 - `web/internal/` — only place allowed to import `gofiber/fiber`
+- `data/gorm/` — only place allowed to import `gorm.io/gorm`
 - Public interfaces go in package root files (e.g. `core/container.go`)
 - Private implementations go in `internal/` subdirectories
 
@@ -49,8 +47,8 @@ Package naming: lowercase, singular, no underscores or dashes (`core`, `config`,
 ## DI Architecture
 
 Two mutually exclusive resolver modes behind a shared `Resolver` interface:
-- **ReflectResolver** (default) — runtime reflection, used for development
-- **WireResolver** (opt-in) — compile-time codegen, used for production
+- **ReflectResolver** (default) — runtime reflection, zero configuration required
+- **WireResolver** (opt-in) — compile-time code generation, zero reflection in production
 
 A module uses one mode, never both. The `Container` delegates to whichever `Resolver` is configured.
 
@@ -61,11 +59,16 @@ A module uses one mode, never both. The `Container` delegates to whichever `Reso
 - Component discovery via struct embeds: `helix.Service`, `helix.Controller`, `helix.Repository`, `helix.Component`
 - Code generation directives: `//helix:route`, `//helix:transactional`, `//helix:scheduled`, `//helix:guard`
 - Config priority: `ENV > YAML profile > application.yaml > DEFAULT`
-- Observability endpoints under `/actuator/` (not root): `/actuator/health`, `/actuator/metrics`, `/actuator/info`
+- Observability endpoints under `/actuator/`: `/actuator/health`, `/actuator/metrics`, `/actuator/info`
 
-## BMad Methodology
+## Code Quality Rules
 
-This repo uses BMad for planning. Skills are installed in `.opencode/skills/`, `.agent/skills/`, `.github/skills/`, `.gemini/skills/`, `.agents/skills/`, and `.claude/skills/`. Planning output lives in `_bmad-output/`. Do not modify BMad skill files — they are tooling, not project code.
+- **No planning terminology in code or docs**: do not reference internal tracking IDs, sprint names, or milestone numbers in Go source files, godoc comments, README, or CONTRIBUTING. Those belong in `_bmad-output/` only.
+- Tests must be co-located (`*_test.go` in the same package, never in a `test/` subfolder)
+- Table-driven tests required when testing multiple cases
+- Error wrapping: `fmt.Errorf("package: action: %w", err)`
+- No `panic()` in framework code (only at init-time with an explicit message)
+- No `interface{}` — use generics (Go 1.21+)
 
 ## Performance Targets
 

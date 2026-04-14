@@ -11,7 +11,7 @@ const (
 )
 
 // ComponentRegistration holds the metadata for a registered component.
-// It is used internally by Resolver implementations (Story 1.3+).
+// It is used internally by Resolver implementations.
 type ComponentRegistration struct {
 	// Component is the registered value (pointer to struct).
 	Component any

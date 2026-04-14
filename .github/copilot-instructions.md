@@ -1,14 +1,10 @@
 # Helix — Copilot Instructions
 
-## Project Status
-
-Helix is currently in the **pre-code / planning phase**. Only `prd.md` (the product requirements document, written in French) exists as source of truth. No Go source files exist yet. All architecture described below is planned, not yet implemented.
-
 ## What Helix Is
 
 A Go backend framework inspired by Spring Boot, built on [Fiber](https://gofiber.io/). It brings DI/IoC, auto-configuration, a repository pattern, observability endpoints, and a CLI to idiomatic Go — without sacrificing Go's performance or explicitness.
 
-## Planned Package Layout
+## Package Layout
 
 ```
 helix/
@@ -23,13 +19,13 @@ helix/
 
 ## Core Design Principles
 
-- **Struct tags over annotations** — use `inject:"true"` tags for DI, `mapstructure:"key"` for config mapping
-- **Compile-time over runtime** — code generation (Wire-like) is the default DI mode; reflection is opt-in and the two modes are **mutually exclusive per module**
+- **Struct tags over annotations** — use `inject:"true"` for DI, `mapstructure:"key"` for config mapping
+- **Compile-time over runtime** — code generation (Wire-like) is the opt-in production DI mode; reflection is the default development mode; the two modes are **mutually exclusive per module**
 - **No global state** — explicit dependency wiring throughout
-- **Config resolution order**: `ENV > YAML > DEFAULT`
-- **Starter activation**: a starter is active only if its dependency is present in `go.mod` AND its minimum config key is provided
+- **Config resolution order**: `ENV > YAML profile > application.yaml > DEFAULT`
+- **Starter activation**: a starter activates only if its dependency is present in `go.mod` AND its minimum config key is provided
 
-## Key Interfaces (as specified in the PRD)
+## Key Interfaces
 
 ```go
 // DI container
@@ -60,7 +56,7 @@ type ConfigReloadable interface {
 }
 ```
 
-## Go Commands (once code exists)
+## Go Commands
 
 ```bash
 go mod tidy          # install/sync dependencies
@@ -75,23 +71,30 @@ Minimum Go version: **1.21** (required for `slog`).
 
 ## Observability Endpoints
 
-Every Helix application exposes:
-- `GET /health` — app + dependency health
-- `GET /metrics` — Prometheus metrics
-- `GET /info` — version, build info, active config
+Every Helix application exposes under `/actuator/`:
+- `GET /actuator/health` — app + dependency health
+- `GET /actuator/metrics` — Prometheus metrics
+- `GET /actuator/info` — version, build info, active config
 
-## Roadmap Phases
+## Development Milestones
 
-| Phase | Gate condition |
-|-------|---------------|
-| 1 — MVP | CRUD API running with DI, YAML config, Fiber |
-| 2 — Structure | Project maintainable/extensible without touching `core/` |
-| 3 — Production | Full observability, security (JWT/RBAC), CLI |
-| 4 — Ecosystem | Cloud modules (Consul, circuit breaker), Ent/sqlc, plugins |
+| Milestone | Scope |
+|-----------|-------|
+| MVP | DI container, YAML config, Fiber HTTP — full CRUD API in < 30 min |
+| Stable | Repository pattern, auto-configuration, lifecycle management |
+| Production-ready | Observability, security (JWT/RBAC), CLI tooling |
+| Ecosystem | Cloud modules (Consul, circuit breaker), Ent/sqlc adapters, plugin system |
 
-## Out of Scope
+## Import Rules
 
-- gRPC / WebSocket (Phase 1–2)
-- Frontend / SSR
-- Custom ORM — Helix wraps GORM, Ent, or sqlc
-- Multi-language support
+- `core/` and `config/` — **zero imports** of other Helix packages
+- `web/internal/` — only package allowed to import `gofiber/fiber`
+- `data/gorm/` — only package allowed to import `gorm.io/gorm`
+
+## What Not to Do
+
+- Do not reference internal tracking IDs, sprint names, or milestone numbers in Go source files or godoc comments
+- Do not use `interface{}` — use generics
+- Do not `panic()` in framework code (only at init-time with an explicit message)
+- Do not import `gofiber/fiber` outside `web/internal/`
+- Do not store `context.Context` in structs — always pass as parameter
