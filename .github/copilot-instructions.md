@@ -98,3 +98,6 @@ Every Helix application exposes under `/actuator/`:
 - Do not `panic()` in framework code (only at init-time with an explicit message)
 - Do not import `gofiber/fiber` outside `web/internal/`
 - Do not store `context.Context` in structs — always pass as parameter
+
+# git commit message guidelines
+- not Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" in commit messages
