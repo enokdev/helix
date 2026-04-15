@@ -5,9 +5,9 @@ import "testing"
 // stubResolver is a minimal Resolver used only in option tests.
 type stubResolver struct{}
 
-func (s *stubResolver) Register(_ any) error    { return nil }
-func (s *stubResolver) Resolve(_ any) error     { return nil }
-func (s *stubResolver) Graph() DependencyGraph  { return DependencyGraph{} }
+func (s *stubResolver) Register(_ any) error   { return nil }
+func (s *stubResolver) Resolve(_ any) error    { return nil }
+func (s *stubResolver) Graph() DependencyGraph { return DependencyGraph{} }
 
 func TestWithResolver(t *testing.T) {
 	r := &stubResolver{}
