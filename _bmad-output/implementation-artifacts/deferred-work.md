@@ -28,3 +28,8 @@
 - `DependencyGraph.Edges` nil map — un consumer qui écrit dans la map retournée par `Graph()` panique ; surfacera lors de l'implémentation de `Graph()` en Story 1.3. [core/resolver.go]
 - `CyclicDepError` avec `Path` nil ou vide — `Error()` retourne un message tronqué `"helix: cyclic dependency: "` ; à corriger quand `CyclicDepError` sera effectivement émise (Story 1.4+). [core/errors.go]
 - Absence de synchronisation sur `Container` — data race potentielle sur `c.resolver` en accès concurrent ; à traiter quand les exigences de concurrence seront définies. [core/container.go]
+
+## Deferred from: code review of 1-6-hooks-de-cycle-de-vie-graceful-shutdown (2026-04-15)
+
+- [Df1] Goroutine leak sur timeout `OnStop()` — goroutine abandonnée quand le timer expire, sans signal d'annulation. Limitation inhérente à `OnStop() error` (pas de `context.Context`), explicitement reconnue dans les Dev Notes 1.6. À traiter si l'interface `Lifecycle` est étendue avec `context.Context` dans une story future. [core/lifecycle_manager.go:157]
+- [Df2] Commentaire godoc de `lifecycle.go` mentionne SIGTERM/SIGINT alors que ce n'est pas encore câblé — sera exact après story 1.7. [core/lifecycle.go]

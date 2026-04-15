@@ -7,9 +7,10 @@ import (
 
 // Sentinel errors returned by the Helix DI container.
 var (
-	ErrNotFound     = errors.New("helix: not found")
-	ErrCyclicDep    = errors.New("helix: cyclic dependency")
-	ErrUnresolvable = errors.New("helix: cannot resolve component")
+	ErrNotFound        = errors.New("helix: not found")
+	ErrCyclicDep       = errors.New("helix: cyclic dependency")
+	ErrUnresolvable    = errors.New("helix: cannot resolve component")
+	ErrShutdownTimeout = errors.New("helix: shutdown timeout exceeded")
 )
 
 // CyclicDepError is returned when a cyclic dependency is detected.
