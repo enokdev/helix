@@ -19,6 +19,11 @@ type ReflectResolver struct {
 	valueLookup       func(key string) (any, bool)
 }
 
+type resolutionState struct {
+	stack     []reflect.Type
+	positions map[reflect.Type]int
+}
+
 // NewReflectResolver creates a reflection-based resolver with initialized maps.
 func NewReflectResolver() *ReflectResolver {
 	return &ReflectResolver{
@@ -85,19 +90,27 @@ func (r *ReflectResolver) Graph() DependencyGraph {
 }
 
 func (r *ReflectResolver) resolveByType(requestedType reflect.Type) (reflect.Value, error) {
+	state := newResolutionState()
+	return r.resolveByTypeWithState(requestedType, state)
+}
+
+func (r *ReflectResolver) resolveByTypeWithState(requestedType reflect.Type, state *resolutionState) (reflect.Value, error) {
 	registrationType, registration, err := r.lookupRegistration(requestedType)
 	if err != nil {
 		return reflect.Value{}, err
 	}
 
-	return r.resolveRegistration(registrationType, registration)
+	return r.resolveRegistration(registrationType, registration, state)
 }
 
-func (r *ReflectResolver) resolveRegistration(registrationType reflect.Type, registration ComponentRegistration) (reflect.Value, error) {
+func (r *ReflectResolver) resolveRegistration(registrationType reflect.Type, registration ComponentRegistration, state *resolutionState) (reflect.Value, error) {
 	if registration.Scope == ScopeSingleton {
 		if singleton, ok := r.singletons[registrationType]; ok {
 			return singleton, nil
 		}
+	}
+	if cyclePath, ok := state.detectCycle(registrationType); ok {
+		return reflect.Value{}, &CyclicDepError{Path: cyclePath}
 	}
 
 	instance := reflect.ValueOf(registration.Component)
@@ -105,7 +118,10 @@ func (r *ReflectResolver) resolveRegistration(registrationType reflect.Type, reg
 		return reflect.Value{}, ErrUnresolvable
 	}
 
-	if err := r.injectFields(registrationType, instance); err != nil {
+	state.push(registrationType)
+	defer state.pop()
+
+	if err := r.injectFields(registrationType, instance, state); err != nil {
 		return reflect.Value{}, err
 	}
 
@@ -116,7 +132,7 @@ func (r *ReflectResolver) resolveRegistration(registrationType reflect.Type, reg
 	return instance, nil
 }
 
-func (r *ReflectResolver) injectFields(ownerType reflect.Type, instance reflect.Value) error {
+func (r *ReflectResolver) injectFields(ownerType reflect.Type, instance reflect.Value, state *resolutionState) error {
 	structValue := instance.Elem()
 	structType := structValue.Type()
 
@@ -129,13 +145,15 @@ func (r *ReflectResolver) injectFields(ownerType reflect.Type, instance reflect.
 				return fmt.Errorf("core: resolve %s field %s: %w", ownerType, fieldType.Name, ErrUnresolvable)
 			}
 
-			dependencyValue, dependencyType, err := r.resolveFieldDependency(fieldType.Type)
+			dependencyValue, dependencyType, err := r.resolveFieldDependency(fieldType.Type, state)
 			if err != nil {
 				return fmt.Errorf("core: resolve %s field %s: %w", ownerType, fieldType.Name, err)
 			}
+			if dependencyType != nil {
+				r.appendGraphEdge(ownerType.String(), dependencyType.String())
+			}
 
 			fieldValue.Set(dependencyValue)
-			r.appendGraphEdge(ownerType.String(), dependencyType.String())
 		} else if valueKey := fieldType.Tag.Get("value"); valueKey != "" {
 			if !fieldType.IsExported() || !fieldValue.CanSet() {
 				return fmt.Errorf("core: resolve %s field %s: %w", ownerType, fieldType.Name, ErrUnresolvable)
@@ -158,15 +176,15 @@ func (r *ReflectResolver) injectFields(ownerType reflect.Type, instance reflect.
 	return nil
 }
 
-func (r *ReflectResolver) resolveFieldDependency(fieldType reflect.Type) (reflect.Value, reflect.Type, error) {
+func (r *ReflectResolver) resolveFieldDependency(fieldType reflect.Type, state *resolutionState) (reflect.Value, reflect.Type, error) {
 	registrationType, registration, err := r.lookupRegistration(fieldType)
 	if err != nil {
 		return reflect.Value{}, nil, err
 	}
 
-	value, err := r.resolveRegistration(registrationType, registration)
+	value, err := r.resolveRegistration(registrationType, registration, state)
 	if err != nil {
-		return reflect.Value{}, nil, err
+		return reflect.Value{}, registrationType, err
 	}
 
 	return value, registrationType, nil
@@ -278,4 +296,41 @@ func isDirectlyConvertibleKind(kind reflect.Kind) bool {
 	default:
 		return false
 	}
+}
+
+func newResolutionState() *resolutionState {
+	return &resolutionState{
+		positions: make(map[reflect.Type]int),
+	}
+}
+
+func (s *resolutionState) push(registrationType reflect.Type) {
+	s.positions[registrationType] = len(s.stack)
+	s.stack = append(s.stack, registrationType)
+}
+
+func (s *resolutionState) pop() {
+	if len(s.stack) == 0 {
+		return
+	}
+
+	lastIndex := len(s.stack) - 1
+	lastType := s.stack[lastIndex]
+	s.stack = s.stack[:lastIndex]
+	delete(s.positions, lastType)
+}
+
+func (s *resolutionState) detectCycle(registrationType reflect.Type) ([]string, bool) {
+	start, ok := s.positions[registrationType]
+	if !ok {
+		return nil, false
+	}
+
+	path := make([]string, 0, len(s.stack)-start+1)
+	for _, step := range s.stack[start:] {
+		path = append(path, step.String())
+	}
+	path = append(path, registrationType.String())
+
+	return path, true
 }

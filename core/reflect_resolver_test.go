@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -42,6 +43,26 @@ type valueConsumer struct {
 	Port    int    `value:"server.port"`
 	Name    string `value:"app.name"`
 	Enabled bool   `value:"feature.enabled"`
+}
+
+type cycleServiceA struct {
+	ServiceB *cycleServiceB `inject:"true"`
+}
+
+type cycleServiceB struct {
+	ServiceA *cycleServiceA `inject:"true"`
+}
+
+type longCycleServiceA struct {
+	ServiceB *longCycleServiceB `inject:"true"`
+}
+
+type longCycleServiceB struct {
+	ServiceC *longCycleServiceC `inject:"true"`
+}
+
+type longCycleServiceC struct {
+	ServiceA *longCycleServiceA `inject:"true"`
 }
 
 func TestNewReflectResolver(t *testing.T) {
@@ -372,6 +393,89 @@ func TestReflectResolver_ValueInjection(t *testing.T) {
 			}
 			if tt.checkResult != nil && err == nil {
 				tt.checkResult(t, consumer)
+			}
+		})
+	}
+}
+
+func TestReflectResolver_CyclicDependencies(t *testing.T) {
+	tests := []struct {
+		name       string
+		register   func(*ReflectResolver) error
+		resolve    func(*ReflectResolver) error
+		wantPath   []string
+		checkState func(t *testing.T, resolver *ReflectResolver)
+	}{
+		{
+			name: "direct cycle returns ErrCyclicDep with readable path",
+			register: func(r *ReflectResolver) error {
+				for _, component := range []any{&cycleServiceA{}, &cycleServiceB{}} {
+					if err := r.Register(component); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			resolve: func(r *ReflectResolver) error {
+				var service *cycleServiceA
+				return r.Resolve(&service)
+			},
+			wantPath: []string{"*core.cycleServiceA", "*core.cycleServiceB", "*core.cycleServiceA"},
+			checkState: func(t *testing.T, resolver *ReflectResolver) {
+				t.Helper()
+				if len(resolver.singletons) != 0 {
+					t.Fatalf("singletons should stay empty after cyclic resolution failure, got %d entries", len(resolver.singletons))
+				}
+			},
+		},
+		{
+			name: "long cycle returns complete path",
+			register: func(r *ReflectResolver) error {
+				for _, component := range []any{&longCycleServiceA{}, &longCycleServiceB{}, &longCycleServiceC{}} {
+					if err := r.Register(component); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			resolve: func(r *ReflectResolver) error {
+				var service *longCycleServiceA
+				return r.Resolve(&service)
+			},
+			wantPath: []string{"*core.longCycleServiceA", "*core.longCycleServiceB", "*core.longCycleServiceC", "*core.longCycleServiceA"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := NewReflectResolver()
+			if err := tt.register(resolver); err != nil {
+				t.Fatalf("register() error = %v", err)
+			}
+
+			err := tt.resolve(resolver)
+			if !errors.Is(err, ErrCyclicDep) {
+				t.Fatalf("Resolve() error = %v, want %v", err, ErrCyclicDep)
+			}
+
+			var cyclicErr *CyclicDepError
+			if !errors.As(err, &cyclicErr) {
+				t.Fatalf("Resolve() error = %v, want *CyclicDepError", err)
+			}
+
+			if !reflect.DeepEqual(cyclicErr.Path, tt.wantPath) {
+				t.Fatalf("CyclicDepError.Path = %v, want %v", cyclicErr.Path, tt.wantPath)
+			}
+
+			message := cyclicErr.Error()
+			for _, step := range tt.wantPath {
+				if !strings.Contains(message, step) {
+					t.Fatalf("CyclicDepError.Error() = %q, want substring %q", message, step)
+				}
+			}
+
+			if tt.checkState != nil {
+				tt.checkState(t, resolver)
 			}
 		})
 	}
