@@ -45,6 +45,15 @@ type valueConsumer struct {
 	Enabled bool   `value:"feature.enabled"`
 }
 
+type prototypeService struct {
+	Dependency *testDependency `inject:"true"`
+	Label      string
+}
+
+type lazyConsumer struct {
+	Dependency *testDependency `inject:"true"`
+}
+
 type cycleServiceA struct {
 	ServiceB *cycleServiceB `inject:"true"`
 }
@@ -129,6 +138,23 @@ func TestReflectResolver_Register(t *testing.T) {
 			component: &testDependency{Name: "registered"},
 			wantErr:   nil,
 		},
+		{
+			name: "valid component registration metadata",
+			component: ComponentRegistration{
+				Component: &testDependency{Name: "registered"},
+				Scope:     ScopePrototype,
+				Lazy:      true,
+			},
+			wantErr: nil,
+		},
+		{
+			name: "component registration with invalid scope",
+			component: ComponentRegistration{
+				Component: &testDependency{Name: "registered"},
+				Scope:     Scope("invalid"),
+			},
+			wantErr: ErrUnresolvable,
+		},
 	}
 
 	for _, tt := range tests {
@@ -143,13 +169,22 @@ func TestReflectResolver_Register(t *testing.T) {
 				return
 			}
 
-			componentType := reflect.TypeOf(tt.component)
+			componentType := registeredComponentType(tt.component)
 			registration, ok := resolver.registrations[componentType]
 			if !ok {
 				t.Fatalf("registration for %v was not stored", componentType)
 			}
-			if registration.Scope != ScopeSingleton {
-				t.Fatalf("registration scope = %q, want %q", registration.Scope, ScopeSingleton)
+			expectedScope := ScopeSingleton
+			expectedLazy := false
+			if registrationInput, ok := tt.component.(ComponentRegistration); ok {
+				expectedScope = registrationInput.Scope
+				expectedLazy = registrationInput.Lazy
+			}
+			if registration.Scope != expectedScope {
+				t.Fatalf("registration scope = %q, want %q", registration.Scope, expectedScope)
+			}
+			if registration.Lazy != expectedLazy {
+				t.Fatalf("registration lazy = %t, want %t", registration.Lazy, expectedLazy)
 			}
 
 			graph := resolver.Graph()
@@ -231,6 +266,89 @@ func TestReflectResolver_Resolve(t *testing.T) {
 
 		if resolved != component {
 			t.Fatalf("resolved component = %p, want %p", resolved, component)
+		}
+	})
+
+	t.Run("prototype resolution returns fresh instances and does not cache them", func(t *testing.T) {
+		resolver := NewReflectResolver()
+		registration := ComponentRegistration{
+			Component: &prototypeService{Label: "prototype"},
+			Scope:     ScopePrototype,
+		}
+		if err := resolver.Register(&testDependency{Name: "shared"}); err != nil {
+			t.Fatalf("Register(testDependency) error = %v", err)
+		}
+		if err := resolver.Register(registration); err != nil {
+			t.Fatalf("Register(prototypeService) error = %v", err)
+		}
+
+		var first *prototypeService
+		if err := resolver.Resolve(&first); err != nil {
+			t.Fatalf("Resolve(first) error = %v", err)
+		}
+
+		var second *prototypeService
+		if err := resolver.Resolve(&second); err != nil {
+			t.Fatalf("Resolve(second) error = %v", err)
+		}
+
+		if first == second {
+			t.Fatal("Resolve() should return a fresh prototype instance on each call")
+		}
+		if first.Label != "" || second.Label != "" {
+			t.Fatal("prototype non-inject fields should be zero-valued, not copied from the registered source")
+		}
+		if first.Dependency == nil || second.Dependency == nil {
+			t.Fatal("prototype dependencies should be injected on each resolution")
+		}
+		if first.Dependency != second.Dependency {
+			t.Fatal("prototype should still reuse registered singleton dependencies")
+		}
+		if len(resolver.singletons) != 1 {
+			t.Fatalf("singletons should only contain singleton dependencies, got %d entries", len(resolver.singletons))
+		}
+	})
+
+	t.Run("lazy registration is not cached before first resolve", func(t *testing.T) {
+		resolver := NewReflectResolver()
+		registration := ComponentRegistration{
+			Component: &lazyConsumer{},
+			Lazy:      true,
+		}
+		if err := resolver.Register(&testDependency{Name: "lazy"}); err != nil {
+			t.Fatalf("Register(testDependency) error = %v", err)
+		}
+		if err := resolver.Register(registration); err != nil {
+			t.Fatalf("Register(lazyConsumer) error = %v", err)
+		}
+
+		consumerType := reflect.TypeOf(registration.Component)
+		if _, ok := resolver.singletons[consumerType]; ok {
+			t.Fatal("lazy component should not be cached before first resolve")
+		}
+		// Verify no injection was triggered on the registered source during Register.
+		source := registration.Component.(*lazyConsumer)
+		if source.Dependency != nil {
+			t.Fatal("lazy component should not be injected before first resolve")
+		}
+
+		stored, ok := resolver.registrations[consumerType]
+		if !ok {
+			t.Fatalf("registration for %v not found", consumerType)
+		}
+		if !stored.Lazy {
+			t.Fatal("lazy metadata should be preserved in registration")
+		}
+
+		var resolved *lazyConsumer
+		if err := resolver.Resolve(&resolved); err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		if resolved.Dependency == nil {
+			t.Fatal("lazy component should be injected when first resolved")
+		}
+		if _, ok := resolver.singletons[consumerType]; !ok {
+			t.Fatal("lazy singleton should be cached after first resolve")
 		}
 	})
 }
@@ -479,4 +597,11 @@ func TestReflectResolver_CyclicDependencies(t *testing.T) {
 			}
 		})
 	}
+}
+
+func registeredComponentType(component any) reflect.Type {
+	if registration, ok := component.(ComponentRegistration); ok {
+		return reflect.TypeOf(registration.Component)
+	}
+	return reflect.TypeOf(component)
 }

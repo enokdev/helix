@@ -1,5 +1,7 @@
 package core
 
+import "reflect"
+
 // Scope defines the instantiation strategy for a registered component.
 type Scope string
 
@@ -28,5 +30,35 @@ func NewComponentRegistration(component any) ComponentRegistration {
 	return ComponentRegistration{
 		Component: component,
 		Scope:     ScopeSingleton,
+	}
+}
+
+func normalizeComponentRegistration(input any) (ComponentRegistration, reflect.Type, error) {
+	registration, ok := input.(ComponentRegistration)
+	if !ok {
+		registration = NewComponentRegistration(input)
+	}
+	if registration.Scope == "" {
+		registration.Scope = ScopeSingleton
+	}
+
+	componentValue := reflect.ValueOf(registration.Component)
+	if !isRegistrableComponent(componentValue) {
+		return ComponentRegistration{}, nil, ErrUnresolvable
+	}
+
+	if !registration.Scope.isValid() {
+		return ComponentRegistration{}, nil, ErrUnresolvable
+	}
+
+	return registration, componentValue.Type(), nil
+}
+
+func (s Scope) isValid() bool {
+	switch s {
+	case ScopeSingleton, ScopePrototype:
+		return true
+	default:
+		return false
 	}
 }

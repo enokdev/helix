@@ -15,6 +15,14 @@
 - Champs de structs embarquées (anonymous) non injectés par `injectFields` — fonctionnalité non requise dans la spec 1.3. [core/reflect_resolver.go:121]
 - Le graphe de dépendances est alimenté mais jamais consulté pour la détection de cycles — normal pour 1.3, consultable dès Story 1.4. [core/reflect_resolver.go]
 
+## Deferred from: code review of 1-5-scope-prototype-lazy-loading (2026-04-15)
+
+- [Df1] Variable `exists` calculée mais non utilisée dans `Register` — pre-existing, sans impact fonctionnel. [core/reflect_resolver.go]
+- [Df2] `ErrUnresolvable` retourné pour deux causes distinctes (composant invalide et scope invalide) — impossible à distinguer côté appelant ; choix de conception aligné sur la spec existante. [core/registry.go — normalizeComponentRegistration]
+- [Df3] Combinaison `Lazy:true + ScopePrototype` silencieusement acceptée sans warning ni erreur — sémantiquement incohérent ; à traiter lors de story 1.7 (bootstrap déclaratif). [core/registry.go]
+- [Df4] Re-registration invalide le cache singleton mais ne propage pas l'invalidation aux dépendants déjà résolus — les singletons dépendants gardent un pointeur vers l'ancienne instance ; pre-existing, à traiter si le rechargement dynamique devient une exigence. [core/reflect_resolver.go — Register]
+- [Df5] Absence de test de mutation pour vérifier l'isolation des champs non-aliasés entre instances prototype — dépend de la résolution de D1 (zero-value vs copie template). [core/reflect_resolver_test.go]
+
 ## Deferred from: code review of 1-2-interfaces-publiques-du-conteneur-di (2026-04-14)
 
 - `DependencyGraph.Edges` nil map — un consumer qui écrit dans la map retournée par `Graph()` panique ; surfacera lors de l'implémentation de `Graph()` en Story 1.3. [core/resolver.go]

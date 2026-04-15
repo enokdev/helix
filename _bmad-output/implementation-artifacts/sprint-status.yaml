@@ -50,7 +50,7 @@ development_status:
   1-2-interfaces-publiques-du-conteneur-di: done
   1-3-reflectresolver-enregistrement-resolution-singleton: done
   1-4-detection-des-cycles-de-dependances: done
-  1-5-scope-prototype-lazy-loading: backlog
+  1-5-scope-prototype-lazy-loading: done
   1-6-hooks-de-cycle-de-vie-graceful-shutdown: backlog
   1-7-point-dentree-helix-run-marqueurs-de-composants: backlog
   epic-1-retrospective: optional

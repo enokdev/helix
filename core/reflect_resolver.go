@@ -40,14 +40,13 @@ func NewReflectResolver() *ReflectResolver {
 
 // Register stores a component registration keyed by its concrete pointer type.
 func (r *ReflectResolver) Register(component any) error {
-	componentValue := reflect.ValueOf(component)
-	if !isRegistrableComponent(componentValue) {
-		return fmt.Errorf("core: register %T: %w", component, ErrUnresolvable)
+	registration, componentType, err := normalizeComponentRegistration(component)
+	if err != nil {
+		return fmt.Errorf("core: register %T: %w", component, err)
 	}
 
-	componentType := componentValue.Type()
 	_, exists := r.registrations[componentType]
-	r.registrations[componentType] = NewComponentRegistration(component)
+	r.registrations[componentType] = registration
 	delete(r.singletons, componentType)
 
 	typeName := componentType.String()
@@ -113,7 +112,7 @@ func (r *ReflectResolver) resolveRegistration(registrationType reflect.Type, reg
 		return reflect.Value{}, &CyclicDepError{Path: cyclePath}
 	}
 
-	instance := reflect.ValueOf(registration.Component)
+	instance := materializeRegistrationInstance(registrationType, registration)
 	if !isRegistrableComponent(instance) {
 		return reflect.Value{}, ErrUnresolvable
 	}
@@ -130,6 +129,15 @@ func (r *ReflectResolver) resolveRegistration(registrationType reflect.Type, reg
 	}
 
 	return instance, nil
+}
+
+func materializeRegistrationInstance(registrationType reflect.Type, registration ComponentRegistration) reflect.Value {
+	if registration.Scope != ScopePrototype {
+		return reflect.ValueOf(registration.Component)
+	}
+	// Prototype: allocate a fresh zero-value instance; inject:"true" and value:"..."
+	// fields are populated by the caller via injectFields.
+	return reflect.New(registrationType.Elem())
 }
 
 func (r *ReflectResolver) injectFields(ownerType reflect.Type, instance reflect.Value, state *resolutionState) error {
