@@ -360,12 +360,6 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
   </step>
 
   <step n="9" goal="Story completion and mark for review" tag="sprint-status">
-    <critical>COMMIT FORMAT: Use conventional commits WITHOUT Co-Authored-By trailer.
-      Format: `type(scope): description`
-      Examples: `feat(core): implémenter ReflectResolver`, `fix(web): corriger routing DELETE`
-      Types: feat, fix, test, refactor, docs, chore, perf
-      Scopes: core, web, data, config, starter, observability, scheduler, cli
-    </critical>
     <action>Verify ALL tasks and subtasks are marked [x] (re-scan the story document now)</action>
     <action>Run the full regression suite (do not skip)</action>
     <action>Confirm File List includes every changed file</action>
