@@ -75,3 +75,21 @@ A module uses one mode, never both. The `Container` delegates to whichever `Reso
 - Startup: < 100ms
 - P99 latency `/actuator/health`: < 5ms
 - Test coverage on `core/`: > 80%
+
+
+## GitHub Project Integration
+
+**Repository:** `enokdev/helix` — **Project:** `https://github.com/orgs/enokdev/projects/1`
+
+### Closing completed work items
+
+When a work item is marked `done` in the internal tracking system, close the corresponding GitHub issue:
+
+1. Find the issue by searching for the feature number:
+   ```bash
+   gh issue list --repo enokdev/helix --search "Story <N>.<M>" --json number,title
+   ```
+2. Close it:
+   ```bash
+   gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
+   ```

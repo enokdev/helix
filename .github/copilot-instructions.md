@@ -98,3 +98,19 @@ Every Helix application exposes under `/actuator/`:
 - Do not `panic()` in framework code (only at init-time with an explicit message)
 - Do not import `gofiber/fiber` outside `web/internal/`
 - Do not store `context.Context` in structs — always pass as parameter
+
+# git commit message guidelines
+- not Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" in commit messages
+
+### Closing completed work items apres review :
+
+When a work item is marked `done` in the internal tracking system, close the corresponding GitHub issue:
+commit et push the code
+
+1. Find the issue by searching for the feature number:
+   ```bash
+   gh issue list --repo enokdev/helix --search "Story <N>.<M>" --json number,title
+   ```
+2. Close it:
+   ```bash
+   gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
