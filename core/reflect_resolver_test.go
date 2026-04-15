@@ -36,7 +36,7 @@ type interfaceConsumer struct {
 }
 
 type invalidInjectConsumer struct {
-	dependency *testDependency `inject:"true"`
+	dependency *testDependency `inject:"true"` //nolint:unused // unexported field tests inject rejection
 }
 
 type valueConsumer struct {
@@ -486,12 +486,12 @@ func TestReflectResolver_ValueInjection(t *testing.T) {
 		},
 		{
 			name:        "missing value returns ErrNotFound",
-			valueLookup: func(key string) (any, bool) { return nil, false },
+			valueLookup: func(_ string) (any, bool) { return nil, false },
 			wantErr:     ErrNotFound,
 		},
 		{
 			name:        "invalid conversion returns ErrUnresolvable",
-			valueLookup: func(key string) (any, bool) { return "not-a-number", true },
+			valueLookup: func(_ string) (any, bool) { return "not-a-number", true },
 			wantErr:     ErrUnresolvable,
 		},
 	}

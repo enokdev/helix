@@ -50,22 +50,22 @@ func TestContainer_Resolve(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name:    "nil resolver returns ErrUnresolvable",
+			name:     "nil resolver returns ErrUnresolvable",
 			resolver: nil,
-			target:  &struct{}{},
-			wantErr: ErrUnresolvable,
+			target:   &struct{}{},
+			wantErr:  ErrUnresolvable,
 		},
 		{
-			name:    "nil target returns ErrUnresolvable",
+			name:     "nil target returns ErrUnresolvable",
 			resolver: &stubResolver{},
-			target:  nil,
-			wantErr: ErrUnresolvable,
+			target:   nil,
+			wantErr:  ErrUnresolvable,
 		},
 		{
-			name:    "with resolver delegates to resolver",
+			name:     "with resolver delegates to resolver",
 			resolver: &stubResolver{},
-			target:  &struct{}{},
-			wantErr: nil,
+			target:   &struct{}{},
+			wantErr:  nil,
 		},
 	}
 	for _, tt := range tests {
