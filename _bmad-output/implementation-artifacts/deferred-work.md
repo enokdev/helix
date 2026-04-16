@@ -37,6 +37,11 @@
 - [Df3] `validateScan` accepte silencieusement le cas où des composants sont fournis mais ne correspondent pas aux markers découverts — comportement conforme à la spec actuelle, cross-validation réservée Epic 10. [helix.go:116]
 - [Df4] Goroutine leak dans `stopLifecycleComponent` quand `OnStop` ne revient jamais — déjà documenté en 1.6, réaffirmé ici. Limitation inhérente à `OnStop() error` sans `context.Context`. [core/lifecycle_manager.go]
 
+## Deferred from: code review of 2-3-rechargement-dynamique-de-la-configuration (2026-04-16)
+
+- [Df1] L'intervalle de reload est résolu une seule fois au démarrage de `Start()` et n'est pas relu après un reload réussi — changements dynamiques d'intervalle ignorés silencieusement. Hors périmètre story 2.3 ; à traiter si le rechargement dynamique d'intervalle devient une exigence opérationnelle. [config/reload.go:156]
+- [Df2] `defaultReloadSignalSource` n'a aucune couverture de test directe — le chemin `signal.Notify` n'est jamais exercé en test. AC8 interdit les vrais signaux OS en test ; à couvrir si une intégration de signaux réels est ajoutée. [config/reload_signal.go]
+
 ## Deferred from: code review of 1-6-hooks-de-cycle-de-vie-graceful-shutdown (2026-04-15)
 
 - [Df1] Goroutine leak sur timeout `OnStop()` — goroutine abandonnée quand le timer expire, sans signal d'annulation. Limitation inhérente à `OnStop() error` (pas de `context.Context`), explicitement reconnue dans les Dev Notes 1.6. À traiter si l'interface `Lifecycle` est étendue avec `context.Context` dans une story future. [core/lifecycle_manager.go:157]

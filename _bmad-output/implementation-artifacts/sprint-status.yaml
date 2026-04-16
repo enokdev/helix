@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-# last_updated: 2026-04-16
+# last_updated: 2026-04-16 — story 2-3 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -58,10 +58,10 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 2: Configuration Centralisée
   # ─────────────────────────────────────────────
-  epic-2: backlog
-  2-1-loader-yaml-chaine-de-priorite: backlog
-  2-2-profils-de-configuration: backlog
-  2-3-rechargement-dynamique-de-la-configuration: backlog
+  epic-2: in-progress
+  2-1-loader-yaml-chaine-de-priorite: done
+  2-2-profils-de-configuration: done
+  2-3-rechargement-dynamique-de-la-configuration: done
   epic-2-retrospective: optional
 
   # ─────────────────────────────────────────────
