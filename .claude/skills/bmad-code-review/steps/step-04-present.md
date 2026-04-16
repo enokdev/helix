@@ -117,7 +117,40 @@ If `{sprint_status}` file does not exist, note that story status was updated in 
 > **Deferred:** <W>
 > **Dismissed:** <R>
 
-### 7. Next steps
+### 7. Commit, push and close GitHub issue
+
+Perform this section only when `{new_status}` = `done`.
+
+#### Commit
+
+Stage and commit all modified source files (exclude `_bmad-output/` — it is gitignored):
+
+```bash
+git add <source files changed during review>
+git commit -m "fix(<scope>): code review patches — story <story_key>"
+```
+
+Use conventional commit format from CLAUDE.md. Never add `Co-Authored-By`.
+
+#### Push
+
+```bash
+git push origin <current-branch>
+```
+
+#### Close GitHub issue
+
+1. Search for the open issue matching the story:
+   ```bash
+   gh issue list --repo enokdev/helix --search "Story <N.M>" --json number,title,state
+   ```
+2. Close it:
+   ```bash
+   gh issue close <number> --repo enokdev/helix --comment "Story <N.M> implémentée et validée — code review terminée. ✅"
+   ```
+   If no matching issue is found, note it to the user and continue.
+
+### 8. Next steps
 
 Present the user with follow-up options:
 
