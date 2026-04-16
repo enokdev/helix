@@ -20,7 +20,11 @@ func WithDefaults(values map[string]any) Option {
 // WithProfiles configures explicit profile YAML files to merge after application.yaml.
 func WithProfiles(profiles ...string) Option {
 	return func(l *loader) {
-		l.profiles = append([]string(nil), profiles...)
+		normalized := normalizeProfiles(profiles)
+		if len(normalized) > 0 {
+			l.profiles = normalized
+			l.profilesSet = true
+		}
 	}
 }
 

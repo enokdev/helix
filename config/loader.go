@@ -22,6 +22,7 @@ type Loader interface {
 	Lookup(key string) (any, bool)
 	ConfigFileUsed() string
 	AllSettings() map[string]any
+	ActiveProfiles() []string
 }
 
 type loader struct {
@@ -30,6 +31,8 @@ type loader struct {
 	configPaths    []string
 	defaults       map[string]any
 	profiles       []string
+	profilesSet    bool
+	activeProfiles []string
 	envPrefix      string
 	configFileUsed string
 	loaded         bool
@@ -94,10 +97,23 @@ func (l *loader) AllSettings() map[string]any {
 	return deepCopySettings(l.viper.AllSettings())
 }
 
+// ActiveProfiles returns the profiles resolved during the last successful load.
+func (l *loader) ActiveProfiles() []string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if !l.loaded {
+		return []string{}
+	}
+	return append([]string(nil), l.activeProfiles...)
+}
+
 // read rebuilds the viper instance and loads all config sources.
 // Must be called with l.mu held for writing.
 func (l *loader) read() error {
 	l.viper = l.newViper(defaultConfigName)
+	l.configFileUsed = ""
+	l.activeProfiles = nil
+	l.loaded = false
 	for key, value := range l.defaults {
 		l.viper.SetDefault(key, value)
 	}
@@ -107,10 +123,9 @@ func (l *loader) read() error {
 	}
 	l.configFileUsed = l.viper.ConfigFileUsed()
 
-	for _, profile := range l.profiles {
-		if profile == "" {
-			continue
-		}
+	activeProfiles := l.resolveProfiles()
+	l.activeProfiles = append([]string(nil), activeProfiles...)
+	for _, profile := range activeProfiles {
 		if err := l.mergeProfile(profile); err != nil {
 			return err
 		}
