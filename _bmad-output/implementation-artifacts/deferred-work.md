@@ -29,6 +29,14 @@
 - `CyclicDepError` avec `Path` nil ou vide — `Error()` retourne un message tronqué `"helix: cyclic dependency: "` ; à corriger quand `CyclicDepError` sera effectivement émise (Story 1.4+). [core/errors.go]
 - Absence de synchronisation sur `Container` — data race potentielle sur `c.resolver` en accès concurrent ; à traiter quand les exigences de concurrence seront définies. [core/container.go]
 
+## Deferred from: code review of 1-7-point-dentree-helix-run-marqueurs-de-composants (2026-04-16)
+
+- [Df1] Séparateur Windows `\` dans `scanRoot` : pattern `./internal/...` échoue sur Windows car `recursiveSuffix = filepath.Separator + "..."` utilise `\`. À traiter si support Windows requis. [scan.go:69]
+- [Df2] Comportement sur erreur de parsing dans `scanGoFileForMarkers` : skip silencieux vs fail-fast non tranché — stratégie de scan robuste réservée Epic 10 codegen. [scan.go:86]
+- [Df3] Build constraints ignorées dans le scan AST : `parser.ParseFile` avec flags `0` parse les fichiers `//go:build ignore` ou conditionnels — peut sur-compter les markers. Limitation documentée ; réservée Epic 10 codegen. [scan.go]
+- [Df3] `validateScan` accepte silencieusement le cas où des composants sont fournis mais ne correspondent pas aux markers découverts — comportement conforme à la spec actuelle, cross-validation réservée Epic 10. [helix.go:116]
+- [Df4] Goroutine leak dans `stopLifecycleComponent` quand `OnStop` ne revient jamais — déjà documenté en 1.6, réaffirmé ici. Limitation inhérente à `OnStop() error` sans `context.Context`. [core/lifecycle_manager.go]
+
 ## Deferred from: code review of 1-6-hooks-de-cycle-de-vie-graceful-shutdown (2026-04-15)
 
 - [Df1] Goroutine leak sur timeout `OnStop()` — goroutine abandonnée quand le timer expire, sans signal d'annulation. Limitation inhérente à `OnStop() error` (pas de `context.Context`), explicitement reconnue dans les Dev Notes 1.6. À traiter si l'interface `Lifecycle` est étendue avec `context.Context` dans une story future. [core/lifecycle_manager.go:157]

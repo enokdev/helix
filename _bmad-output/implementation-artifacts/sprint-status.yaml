@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-# last_updated: 2026-04-15
+# last_updated: 2026-04-16
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-14
-last_updated: 2026-04-15
+last_updated: 2026-04-16
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -52,7 +52,7 @@ development_status:
   1-4-detection-des-cycles-de-dependances: done
   1-5-scope-prototype-lazy-loading: done
   1-6-hooks-de-cycle-de-vie-graceful-shutdown: done
-  1-7-point-dentree-helix-run-marqueurs-de-composants: backlog
+  1-7-point-dentree-helix-run-marqueurs-de-composants: done
   epic-1-retrospective: optional
 
   # ─────────────────────────────────────────────

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var lifecycleType = reflect.TypeFor[Lifecycle]()
+var lifecycleType = reflect.TypeOf((*Lifecycle)(nil)).Elem()
 
 type startedLifecycle struct {
 	name     string
@@ -156,4 +156,3 @@ func (c *Container) stopLifecycleComponent(component startedLifecycle, remaining
 		return timeoutErr
 	}
 }
-
