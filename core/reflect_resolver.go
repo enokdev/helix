@@ -41,6 +41,10 @@ func NewReflectResolver() *ReflectResolver {
 	}
 }
 
+func (r *ReflectResolver) setValueLookup(lookup func(key string) (any, bool)) {
+	r.valueLookup = lookup
+}
+
 // Register stores a component registration keyed by its concrete pointer type.
 func (r *ReflectResolver) Register(component any) error {
 	registration, componentType, err := normalizeComponentRegistration(component)

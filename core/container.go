@@ -14,6 +14,7 @@ import (
 type Container struct {
 	mu              sync.Mutex
 	resolver        Resolver
+	valueLookup     func(key string) (any, bool)
 	logger          *slog.Logger
 	shutdownTimeout time.Duration
 	lifecycle       lifecycleState
