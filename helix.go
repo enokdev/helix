@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
 )
 
@@ -41,6 +42,10 @@ type App struct {
 
 	awaitShutdown func() error
 }
+
+// ConfigReloadable is implemented by components that react after a successful
+// configuration reload.
+type ConfigReloadable = config.ConfigReloadable
 
 // Service marks a struct as a Helix service component.
 type Service struct{}

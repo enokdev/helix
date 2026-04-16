@@ -38,6 +38,12 @@ type loader struct {
 	loaded         bool
 }
 
+type loadedConfig struct {
+	viper          *viper.Viper
+	configFileUsed string
+	activeProfiles []string
+}
+
 // NewLoader creates a Viper-backed configuration loader.
 func NewLoader(opts ...Option) Loader {
 	l := &loader{
@@ -61,12 +67,14 @@ func (l *loader) Load(target any) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if err := l.read(); err != nil {
+	next, err := l.readIntoNewViper()
+	if err != nil {
 		return err
 	}
-	if err := l.viper.Unmarshal(target); err != nil {
-		return fmt.Errorf("config: decode target %T: %w", target, ErrInvalidConfig)
+	if err := decodeInto(next.viper, target); err != nil {
+		return err
 	}
+	l.applyLoadedConfig(next)
 	return nil
 }
 
@@ -107,51 +115,61 @@ func (l *loader) ActiveProfiles() []string {
 	return append([]string(nil), l.activeProfiles...)
 }
 
-// read rebuilds the viper instance and loads all config sources.
+// readIntoNewViper builds a fresh viper instance and loads all config sources.
 // Must be called with l.mu held for writing.
-func (l *loader) read() error {
-	l.viper = l.newViper(defaultConfigName)
-	l.configFileUsed = ""
-	l.activeProfiles = nil
-	l.loaded = false
+func (l *loader) readIntoNewViper() (loadedConfig, error) {
+	next := l.newViper(defaultConfigName)
 	for key, value := range l.defaults {
-		l.viper.SetDefault(key, value)
+		next.SetDefault(key, value)
 	}
 
-	if err := l.viper.ReadInConfig(); err != nil {
-		return wrapReadError("read application.yaml", err)
+	if err := next.ReadInConfig(); err != nil {
+		return loadedConfig{}, wrapReadError("read application.yaml", err)
 	}
-	l.configFileUsed = l.viper.ConfigFileUsed()
+	configFileUsed := next.ConfigFileUsed()
 
 	activeProfiles := l.resolveProfiles()
-	l.activeProfiles = append([]string(nil), activeProfiles...)
 	for _, profile := range activeProfiles {
-		if err := l.mergeProfile(profile); err != nil {
-			return err
+		if err := l.mergeProfileInto(next, profile); err != nil {
+			return loadedConfig{}, err
 		}
 	}
 
 	// Bind all known keys so that ENV overrides are visible during Unmarshal.
 	// Covers both YAML-sourced keys and defaults-only keys that have no YAML entry.
 	allKeys := make(map[string]struct{})
-	for _, key := range l.viper.AllKeys() {
+	for _, key := range next.AllKeys() {
 		allKeys[key] = struct{}{}
 	}
 	for key := range l.defaults {
 		allKeys[key] = struct{}{}
 	}
+	for _, key := range knownConfigKeys {
+		allKeys[key] = struct{}{}
+	}
 	for key := range allKeys {
-		if err := l.viper.BindEnv(key); err != nil {
-			return fmt.Errorf("config: bind env %q: %w", key, ErrInvalidConfig)
+		if err := next.BindEnv(key); err != nil {
+			return loadedConfig{}, fmt.Errorf("config: bind env %q: %w", key, ErrInvalidConfig)
 		}
 	}
-	l.loaded = true
-	return nil
+
+	return loadedConfig{
+		viper:          next,
+		configFileUsed: configFileUsed,
+		activeProfiles: append([]string(nil), activeProfiles...),
+	}, nil
 }
 
-// mergeProfile merges the named profile YAML on top of the base config.
+func (l *loader) applyLoadedConfig(next loadedConfig) {
+	l.viper = next.viper
+	l.configFileUsed = next.configFileUsed
+	l.activeProfiles = append([]string(nil), next.activeProfiles...)
+	l.loaded = true
+}
+
+// mergeProfileInto merges the named profile YAML on top of the provided base config.
 // A missing profile file is silently skipped — profiles are optional.
-func (l *loader) mergeProfile(profile string) error {
+func (l *loader) mergeProfileInto(base *viper.Viper, profile string) error {
 	profileViper := l.newProfileViper(defaultConfigName + "-" + profile)
 	if err := profileViper.ReadInConfig(); err != nil {
 		var notFound viper.ConfigFileNotFoundError
@@ -160,7 +178,7 @@ func (l *loader) mergeProfile(profile string) error {
 		}
 		return fmt.Errorf("config: read application-%s.yaml: %w", profile, ErrInvalidConfig)
 	}
-	if err := l.viper.MergeConfigMap(profileViper.AllSettings()); err != nil {
+	if err := base.MergeConfigMap(profileViper.AllSettings()); err != nil {
 		return fmt.Errorf("config: merge profile %q: %w", profile, ErrInvalidConfig)
 	}
 	return nil
@@ -210,6 +228,16 @@ func isValidDecodeTarget(target any) bool {
 		return false
 	}
 	return value.Elem().CanSet()
+}
+
+func decodeInto(v *viper.Viper, target any) error {
+	targetValue := reflect.ValueOf(target)
+	nextTarget := reflect.New(targetValue.Elem().Type())
+	if err := v.Unmarshal(nextTarget.Interface()); err != nil {
+		return fmt.Errorf("config: decode target %T: %w", target, ErrInvalidConfig)
+	}
+	targetValue.Elem().Set(nextTarget.Elem())
+	return nil
 }
 
 // deepCopySettings returns a recursive copy of a settings map so that mutations

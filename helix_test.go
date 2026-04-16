@@ -11,6 +11,8 @@ import (
 	"github.com/enokdev/helix/core"
 )
 
+var _ ConfigReloadable = (*rootReloadable)(nil)
+
 func TestDetectComponentMarker(t *testing.T) {
 	t.Parallel()
 
@@ -268,7 +270,7 @@ func TestRunCallsShutdownWhenAwaitReturnsError(t *testing.T) {
 	waitErr := errors.New("simulated signal error")
 
 	err := Run(App{
-		Components: []any{&shutdownVerifyService{onStop: func() { shutdownCalled = true }}},
+		Components:    []any{&shutdownVerifyService{onStop: func() { shutdownCalled = true }}},
 		awaitShutdown: func() error { return waitErr },
 	})
 	if !errors.Is(err, waitErr) {
@@ -349,6 +351,10 @@ type markedComponent struct {
 }
 
 type unmarkedComponent struct{}
+
+type rootReloadable struct{}
+
+func (r *rootReloadable) OnConfigReload() {}
 
 type runDependency struct {
 	Component
