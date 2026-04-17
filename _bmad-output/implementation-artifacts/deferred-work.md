@@ -92,3 +92,13 @@
 - [Df3] `serverOptions` vide — options Fiber (timeouts, body limits, TLS) non configurables via l'API publique. Sera alimenté dans les stories suivantes. [web/options.go]
 - [Df4] `Context` sans `Query`/`Body` — hors périmètre story 3.1, à implémenter en story 3.4. [web/context.go]
 - [Df5] `TestNoPublicFiberImports` autorise un seul fichier (`fiber_adapter.go`) par chemin exact — politique valide aujourd'hui ; à élargir en pattern `web/internal/*.go` si de nouveaux fichiers internes légitimes importent Fiber. [web/server_test.go:TestNoPublicFiberImports]
+
+## Deferred from: code review of 3-6-error-handler-centralise (2026-04-17)
+
+- AST runtime parsing incompatible avec binaires déployés — `parser.ParseFile` exige les sources `.go` ; en production sans sources sur disque, `RegisterErrorHandler` échoue systématiquement. Résoudre avec un mécanisme de déclaration explicite (registration par type reflect, sans AST) dans une story ultérieure.
+- Collision de noms de types entre packages — `canonicalErrorTypeName` retourne le nom non qualifié ; deux types `NotFoundError` de packages différents partagent la même clé de dispatch. Limitation design actuelle.
+- `controllerMarkerPkgPath` couplage sémantique — Constante orientée Controller réutilisée pour la détection du marqueur ErrorHandler. Renommer ou extraire en constante générique.
+- `hasErrorHandlerMarker` profondeur 1 uniquement — Embedding transitif non détecté. Aligner avec la politique de `hasComponentMarker`.
+- Pas de synchronisation sur `errorHandlers` — Même pattern que `RegisterRoute` ; à traiter globalement si la concurrence post-démarrage doit être supportée.
+- Méthodes promues d'embedded types échouent si source absente — Sous-cas de l'issue AST.
+- Nil `*ErrorType` passé au handler — Cas rare mais possible ; l'implémenteur doit gérer les nil-pointer receivers.

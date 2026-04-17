@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	fiberinternal "github.com/enokdev/helix/web/internal"
@@ -20,7 +21,9 @@ type HTTPServer interface {
 }
 
 type server struct {
-	adapter fiberinternal.Adapter
+	adapter           fiberinternal.Adapter
+	errorHandlers     map[string]errorHandlerInvoker
+	errorHandlerOrder []string
 }
 
 // NewServer creates an HTTP server backed by an internal Fiber adapter.
@@ -32,7 +35,10 @@ func NewServer(opts ...Option) HTTPServer {
 		}
 	}
 
-	return &server{adapter: fiberinternal.NewAdapter()}
+	return &server{
+		adapter:       fiberinternal.NewAdapter(),
+		errorHandlers: make(map[string]errorHandlerInvoker),
+	}
 }
 
 func (s *server) Start(addr string) error {
@@ -60,6 +66,9 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 
 	err = s.adapter.RegisterRoute(normalizedMethod, path, func(ctx fiberinternal.Context) error {
 		if err := handler(ctx); err != nil {
+			if handled, handleErr := s.writeRegisteredError(ctx, err); handled {
+				return handleErr
+			}
 			return writeErrorResponse(ctx, err)
 		}
 		return nil
@@ -68,6 +77,40 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 		return fmt.Errorf("web: register route %s %s: %w", normalizedMethod, path, err)
 	}
 	return nil
+}
+
+func (s *server) registerErrorHandler(handler any) error {
+	handlers, err := buildErrorHandlers(handler)
+	if err != nil {
+		return err
+	}
+
+	for errorType := range handlers {
+		if _, exists := s.errorHandlers[errorType]; exists {
+			return fmt.Errorf("web: register error handler duplicate %s: %w", errorType, ErrInvalidErrorHandler)
+		}
+	}
+	errorTypes := make([]string, 0, len(handlers))
+	for errorType := range handlers {
+		errorTypes = append(errorTypes, errorType)
+	}
+	sort.Strings(errorTypes)
+
+	for _, errorType := range errorTypes {
+		s.errorHandlers[errorType] = handlers[errorType]
+		s.errorHandlerOrder = append(s.errorHandlerOrder, errorType)
+	}
+	return nil
+}
+
+func (s *server) writeRegisteredError(ctx Context, err error) (bool, error) {
+	for _, errorType := range s.errorHandlerOrder {
+		handler := s.errorHandlers[errorType]
+		if handled, writeErr := handler(ctx, err); handled {
+			return true, writeErr
+		}
+	}
+	return false, nil
 }
 
 func (s *server) ServeHTTP(req *http.Request) (*http.Response, error) {

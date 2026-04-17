@@ -3,6 +3,7 @@ package web_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	helix "github.com/enokdev/helix"
 	"github.com/enokdev/helix/web"
 )
 
@@ -177,6 +179,181 @@ func TestServer_ServeHTTPRejectsNilRequest(t *testing.T) {
 	}
 }
 
+func TestRegisterErrorHandlerOverridesDefaultErrorResponse(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	handler := &ValidationErrorHandler{}
+	if err := web.RegisterErrorHandler(server, handler); err != nil {
+		t.Fatalf("RegisterErrorHandler() error = %v", err)
+	}
+	if err := server.RegisterRoute(http.MethodGet, "/users/:id", func(web.Context) error {
+		return helix.ValidationError{Message: "email is required", Field: "email"}
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/users/42", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	detail := assertErrorResponse(t, resp, http.StatusUnprocessableEntity, "CUSTOM_VALIDATION", "email")
+	if detail.Type != "CustomValidationError" {
+		t.Fatalf("error.type = %q, want CustomValidationError", detail.Type)
+	}
+	if !handler.called {
+		t.Fatal("central error handler was not called")
+	}
+}
+
+func TestRegisterErrorHandlerSupportsContextAndMultipleHandledTypes(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	handler := &ApplicationErrorHandler{}
+	if err := web.RegisterErrorHandler(server, handler); err != nil {
+		t.Fatalf("RegisterErrorHandler() error = %v", err)
+	}
+
+	if err := server.RegisterRoute(http.MethodGet, "/validation/:id", func(web.Context) error {
+		return helix.ValidationError{Message: "bad user", Field: "id"}
+	}); err != nil {
+		t.Fatalf("RegisterRoute(validation) error = %v", err)
+	}
+	if err := server.RegisterRoute(http.MethodGet, "/missing/:id", func(web.Context) error {
+		return helix.NotFoundError{Message: "user missing"}
+	}); err != nil {
+		t.Fatalf("RegisterRoute(missing) error = %v", err)
+	}
+
+	validationResp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/validation/42", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(validation) error = %v", err)
+	}
+	defer validationResp.Body.Close()
+	validationDetail := assertErrorResponse(t, validationResp, http.StatusUnprocessableEntity, "APP_VALIDATION", "id")
+	if validationDetail.Message != "validation:bad user" {
+		t.Fatalf("validation message = %q, want validation:bad user", validationDetail.Message)
+	}
+
+	missingResp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/missing/abc", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(missing) error = %v", err)
+	}
+	defer missingResp.Body.Close()
+	missingDetail := assertErrorResponse(t, missingResp, http.StatusGone, "APP_NOT_FOUND", "")
+	if missingDetail.Message != "missing:abc:user missing" {
+		t.Fatalf("missing message = %q, want missing:abc:user missing", missingDetail.Message)
+	}
+}
+
+func TestRegisterErrorHandlerSupportsMultipleHandlersAndWrappedErrors(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterErrorHandler(server, &ValidationErrorHandler{}); err != nil {
+		t.Fatalf("RegisterErrorHandler(validation) error = %v", err)
+	}
+	if err := web.RegisterErrorHandler(server, &NotFoundErrorHandler{}); err != nil {
+		t.Fatalf("RegisterErrorHandler(not found) error = %v", err)
+	}
+
+	if err := server.RegisterRoute(http.MethodGet, "/wrapped-validation", func(web.Context) error {
+		return fmt.Errorf("service: validate user: %w", helix.ValidationError{Message: "email invalid", Field: "email"})
+	}); err != nil {
+		t.Fatalf("RegisterRoute(validation) error = %v", err)
+	}
+	if err := server.RegisterRoute(http.MethodGet, "/not-found", func(web.Context) error {
+		return helix.NotFoundError{Message: "user missing"}
+	}); err != nil {
+		t.Fatalf("RegisterRoute(not found) error = %v", err)
+	}
+
+	validationResp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/wrapped-validation", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(validation) error = %v", err)
+	}
+	defer validationResp.Body.Close()
+	assertErrorResponse(t, validationResp, http.StatusUnprocessableEntity, "CUSTOM_VALIDATION", "email")
+
+	notFoundResp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/not-found", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(not found) error = %v", err)
+	}
+	defer notFoundResp.Body.Close()
+	assertErrorResponse(t, notFoundResp, http.StatusGone, "CUSTOM_NOT_FOUND", "")
+}
+
+func TestRegisterErrorHandlerFallsBackWhenNoHandlerMatches(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterErrorHandler(server, &ValidationErrorHandler{}); err != nil {
+		t.Fatalf("RegisterErrorHandler() error = %v", err)
+	}
+	if err := server.RegisterRoute(http.MethodGet, "/generic", func(web.Context) error {
+		return errors.New("database down")
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/generic", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
+}
+
+func TestRegisterErrorHandlerRejectsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		handler any
+	}{
+		{name: "nil", handler: nil},
+		{name: "non pointer", handler: ValidationErrorHandler{}},
+		{name: "nil pointer", handler: (*ValidationErrorHandler)(nil)},
+		{name: "missing marker", handler: &UnmarkedErrorHandler{}},
+		{name: "missing suffix", handler: &NoSuffix{}},
+		{name: "malformed directive", handler: &MalformedDirectiveErrorHandler{}},
+		{name: "missing directive", handler: &MissingDirectiveErrorHandler{}},
+		{name: "invalid signature", handler: &InvalidSignatureErrorHandler{}},
+		{name: "unknown handled type", handler: &UnknownTypeErrorHandler{}},
+		{name: "duplicate type same handler", handler: &DuplicateValidationErrorHandler{}},
+		{name: "interface error argument", handler: &InterfaceArgErrorHandler{}},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := web.RegisterErrorHandler(newTestServer(t), tt.handler)
+			if !errors.Is(err, web.ErrInvalidErrorHandler) {
+				t.Fatalf("RegisterErrorHandler() error = %v, want ErrInvalidErrorHandler", err)
+			}
+		})
+	}
+}
+
+func TestRegisterErrorHandlerRejectsDuplicateTypeAcrossHandlers(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterErrorHandler(server, &ValidationErrorHandler{}); err != nil {
+		t.Fatalf("RegisterErrorHandler(first) error = %v", err)
+	}
+	err := web.RegisterErrorHandler(server, &SecondValidationErrorHandler{})
+	if !errors.Is(err, web.ErrInvalidErrorHandler) {
+		t.Fatalf("RegisterErrorHandler(second) error = %v, want ErrInvalidErrorHandler", err)
+	}
+}
+
 func TestNoPublicFiberImports(t *testing.T) {
 	t.Parallel()
 
@@ -214,6 +391,141 @@ func TestNoPublicFiberImports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk repo: %v", err)
 	}
+}
+
+type ValidationErrorHandler struct {
+	helix.ErrorHandler
+	called bool
+}
+
+//helix:handles ValidationError
+func (h *ValidationErrorHandler) Handle(err helix.ValidationError) (any, int) {
+	h.called = true
+	return web.ErrorResponse{Error: web.ErrorDetail{
+		Type:    "CustomValidationError",
+		Message: "custom:" + err.Error(),
+		Field:   err.ErrorField(),
+		Code:    "CUSTOM_VALIDATION",
+	}}, http.StatusUnprocessableEntity
+}
+
+type NotFoundErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles NotFoundError
+func (h *NotFoundErrorHandler) Handle(err helix.NotFoundError) (any, int) {
+	return web.ErrorResponse{Error: web.ErrorDetail{
+		Type:    "CustomNotFoundError",
+		Message: "custom:" + err.Error(),
+		Code:    "CUSTOM_NOT_FOUND",
+	}}, http.StatusGone
+}
+
+type ApplicationErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *ApplicationErrorHandler) Validation(err helix.ValidationError) (any, int) {
+	return web.ErrorResponse{Error: web.ErrorDetail{
+		Type:    "AppValidationError",
+		Message: "validation:" + err.Error(),
+		Field:   err.ErrorField(),
+		Code:    "APP_VALIDATION",
+	}}, http.StatusUnprocessableEntity
+}
+
+//helix:handles NotFoundError
+func (h *ApplicationErrorHandler) NotFound(ctx web.Context, err helix.NotFoundError) (any, int) {
+	return web.ErrorResponse{Error: web.ErrorDetail{
+		Type:    "AppNotFoundError",
+		Message: "missing:" + ctx.Param("id") + ":" + err.Error(),
+		Code:    "APP_NOT_FOUND",
+	}}, http.StatusGone
+}
+
+type UnmarkedErrorHandler struct{}
+
+//helix:handles ValidationError
+func (h *UnmarkedErrorHandler) Handle(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type NoSuffix struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *NoSuffix) Handle(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type MalformedDirectiveErrorHandler struct {
+	helix.ErrorHandler
+}
+
+// helix:handles ValidationError
+func (h *MalformedDirectiveErrorHandler) Handle(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type MissingDirectiveErrorHandler struct {
+	helix.ErrorHandler
+}
+
+func (h *MissingDirectiveErrorHandler) Handle(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type InvalidSignatureErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *InvalidSignatureErrorHandler) Handle(_ string) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type UnknownTypeErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles MissingError
+func (h *UnknownTypeErrorHandler) Handle(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type DuplicateValidationErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *DuplicateValidationErrorHandler) First(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+//helix:handles ValidationError
+func (h *DuplicateValidationErrorHandler) Second(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type SecondValidationErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *SecondValidationErrorHandler) Handle(err helix.ValidationError) (any, int) {
+	return nil, http.StatusBadRequest
+}
+
+type InterfaceArgErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *InterfaceArgErrorHandler) Handle(err error) (any, int) {
+	return nil, http.StatusBadRequest
 }
 
 func newTestServer(t *testing.T) web.HTTPServer {

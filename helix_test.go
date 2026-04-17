@@ -26,6 +26,7 @@ func TestDetectComponentMarker(t *testing.T) {
 		{name: "controller marker", component: &markedController{}, want: true},
 		{name: "repository marker", component: &markedRepository{}, want: true},
 		{name: "component marker", component: &markedComponent{}, want: true},
+		{name: "error handler marker", component: &markedErrorHandler{}, want: true},
 		{name: "unmarked struct", component: &unmarkedComponent{}, want: false},
 		{name: "nil component", component: nil, want: false},
 	}
@@ -141,6 +142,18 @@ type UserService struct {
 		awaitShutdown: func() error {
 			return nil
 		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
+func TestRunAcceptsErrorHandlerMarker(t *testing.T) {
+	t.Parallel()
+
+	err := Run(App{
+		Components:    []any{&markedErrorHandler{}},
+		awaitShutdown: func() error { return nil },
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -410,6 +423,10 @@ type markedRepository struct {
 
 type markedComponent struct {
 	Component
+}
+
+type markedErrorHandler struct {
+	ErrorHandler
 }
 
 type unmarkedComponent struct{}

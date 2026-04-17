@@ -21,10 +21,11 @@ import (
 )
 
 var markerTypes = map[reflect.Type]struct{}{
-	reflect.TypeOf(Service{}):    {},
-	reflect.TypeOf(Controller{}): {},
-	reflect.TypeOf(Repository{}): {},
-	reflect.TypeOf(Component{}):  {},
+	reflect.TypeOf(Service{}):      {},
+	reflect.TypeOf(Controller{}):   {},
+	reflect.TypeOf(Repository{}):   {},
+	reflect.TypeOf(Component{}):    {},
+	reflect.TypeOf(ErrorHandler{}): {},
 }
 
 // App describes the application bootstrap configuration used by Run.
@@ -58,6 +59,9 @@ type Repository struct{}
 
 // Component marks a struct as a generic Helix component.
 type Component struct{}
+
+// ErrorHandler marks a struct as a centralized HTTP error handler component.
+type ErrorHandler struct{}
 
 // Run builds the default reflection-based container, registers application
 // components, starts lifecycle hooks, waits for shutdown, and stops cleanly.

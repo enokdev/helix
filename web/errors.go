@@ -20,6 +20,10 @@ var ErrInvalidDirective = errors.New("web: invalid directive")
 // a controller handler can be called.
 var ErrInvalidRequest = errors.New("web: invalid request")
 
+// ErrInvalidErrorHandler is returned when a centralized error handler cannot
+// be registered.
+var ErrInvalidErrorHandler = errors.New("web: invalid error handler")
+
 // ErrorResponse is the structured JSON error envelope returned by Helix.
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`

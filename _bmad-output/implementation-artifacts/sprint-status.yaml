@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-# last_updated: 2026-04-17 — story 3-5 done
+# last_updated: 2026-04-17 — story 3-6 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-14
-last_updated: 2026-04-17 — story 3-5 done
+last_updated: 2026-04-17 — story 3-6 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -73,7 +73,7 @@ development_status:
   3-3-routes-custom-via-directives: done
   3-4-extracteurs-types-validation-automatique: done
   3-5-mapping-automatique-retour-http-status: done
-  3-6-error-handler-centralise: backlog
+  3-6-error-handler-centralise: done
   3-7-guards-interceptors-declaratifs: backlog
   epic-3-retrospective: optional
 
