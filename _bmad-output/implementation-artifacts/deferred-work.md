@@ -1,4 +1,14 @@
 
+## Deferred from: code review of story-3-5 (2026-04-17)
+
+- [D-3.5-1] `helix.ValidationError` et `RequestError` partagent `type="ValidationError"` et `code="VALIDATION_FAILED"` — les clients ne peuvent pas distinguer binding failure vs domain validation error ; pré-existant Story 3.3 ; à différencier dans une story dédiée (ex. `type="BindingError"` pour RequestError). [web/binding.go:18-19]
+- [D-3.5-2] Pas de panic recovery dans l'adaptateur Fiber — un handler qui panique crashe le serveur ; à traiter dans Epic 7 avec l'ajout de middleware `recover` dans le starter web. [web/internal/fiber_adapter.go]
+- [D-3.5-3] Valeur `error` retournée via slot `any` dans `(any, error)` encodée `{}` en JSON silencieusement — indétectable à la registration ; à documenter comme piège dans le guide développeur. [web/router.go:adaptControllerMethod]
+- [D-3.5-4] Échec de sérialisation JSON de success absorbe l'erreur sans log — l'erreur marshal remonte en 500 mais n'est pas loguée ; à instrumenter quand Epic 6 (slog) sera implémenté. [web/response.go:writeSuccessResponse]
+- [D-3.5-5] `RequestError.ResponseBody()` exporté mais dead code — l'ancien contrat `StatusCode()+ResponseBody()` de `web/internal` est supprimé ; `ResponseBody()` n'est plus appelée nulle part ; à retirer en breaking change dans une story de nettoyage API. [web/errors.go:72]
+- [D-3.5-6] `errors.As` pointer-to-interface dans `writeErrorResponse` correspond à tout type satisfaisant `structuredHTTPError` par coïncidence — risque futur de faux positifs ; design intentionnel pour éviter cycle d'import `web→helix`. [web/response.go:33]
+- [D-3.5-7] Types non sérialisables acceptés à la registration (`func() io.Reader`, etc.) — l'erreur marshal remonte en 500 à runtime ; validation de sérialisabilité JSON à la registration est complexe et hors périmètre. [web/router.go:newControllerReturnPlan]
+
 ## Deferred from: code review of story-3-4 (2026-04-17)
 
 - [D-3.4-1] `DisallowUnknownFields()` sans opt-out dans `bindJSON` — aucune possibilité de configurer l'acceptation de champs inconnus ; limitation de forward-compatibility, à adresser dans une future story (ex. tag `binding:"lenient"`). [web/binding.go:bindJSON]
