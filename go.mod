@@ -3,7 +3,7 @@ module github.com/enokdev/helix
 go 1.21.0
 
 require (
-	github.com/go-playground/validator/v10 v10.27.0
+	github.com/go-playground/validator/v10 v10.22.0
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/spf13/viper v1.20.1
 )
