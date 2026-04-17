@@ -474,7 +474,7 @@ type MissingDirectiveErrorHandler struct {
 	helix.ErrorHandler
 }
 
-func (h *MissingDirectiveErrorHandler) Handle(err helix.ValidationError) (any, int) {
+func (h *MissingDirectiveErrorHandler) Handle(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
@@ -492,7 +492,7 @@ type UnknownTypeErrorHandler struct {
 }
 
 //helix:handles MissingError
-func (h *UnknownTypeErrorHandler) Handle(err helix.ValidationError) (any, int) {
+func (h *UnknownTypeErrorHandler) Handle(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
@@ -501,12 +501,12 @@ type DuplicateValidationErrorHandler struct {
 }
 
 //helix:handles ValidationError
-func (h *DuplicateValidationErrorHandler) First(err helix.ValidationError) (any, int) {
+func (h *DuplicateValidationErrorHandler) First(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
 //helix:handles ValidationError
-func (h *DuplicateValidationErrorHandler) Second(err helix.ValidationError) (any, int) {
+func (h *DuplicateValidationErrorHandler) Second(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
@@ -515,7 +515,7 @@ type SecondValidationErrorHandler struct {
 }
 
 //helix:handles ValidationError
-func (h *SecondValidationErrorHandler) Handle(err helix.ValidationError) (any, int) {
+func (h *SecondValidationErrorHandler) Handle(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
@@ -524,7 +524,7 @@ type InterfaceArgErrorHandler struct {
 }
 
 //helix:handles ValidationError
-func (h *InterfaceArgErrorHandler) Handle(err error) (any, int) {
+func (h *InterfaceArgErrorHandler) Handle(_ error) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
