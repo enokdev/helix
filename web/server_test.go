@@ -46,9 +46,11 @@ func TestContextExposesParamHeaderAndIP(t *testing.T) {
 	t.Parallel()
 
 	server := newTestServer(t)
-	var gotParam, gotHeader, gotIP string
+	var gotMethod, gotURL, gotParam, gotHeader, gotIP string
 
 	if err := server.RegisterRoute(http.MethodGet, "/users/:id", func(ctx web.Context) error {
+		gotMethod = ctx.Method()
+		gotURL = ctx.OriginalURL()
 		gotParam = ctx.Param("id")
 		gotHeader = ctx.Header("X-Test")
 		gotIP = ctx.IP()
@@ -57,7 +59,7 @@ func TestContextExposesParamHeaderAndIP(t *testing.T) {
 		t.Fatalf("RegisterRoute() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/users/123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/123?active=true", nil)
 	req.Header.Set("X-Test", "helix")
 	req.RemoteAddr = "203.0.113.9:12345"
 
@@ -67,6 +69,12 @@ func TestContextExposesParamHeaderAndIP(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
+	if gotMethod != http.MethodGet {
+		t.Fatalf("Method() = %q, want %q", gotMethod, http.MethodGet)
+	}
+	if gotURL != "/users/123?active=true" {
+		t.Fatalf("OriginalURL() = %q, want %q", gotURL, "/users/123?active=true")
+	}
 	if gotParam != "123" {
 		t.Fatalf("Param() = %q, want %q", gotParam, "123")
 	}

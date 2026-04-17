@@ -14,6 +14,8 @@ const testTimeout = 30_000
 // Context mirrors the public web.Context contract without importing web and
 // creating a package cycle.
 type Context interface {
+	Method() string
+	OriginalURL() string
 	Param(key string) string
 	Query(key string) string
 	Header(key string) string
@@ -87,6 +89,14 @@ func (a *fiberAdapter) ServeHTTP(req *http.Request) (*http.Response, error) {
 
 type fiberContext struct {
 	ctx *fiber.Ctx
+}
+
+func (c fiberContext) Method() string {
+	return c.ctx.Method()
+}
+
+func (c fiberContext) OriginalURL() string {
+	return c.ctx.OriginalURL()
 }
 
 func (c fiberContext) Param(key string) string {

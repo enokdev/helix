@@ -2,8 +2,10 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -21,9 +23,14 @@ type HTTPServer interface {
 }
 
 type server struct {
-	adapter           fiberinternal.Adapter
-	errorHandlers     map[string]errorHandlerInvoker
-	errorHandlerOrder []string
+	adapter              fiberinternal.Adapter
+	errorHandlers        map[string]errorHandlerInvoker
+	errorHandlerOrder    []string
+	guards               map[string]Guard
+	guardFactories       map[string]GuardFactory
+	interceptors         map[string]Interceptor
+	interceptorFactories map[string]InterceptorFactory
+	cache                *cacheStore
 }
 
 // NewServer creates an HTTP server backed by an internal Fiber adapter.
@@ -35,10 +42,17 @@ func NewServer(opts ...Option) HTTPServer {
 		}
 	}
 
-	return &server{
-		adapter:       fiberinternal.NewAdapter(),
-		errorHandlers: make(map[string]errorHandlerInvoker),
+	s := &server{
+		adapter:              fiberinternal.NewAdapter(),
+		errorHandlers:        make(map[string]errorHandlerInvoker),
+		guards:               make(map[string]Guard),
+		guardFactories:       make(map[string]GuardFactory),
+		interceptors:         make(map[string]Interceptor),
+		interceptorFactories: make(map[string]InterceptorFactory),
+		cache:                newCacheStore(),
 	}
+	s.interceptorFactories["cache"] = cacheInterceptorFactory(s.cache)
+	return s
 }
 
 func (s *server) Start(addr string) error {
@@ -101,6 +115,123 @@ func (s *server) registerErrorHandler(handler any) error {
 		s.errorHandlerOrder = append(s.errorHandlerOrder, errorType)
 	}
 	return nil
+}
+
+func (s *server) registerGuard(name string, guard Guard) error {
+	name = strings.TrimSpace(name)
+	if name == "" || guard == nil || isNilValue(guard) {
+		return fmt.Errorf("web: validate guard %q: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.guards[name]; exists {
+		return fmt.Errorf("web: validate guard duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.guardFactories[name]; exists {
+		return fmt.Errorf("web: validate guard duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	s.guards[name] = guard
+	return nil
+}
+
+func (s *server) registerGuardFactory(name string, factory GuardFactory) error {
+	name = strings.TrimSpace(name)
+	if name == "" || factory == nil {
+		return fmt.Errorf("web: validate guard factory %q: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.guards[name]; exists {
+		return fmt.Errorf("web: validate guard duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.guardFactories[name]; exists {
+		return fmt.Errorf("web: validate guard duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	s.guardFactories[name] = factory
+	return nil
+}
+
+func (s *server) registerInterceptor(name string, interceptor Interceptor) error {
+	name = strings.TrimSpace(name)
+	if name == "" || interceptor == nil || isNilValue(interceptor) {
+		return fmt.Errorf("web: validate interceptor %q: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.interceptors[name]; exists {
+		return fmt.Errorf("web: validate interceptor duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.interceptorFactories[name]; exists {
+		return fmt.Errorf("web: validate interceptor duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	s.interceptors[name] = interceptor
+	return nil
+}
+
+func (s *server) registerInterceptorFactory(name string, factory InterceptorFactory) error {
+	name = strings.TrimSpace(name)
+	if name == "" || factory == nil {
+		return fmt.Errorf("web: validate interceptor factory %q: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.interceptors[name]; exists {
+		return fmt.Errorf("web: validate interceptor duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	if _, exists := s.interceptorFactories[name]; exists {
+		return fmt.Errorf("web: validate interceptor duplicate %s: %w", name, ErrInvalidDirective)
+	}
+	s.interceptorFactories[name] = factory
+	return nil
+}
+
+func (s *server) resolveGuard(directive namedDirective) (Guard, error) {
+	if directive.argument == "" {
+		guard, ok := s.guards[directive.name]
+		if !ok {
+			return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, ErrInvalidDirective)
+		}
+		return guard, nil
+	}
+	factory, ok := s.guardFactories[directive.name]
+	if !ok {
+		return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, ErrInvalidDirective)
+	}
+	guard, err := factory(directive.argument)
+	if err != nil {
+		return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, errors.Join(err, ErrInvalidDirective))
+	}
+	if guard == nil || isNilValue(guard) {
+		return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, ErrInvalidDirective)
+	}
+	return guard, nil
+}
+
+func (s *server) resolveInterceptor(directive namedDirective) (Interceptor, error) {
+	if directive.argument == "" {
+		interceptor, ok := s.interceptors[directive.name]
+		if !ok {
+			if _, isFactory := s.interceptorFactories[directive.name]; isFactory {
+				return nil, fmt.Errorf("web: resolve interceptor %s: %q requires an argument (use %s:<value>): %w", directive.raw, directive.name, directive.name, ErrInvalidDirective)
+			}
+			return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, ErrInvalidDirective)
+		}
+		return interceptor, nil
+	}
+	factory, ok := s.interceptorFactories[directive.name]
+	if !ok {
+		return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, ErrInvalidDirective)
+	}
+	interceptor, err := factory(directive.argument)
+	if err != nil {
+		return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, errors.Join(err, ErrInvalidDirective))
+	}
+	if interceptor == nil || isNilValue(interceptor) {
+		return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, ErrInvalidDirective)
+	}
+	return interceptor, nil
+}
+
+func isNilValue(value any) bool {
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
 }
 
 func (s *server) writeRegisteredError(ctx Context, err error) (bool, error) {

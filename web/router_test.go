@@ -666,6 +666,346 @@ func TestRegisterController_RejectsInvalidMaxTagAtRegistration(t *testing.T) {
 	}
 }
 
+func TestRegisterController_AppliesAuthenticatedGuard(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &GuardedController{}
+
+	if err := web.RegisterGuard(server, "authenticated", web.GuardFunc(func(ctx web.Context) error {
+		if ctx.Header("Authorization") == "" {
+			return web.Unauthorized("authentication required")
+		}
+		return nil
+	})); err != nil {
+		t.Fatalf("RegisterGuard() error = %v", err)
+	}
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/guardeds", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(unauthenticated) error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusUnauthorized, "UNAUTHORIZED", "")
+	if controller.indexCalls != 0 {
+		t.Fatalf("Index calls = %d, want 0", controller.indexCalls)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/guardeds", nil)
+	req.Header.Set("Authorization", "Bearer test")
+	resp, err = server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP(authenticated) error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.indexCalls != 1 {
+		t.Fatalf("Index calls = %d, want 1", controller.indexCalls)
+	}
+}
+
+func TestRegisterController_AppliesRoleGuardFactory(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &AdminController{}
+
+	if err := web.RegisterGuardFactory(server, "role", func(role string) (web.Guard, error) {
+		return web.GuardFunc(func(ctx web.Context) error {
+			for _, current := range strings.Split(ctx.Header("X-Helix-Roles"), ",") {
+				if strings.TrimSpace(current) == role {
+					return nil
+				}
+			}
+			return web.Forbidden("forbidden")
+		}), nil
+	}); err != nil {
+		t.Fatalf("RegisterGuardFactory() error = %v", err)
+	}
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/admins", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(forbidden) error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusForbidden, "FORBIDDEN", "")
+	if controller.calls != 0 {
+		t.Fatalf("Index calls = %d, want 0", controller.calls)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admins", nil)
+	req.Header.Set("X-Helix-Roles", "user, admin")
+	resp, err = server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP(admin) error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.calls != 1 {
+		t.Fatalf("Index calls = %d, want 1", controller.calls)
+	}
+}
+
+func TestRegisterController_AppliesCacheInterceptorAfterGuards(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &CachedController{}
+
+	if err := web.RegisterGuard(server, "authenticated", web.GuardFunc(func(ctx web.Context) error {
+		if ctx.Header("Authorization") == "" {
+			return web.Unauthorized("authentication required")
+		}
+		return nil
+	})); err != nil {
+		t.Fatalf("RegisterGuard() error = %v", err)
+	}
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/cacheds?item=42", nil)
+	req.Header.Set("Authorization", "Bearer first")
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP(first) error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var first cachedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first response: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/cacheds?item=42", nil)
+	req.Header.Set("Authorization", "Bearer second")
+	resp, err = server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP(second) error = %v", err)
+	}
+	defer resp.Body.Close()
+	var second cachedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&second); err != nil {
+		t.Fatalf("decode second response: %v", err)
+	}
+	if second != first {
+		t.Fatalf("cached response = %#v, want %#v", second, first)
+	}
+	if controller.calls != 1 {
+		t.Fatalf("handler calls = %d, want 1", controller.calls)
+	}
+
+	resp, err = server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/cacheds?item=42", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(unauthorized cached path) error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusUnauthorized, "UNAUTHORIZED", "")
+	if controller.calls != 1 {
+		t.Fatalf("handler calls after unauthorized request = %d, want 1", controller.calls)
+	}
+}
+
+func TestRegisterController_ChainsGuardsAndInterceptorsInOrder(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	var order []string
+	controller := &ChainedController{order: &order}
+
+	if err := web.RegisterGuard(server, "first", web.GuardFunc(func(web.Context) error {
+		order = append(order, "guard:first")
+		return nil
+	})); err != nil {
+		t.Fatalf("RegisterGuard(first) error = %v", err)
+	}
+	if err := web.RegisterGuard(server, "second", web.GuardFunc(func(web.Context) error {
+		order = append(order, "guard:second")
+		return nil
+	})); err != nil {
+		t.Fatalf("RegisterGuard(second) error = %v", err)
+	}
+	if err := web.RegisterInterceptor(server, "first", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
+		order = append(order, "interceptor:first:before")
+		err := next(ctx)
+		order = append(order, "interceptor:first:after")
+		return err
+	})); err != nil {
+		t.Fatalf("RegisterInterceptor(first) error = %v", err)
+	}
+	if err := web.RegisterInterceptor(server, "second", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
+		order = append(order, "interceptor:second:before")
+		err := next(ctx)
+		order = append(order, "interceptor:second:after")
+		return err
+	})); err != nil {
+		t.Fatalf("RegisterInterceptor(second) error = %v", err)
+	}
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/chaineds", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	want := []string{
+		"guard:first",
+		"guard:second",
+		"interceptor:first:before",
+		"interceptor:second:before",
+		"handler",
+		"interceptor:second:after",
+		"interceptor:first:after",
+	}
+	if strings.Join(order, "|") != strings.Join(want, "|") {
+		t.Fatalf("execution order = %#v, want %#v", order, want)
+	}
+}
+
+func TestRegisterController_AppliesRouteDirectivesToConventionsAndCustomRoutes(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &MixedDirectiveController{}
+
+	if err := web.RegisterGuard(server, "authenticated", web.GuardFunc(func(ctx web.Context) error {
+		if ctx.Header("Authorization") == "" {
+			return web.Unauthorized("authentication required")
+		}
+		return nil
+	})); err != nil {
+		t.Fatalf("RegisterGuard() error = %v", err)
+	}
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	for _, path := range []string{"/mixed-directives", "/mixed-directives/custom", "/mixed-directives/alternate"} {
+		resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, path, nil))
+		if err != nil {
+			t.Fatalf("ServeHTTP(%s) error = %v", path, err)
+		}
+		assertErrorResponse(t, resp, http.StatusUnauthorized, "UNAUTHORIZED", "")
+		resp.Body.Close()
+	}
+	if controller.calls != 0 {
+		t.Fatalf("handler calls = %d, want 0", controller.calls)
+	}
+}
+
+func TestRegisterController_RejectsInvalidGuardAndInterceptorDirectives(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		controller any
+		setup      func(web.HTTPServer) error
+	}{
+		{name: "space guard directive", controller: &SpaceGuardDirectiveController{}},
+		{name: "plus guard directive", controller: &PlusGuardDirectiveController{}},
+		{name: "missing guard argument", controller: &MissingGuardArgumentController{}},
+		{name: "missing interceptor argument", controller: &MissingInterceptorArgumentController{}},
+		{name: "too many guard tokens", controller: &TooManyGuardTokensController{}},
+		{name: "unknown guard", controller: &UnknownGuardController{}},
+		{name: "unknown interceptor", controller: &UnknownInterceptorController{}},
+		{name: "invalid cache duration", controller: &InvalidCacheDurationController{}},
+		{
+			name:       "failing guard factory",
+			controller: &AdminController{},
+			setup: func(server web.HTTPServer) error {
+				return web.RegisterGuardFactory(server, "role", func(string) (web.Guard, error) {
+					return nil, fmt.Errorf("test: invalid guard argument")
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer(t)
+			if tt.setup != nil {
+				if err := tt.setup(server); err != nil {
+					t.Fatalf("setup() error = %v", err)
+				}
+			}
+			err := web.RegisterController(server, tt.controller)
+			if !errors.Is(err, web.ErrInvalidDirective) {
+				t.Fatalf("RegisterController() error = %v, want ErrInvalidDirective", err)
+			}
+		})
+	}
+}
+
+func TestRegisterGuardAndInterceptorRejectInvalidRegistration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(web.HTTPServer) error
+	}{
+		{name: "empty guard name", run: func(server web.HTTPServer) error {
+			return web.RegisterGuard(server, "", web.GuardFunc(func(web.Context) error { return nil }))
+		}},
+		{name: "nil guard", run: func(server web.HTTPServer) error {
+			return web.RegisterGuard(server, "auth", nil)
+		}},
+		{name: "duplicate guard", run: func(server web.HTTPServer) error {
+			if err := web.RegisterGuard(server, "auth", web.GuardFunc(func(web.Context) error { return nil })); err != nil {
+				return err
+			}
+			return web.RegisterGuard(server, "auth", web.GuardFunc(func(web.Context) error { return nil }))
+		}},
+		{name: "empty interceptor name", run: func(server web.HTTPServer) error {
+			return web.RegisterInterceptor(server, "", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
+				return next(ctx)
+			}))
+		}},
+		{name: "nil interceptor", run: func(server web.HTTPServer) error {
+			return web.RegisterInterceptor(server, "audit", nil)
+		}},
+		{name: "duplicate interceptor", run: func(server web.HTTPServer) error {
+			if err := web.RegisterInterceptor(server, "audit", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
+				return next(ctx)
+			})); err != nil {
+				return err
+			}
+			return web.RegisterInterceptor(server, "audit", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
+				return next(ctx)
+			}))
+		}},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.run(newTestServer(t))
+			if !errors.Is(err, web.ErrInvalidDirective) {
+				t.Fatalf("registration error = %v, want ErrInvalidDirective", err)
+			}
+		})
+	}
+}
+
 type testErrorDetail struct {
 	Type    string
 	Message string
@@ -1044,6 +1384,124 @@ type DoubleErrorReturnController struct {
 func (c *DoubleErrorReturnController) Index() (error, error) {
 	return nil, nil
 }
+
+type GuardedController struct {
+	helix.Controller
+	indexCalls int
+}
+
+//helix:guard authenticated
+func (c *GuardedController) Index() {
+	c.indexCalls++
+}
+
+type AdminController struct {
+	helix.Controller
+	calls int
+}
+
+//helix:guard role:admin
+func (c *AdminController) Index() {
+	c.calls++
+}
+
+type cachedResponse struct {
+	Call int    `json:"call"`
+	Item string `json:"item"`
+}
+
+type CachedController struct {
+	helix.Controller
+	calls int
+}
+
+//helix:guard authenticated
+//helix:interceptor cache:5m
+func (c *CachedController) Index(ctx web.Context) cachedResponse {
+	c.calls++
+	return cachedResponse{Call: c.calls, Item: ctx.Query("item")}
+}
+
+type ChainedController struct {
+	helix.Controller
+	order *[]string
+}
+
+//helix:guard first
+//helix:guard second
+//helix:interceptor first
+//helix:interceptor second
+func (c *ChainedController) Index() {
+	*c.order = append(*c.order, "handler")
+}
+
+type MixedDirectiveController struct {
+	helix.Controller
+	calls int
+}
+
+//helix:guard authenticated
+//helix:route GET /mixed-directives/custom
+//helix:route GET /mixed-directives/alternate
+func (c *MixedDirectiveController) Index() {
+	c.calls++
+}
+
+type SpaceGuardDirectiveController struct {
+	helix.Controller
+}
+
+// helix:guard authenticated
+func (c *SpaceGuardDirectiveController) Index() {}
+
+type PlusGuardDirectiveController struct {
+	helix.Controller
+}
+
+// +helix:guard authenticated
+func (c *PlusGuardDirectiveController) Index() {}
+
+type MissingGuardArgumentController struct {
+	helix.Controller
+}
+
+//helix:guard
+func (c *MissingGuardArgumentController) Index() {}
+
+type MissingInterceptorArgumentController struct {
+	helix.Controller
+}
+
+//helix:interceptor
+func (c *MissingInterceptorArgumentController) Index() {}
+
+type TooManyGuardTokensController struct {
+	helix.Controller
+}
+
+//helix:guard authenticated extra
+func (c *TooManyGuardTokensController) Index() {}
+
+type UnknownGuardController struct {
+	helix.Controller
+}
+
+//helix:guard missing
+func (c *UnknownGuardController) Index() {}
+
+type UnknownInterceptorController struct {
+	helix.Controller
+}
+
+//helix:interceptor missing
+func (c *UnknownInterceptorController) Index() {}
+
+type InvalidCacheDurationController struct {
+	helix.Controller
+}
+
+//helix:interceptor cache:0s
+func (c *InvalidCacheDurationController) Index() {}
 
 type recordingServer struct {
 	routes []recordedRoute

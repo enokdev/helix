@@ -1,4 +1,14 @@
 
+## Deferred from: code review of 3-7-guards-interceptors-declaratifs (2026-04-17)
+
+- [D-3.7-1] Changement cassant sur l'interface publique `Context` (`Method()`, `OriginalURL()`) — requis par spec, doubles de test mis à jour dans `web/internal/` ; les implémentations externes doivent être mises à jour. [web/context.go]
+- [D-3.7-2] Guards coupent la chaîne d'interceptors pour les requêtes rejetées — comportement by design explicite dans la spec ; interceptors de type "observe-all" (tracing, métriques) ne verront pas les requêtes refusées. [web/router.go:composeHandler]
+- [D-3.7-3] Cache stampede — N goroutines concurrentes sur cold cache key exécutent toutes le handler (pas de single-flight) ; à adresser si le cache devient un composant de premier plan. [web/cache_interceptor.go]
+- [D-3.7-4] `responseRecorder` : `Status(non-2xx)` appelé après `JSON()` empêche la mise en cache d'une réponse 200 déjà envoyée — pattern inhabituel, à documenter. [web/cache_interceptor.go]
+- [D-3.7-5] Croissance unbounded du cache sans limite de taille ni sweep proactif — les entrées expirées ne sont évincées que paresseusement sur le prochain `get` ; à traiter si le cache devient production-grade. [web/cache_interceptor.go]
+- [D-3.7-6] Fichiers de test importent `github.com/enokdev/helix` depuis `web/` — pré-existant avant story 3.7 ; à résorber lors d'une story de nettoyage d'imports. [web/router_test.go, web/server_test.go]
+- [D-3.7-7] Double-wrap du nom dans les messages d'erreur `RegisterGuard` / `RegisterInterceptor` — cosmétique, logs légèrement bruités. [web/guard.go, web/interceptor.go]
+
 ## Deferred from: code review of story-3-5 (2026-04-17)
 
 - [D-3.5-1] `helix.ValidationError` et `RequestError` partagent `type="ValidationError"` et `code="VALIDATION_FAILED"` — les clients ne peuvent pas distinguer binding failure vs domain validation error ; pré-existant Story 3.3 ; à différencier dans une story dédiée (ex. `type="BindingError"` pour RequestError). [web/binding.go:18-19]
