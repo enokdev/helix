@@ -4,6 +4,7 @@ last_updated: 2026-04-17 — story 3-7 done
 # project_key: NOKEY
 # tracking_system: file-system
 # story_location: _bmad-output/implementation-artifacts
+# archive_location: _bmad-output/implementation-artifacts/archives
 
 # STATUS DEFINITIONS:
 # ==================
@@ -33,12 +34,14 @@ last_updated: 2026-04-17 — story 3-7 done
 # - Stories can be worked in parallel if team capacity allows
 # - Developer typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-17 — story 3-7 review
+last_updated: 2026-04-17 — story 3-7 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
+archive_location: _bmad-output/implementation-artifacts/archives
 
 development_status:
 

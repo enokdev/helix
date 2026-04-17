@@ -9,7 +9,8 @@ Helix is an **active Go backend framework** under development. The module is ini
 - **Architecture**: `_bmad-output/planning-artifacts/architecture.md` — all technical decisions
 - **Feature Specifications**: `_bmad-output/planning-artifacts/epics.md` — full requirements breakdown
 - **Development Progress**: `_bmad-output/implementation-artifacts/sprint-status.yaml` — current status
-- **Implementation Specs**: `_bmad-output/implementation-artifacts/*.md` — detailed specs with acceptance criteria
+- **Implementation Specs**: `_bmad-output/implementation-artifacts/*.md` — specs des stories actives (in-progress / review)
+- **Stories archivées**: `_bmad-output/implementation-artifacts/archives/*.md` — specs des stories `done`
 
 When architecture docs conflict with `prd.md`, the architecture doc takes precedence (it was derived from the PRD and refined).
 
