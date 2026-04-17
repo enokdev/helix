@@ -8,4 +8,6 @@ type Context interface {
 	Header(key string) string
 	IP() string
 	Body() []byte
+	Status(code int)
+	JSON(body any) error
 }

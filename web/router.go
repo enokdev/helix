@@ -38,6 +38,11 @@ type routeDirective struct {
 	path   string
 }
 
+type controllerReturnPlan struct {
+	hasPayload bool
+	hasError   bool
+}
+
 var routeConventions = []routeConvention{
 	{method: http.MethodGet, suffix: "", handlerName: "Index"},
 	{method: http.MethodGet, suffix: "/:id", handlerName: "Show"},
@@ -81,7 +86,7 @@ func RegisterController(server HTTPServer, controller any) error {
 			continue
 		}
 
-		handler, err := adaptControllerMethod(method)
+		handler, err := adaptControllerMethod(method, convention.method)
 		if err != nil {
 			return fmt.Errorf("web: register controller %s handler %s: %w", controllerType.Name(), convention.handlerName, err)
 		}
@@ -107,12 +112,11 @@ func RegisterController(server HTTPServer, controller any) error {
 			continue
 		}
 
-		handler, err := adaptControllerMethod(method)
-		if err != nil {
-			return fmt.Errorf("web: register controller %s handler %s: %w", controllerType.Name(), methodName, err)
-		}
-
 		for _, directive := range methodDirectives {
+			handler, err := adaptControllerMethod(method, directive.method)
+			if err != nil {
+				return fmt.Errorf("web: register controller %s handler %s: %w", controllerType.Name(), methodName, err)
+			}
 			if _, err := validateRoute(directive.method, directive.path, handler); err != nil {
 				return fmt.Errorf("web: register controller %s directive %s %s: %w", controllerType.Name(), directive.method, directive.path, ErrInvalidDirective)
 			}
@@ -362,15 +366,13 @@ func hasVowelSuffix(word string, offsetFromEnd int) bool {
 	}
 }
 
-func adaptControllerMethod(method reflect.Value) (HandlerFunc, error) {
+func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc, error) {
 	methodType := method.Type()
-	if methodType.NumOut() > 1 {
-		return nil, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
-	}
-	if methodType.NumOut() == 1 && !methodType.Out(0).Implements(errorType) {
-		return nil, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
-	}
 	argumentPlan, err := newControllerArgumentPlan(methodType)
+	if err != nil {
+		return nil, err
+	}
+	returnPlan, err := newControllerReturnPlan(methodType)
 	if err != nil {
 		return nil, err
 	}
@@ -386,13 +388,39 @@ func adaptControllerMethod(method reflect.Value) (HandlerFunc, error) {
 		}
 
 		results := method.Call(args)
-		if len(results) == 0 || isNilReflectValue(results[0]) {
-			return nil
+		if returnPlan.hasError {
+			errResult := results[len(results)-1]
+			if !isNilReflectValue(errResult) {
+				// Safe: newControllerReturnPlan verified the final return value
+				// implements error.
+				return errResult.Interface().(error) //nolint:forcetypeassert
+			}
 		}
 
-		// Safe: Out(0).Implements(errorType) was verified above.
-		return results[0].Interface().(error) //nolint:forcetypeassert
+		if !returnPlan.hasPayload {
+			return nil
+		}
+		return writeSuccessResponse(ctx, httpMethod, results[0].Interface())
 	}, nil
+}
+
+func newControllerReturnPlan(methodType reflect.Type) (controllerReturnPlan, error) {
+	switch methodType.NumOut() {
+	case 0:
+		return controllerReturnPlan{}, nil
+	case 1:
+		if methodType.Out(0).Implements(errorType) {
+			return controllerReturnPlan{hasError: true}, nil
+		}
+		return controllerReturnPlan{hasPayload: true}, nil
+	case 2:
+		if !methodType.Out(1).Implements(errorType) || methodType.Out(0).Implements(errorType) {
+			return controllerReturnPlan{}, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
+		}
+		return controllerReturnPlan{hasPayload: true, hasError: true}, nil
+	default:
+		return controllerReturnPlan{}, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
+	}
 }
 
 func isNilReflectValue(value reflect.Value) bool {

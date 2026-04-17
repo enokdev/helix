@@ -19,6 +19,8 @@ type Context interface {
 	Header(key string) string
 	IP() string
 	Body() []byte
+	Status(code int)
+	JSON(body any) error
 }
 
 // HandlerFunc handles a request through the internal adapter.
@@ -55,16 +57,7 @@ func (a *fiberAdapter) Stop(ctx context.Context) error {
 // RegisterRoute registers a route on the underlying Fiber app.
 func (a *fiberAdapter) RegisterRoute(method, path string, handler HandlerFunc) error {
 	fiberHandler := func(ctx *fiber.Ctx) error {
-		if err := handler(fiberContext{ctx: ctx}); err != nil {
-			if httpErr, ok := err.(interface {
-				StatusCode() int
-				ResponseBody() any
-			}); ok {
-				return ctx.Status(httpErr.StatusCode()).JSON(httpErr.ResponseBody())
-			}
-			return err
-		}
-		return nil
+		return handler(fiberContext{ctx: ctx})
 	}
 
 	switch method {
@@ -117,4 +110,12 @@ func (c fiberContext) Body() []byte {
 	copied := make([]byte, len(body))
 	copy(copied, body)
 	return copied
+}
+
+func (c fiberContext) Status(code int) {
+	c.ctx.Status(code)
+}
+
+func (c fiberContext) JSON(body any) error {
+	return c.ctx.JSON(body)
 }

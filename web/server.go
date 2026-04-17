@@ -59,7 +59,10 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 	}
 
 	err = s.adapter.RegisterRoute(normalizedMethod, path, func(ctx fiberinternal.Context) error {
-		return handler(ctx)
+		if err := handler(ctx); err != nil {
+			return writeErrorResponse(ctx, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("web: register route %s %s: %w", normalizedMethod, path, err)

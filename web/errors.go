@@ -72,3 +72,18 @@ func (e *RequestError) StatusCode() int {
 func (e *RequestError) ResponseBody() any {
 	return ErrorResponse{Error: e.detail}
 }
+
+// ErrorType returns the structured error type name.
+func (e *RequestError) ErrorType() string {
+	return e.detail.Type
+}
+
+// ErrorCode returns the machine-readable error code.
+func (e *RequestError) ErrorCode() string {
+	return e.detail.Code
+}
+
+// ErrorField returns the field associated with this error, when any.
+func (e *RequestError) ErrorField() string {
+	return e.detail.Field
+}

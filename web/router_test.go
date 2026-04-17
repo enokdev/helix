@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -520,6 +521,142 @@ func TestRequestErrorMatchesErrInvalidRequest(t *testing.T) {
 	}
 }
 
+func TestRegisterController_MapsSuccessReturnValuesToHTTPStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+		wantID     string
+	}{
+		{name: "get pointer payload", method: http.MethodGet, path: "/response-mappings/42", wantStatus: http.StatusOK, wantID: "42"},
+		{name: "post pointer payload", method: http.MethodPost, path: "/response-mappings", wantStatus: http.StatusCreated, wantID: "created"},
+		{name: "custom get value payload", method: http.MethodGet, path: "/response-mappings/preview", wantStatus: http.StatusOK, wantID: "preview"},
+		{name: "custom post same handler", method: http.MethodPost, path: "/response-mappings/preview", wantStatus: http.StatusCreated, wantID: "preview"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer(t)
+			if err := web.RegisterController(server, &ResponseMappingController{}); err != nil {
+				t.Fatalf("RegisterController() error = %v", err)
+			}
+
+			resp, err := server.ServeHTTP(httptest.NewRequest(tt.method, tt.path, nil))
+			if err != nil {
+				t.Fatalf("ServeHTTP() error = %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tt.wantStatus {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("StatusCode = %d, want %d; body = %s", resp.StatusCode, tt.wantStatus, string(body))
+			}
+			if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+				t.Fatalf("Content-Type = %q, want application/json", got)
+			}
+
+			var got responseUser
+			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatalf("decode success response: %v", err)
+			}
+			if got.ID != tt.wantID {
+				t.Fatalf("id = %q, want %q", got.ID, tt.wantID)
+			}
+			if got.Email == "" {
+				t.Fatal("email should not be empty")
+			}
+		})
+	}
+}
+
+func TestRegisterController_MapsReturnErrorsToStructuredHTTPResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+		wantType   string
+		wantCode   string
+		wantField  string
+	}{
+		{name: "not found", path: "/error-mappings/not-found", wantStatus: http.StatusNotFound, wantType: "NotFoundError", wantCode: "NOT_FOUND"},
+		{name: "validation", path: "/error-mappings/validation", wantStatus: http.StatusBadRequest, wantType: "ValidationError", wantCode: "VALIDATION_FAILED", wantField: "email"},
+		{name: "generic", path: "/error-mappings/generic", wantStatus: http.StatusInternalServerError, wantType: "InternalServerError", wantCode: "INTERNAL_ERROR"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer(t)
+			if err := web.RegisterController(server, &ErrorMappingController{}); err != nil {
+				t.Fatalf("RegisterController() error = %v", err)
+			}
+
+			resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if err != nil {
+				t.Fatalf("ServeHTTP() error = %v", err)
+			}
+			defer resp.Body.Close()
+
+			detail := assertErrorResponse(t, resp, tt.wantStatus, tt.wantCode, tt.wantField)
+			if detail.Type != tt.wantType {
+				t.Fatalf("error.type = %q, want %q", detail.Type, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestRegisterController_MapsWrappedStructuredErrors(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &WrappedErrorController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/wrapped-errors", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	assertErrorResponse(t, resp, http.StatusNotFound, "NOT_FOUND", "")
+}
+
+func TestRegisterController_RejectsInvalidReturnSignatures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		controller any
+	}{
+		{name: "too many returns", controller: &TooManyReturnsController{}},
+		{name: "second return not error", controller: &SecondReturnNotErrorController{}},
+		{name: "error error returns", controller: &DoubleErrorReturnController{}},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := web.RegisterController(newTestServer(t), tt.controller)
+			if !errors.Is(err, web.ErrUnsupportedHandler) {
+				t.Fatalf("RegisterController() error = %v, want ErrUnsupportedHandler", err)
+			}
+		})
+	}
+}
+
 func TestRegisterController_RejectsInvalidMaxTagAtRegistration(t *testing.T) {
 	t.Parallel()
 
@@ -529,7 +666,14 @@ func TestRegisterController_RejectsInvalidMaxTagAtRegistration(t *testing.T) {
 	}
 }
 
-func assertErrorResponse(t *testing.T, resp *http.Response, wantStatus int, wantCode, wantField string) {
+type testErrorDetail struct {
+	Type    string
+	Message string
+	Field   string
+	Code    string
+}
+
+func assertErrorResponse(t *testing.T, resp *http.Response, wantStatus int, wantCode, wantField string) testErrorDetail {
 	t.Helper()
 
 	if resp.StatusCode != wantStatus {
@@ -559,6 +703,12 @@ func assertErrorResponse(t *testing.T, resp *http.Response, wantStatus int, want
 	}
 	if payload.Error.Message == "" {
 		t.Fatal("error.message should not be empty")
+	}
+	return testErrorDetail{
+		Type:    payload.Error.Type,
+		Message: payload.Error.Message,
+		Field:   payload.Error.Field,
+		Code:    payload.Error.Code,
 	}
 }
 
@@ -819,6 +969,80 @@ type invalidMaxTagParams struct {
 
 func (c *InvalidMaxTagController) Index(_ invalidMaxTagParams) error {
 	return nil
+}
+
+type responseUser struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+type ResponseMappingController struct {
+	helix.Controller
+}
+
+func (c *ResponseMappingController) Show(ctx web.Context) (*responseUser, error) {
+	return &responseUser{ID: ctx.Param("id"), Email: "alice@example.com"}, nil
+}
+
+func (c *ResponseMappingController) Create() (*responseUser, error) {
+	return &responseUser{ID: "created", Email: "created@example.com"}, nil
+}
+
+//helix:route GET /response-mappings/preview
+//helix:route POST /response-mappings/preview
+func (c *ResponseMappingController) Preview() responseUser {
+	return responseUser{ID: "preview", Email: "preview@example.com"}
+}
+
+type ErrorMappingController struct {
+	helix.Controller
+}
+
+//helix:route GET /error-mappings/not-found
+func (c *ErrorMappingController) NotFound() (*responseUser, error) {
+	return nil, helix.NotFoundError{Message: "user not found"}
+}
+
+//helix:route GET /error-mappings/validation
+func (c *ErrorMappingController) Validation() (*responseUser, error) {
+	return nil, helix.ValidationError{Message: "email is required", Field: "email"}
+}
+
+//helix:route GET /error-mappings/generic
+func (c *ErrorMappingController) Generic() (*responseUser, error) {
+	return nil, errors.New("database connection failed")
+}
+
+type WrappedErrorController struct {
+	helix.Controller
+}
+
+func (c *WrappedErrorController) Index() (*responseUser, error) {
+	return nil, fmt.Errorf("repo: find user: %w", helix.NotFoundError{Message: "user not found"})
+}
+
+type TooManyReturnsController struct {
+	helix.Controller
+}
+
+func (c *TooManyReturnsController) Index() (responseUser, string, error) {
+	return responseUser{}, "", nil
+}
+
+type SecondReturnNotErrorController struct {
+	helix.Controller
+}
+
+func (c *SecondReturnNotErrorController) Index() (responseUser, string) {
+	return responseUser{}, ""
+}
+
+type DoubleErrorReturnController struct {
+	helix.Controller
+}
+
+func (c *DoubleErrorReturnController) Index() (error, error) {
+	return nil, nil
 }
 
 type recordingServer struct {

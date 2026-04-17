@@ -2,6 +2,7 @@ package helix
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -173,6 +174,67 @@ func TestRunRejectsLazyPrototypeComponent(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidComponent) {
 		t.Fatalf("Run() error = %v, want wrapped %v", err, ErrInvalidComponent)
+	}
+}
+
+func TestHTTPErrorTypesExposeStructuredDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  interface {
+			error
+			StatusCode() int
+			ErrorType() string
+			ErrorCode() string
+			ErrorField() string
+		}
+		wantStatus int
+		wantType   string
+		wantCode   string
+		wantField  string
+		wantMsg    string
+	}{
+		{
+			name:       "not found defaults",
+			err:        NotFoundError{},
+			wantStatus: http.StatusNotFound,
+			wantType:   "NotFoundError",
+			wantCode:   "NOT_FOUND",
+			wantMsg:    "resource not found",
+		},
+		{
+			name:       "validation custom field",
+			err:        ValidationError{Message: "email is required", Field: "email"},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "ValidationError",
+			wantCode:   "VALIDATION_FAILED",
+			wantField:  "email",
+			wantMsg:    "email is required",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.err.StatusCode(); got != tt.wantStatus {
+				t.Fatalf("StatusCode() = %d, want %d", got, tt.wantStatus)
+			}
+			if got := tt.err.ErrorType(); got != tt.wantType {
+				t.Fatalf("ErrorType() = %q, want %q", got, tt.wantType)
+			}
+			if got := tt.err.ErrorCode(); got != tt.wantCode {
+				t.Fatalf("ErrorCode() = %q, want %q", got, tt.wantCode)
+			}
+			if got := tt.err.ErrorField(); got != tt.wantField {
+				t.Fatalf("ErrorField() = %q, want %q", got, tt.wantField)
+			}
+			if got := tt.err.Error(); got != tt.wantMsg {
+				t.Fatalf("Error() = %q, want %q", got, tt.wantMsg)
+			}
+		})
 	}
 }
 
