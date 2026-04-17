@@ -1,5 +1,14 @@
 package core
 
+import (
+	"log/slog"
+	"time"
+)
+
+// DefaultShutdownTimeout is the lifecycle shutdown budget used when no custom
+// timeout is configured by the application bootstrap.
+const DefaultShutdownTimeout = 30 * time.Second
+
 // Option is a functional option for configuring a Container.
 type Option func(*Container)
 
@@ -12,5 +21,52 @@ func WithResolver(r Resolver) Option {
 	}
 	return func(c *Container) {
 		c.resolver = r
+		if c.valueLookup != nil {
+			setResolverValueLookup(c.resolver, c.valueLookup)
+		}
 	}
+}
+
+// WithValueLookup configures scalar value resolution for fields tagged value:"...".
+// Resolver implementations that do not support value lookup ignore this option.
+func WithValueLookup(lookup func(key string) (any, bool)) Option {
+	if lookup == nil {
+		panic("helix: WithValueLookup: lookup must not be nil")
+	}
+	return func(c *Container) {
+		c.valueLookup = lookup
+		setResolverValueLookup(c.resolver, lookup)
+	}
+}
+
+// WithShutdownTimeout overrides the lifecycle shutdown budget.
+func WithShutdownTimeout(timeout time.Duration) Option {
+	if timeout <= 0 {
+		panic("helix: WithShutdownTimeout: timeout must be positive")
+	}
+	return func(c *Container) {
+		c.shutdownTimeout = timeout
+	}
+}
+
+// WithLogger overrides the logger used for lifecycle shutdown errors.
+func WithLogger(logger *slog.Logger) Option {
+	if logger == nil {
+		panic("helix: WithLogger: logger must not be nil")
+	}
+	return func(c *Container) {
+		c.logger = logger
+	}
+}
+
+type valueLookupResolver interface {
+	setValueLookup(func(key string) (any, bool))
+}
+
+func setResolverValueLookup(resolver Resolver, lookup func(key string) (any, bool)) {
+	valueResolver, ok := resolver.(valueLookupResolver)
+	if !ok {
+		return
+	}
+	valueResolver.setValueLookup(lookup)
 }

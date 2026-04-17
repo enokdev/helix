@@ -83,13 +83,55 @@ A module uses one mode, never both. The `Container` delegates to whichever `Reso
 
 ### Closing completed work items
 
-When a work item is marked `done` in the internal tracking system, close the corresponding GitHub issue:
+When a work item is marked `done` in the internal tracking system:
 
-1. Find the issue by searching for the feature number:
-   ```bash
-   gh issue list --repo enokdev/helix --search "Story <N>.<M>" --json number,title
-   ```
-2. Close it:
-   ```bash
-   gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
-   ```
+#### 1. Commit and push
+
+Stage and commit all modified source files, then push:
+
+```bash
+git add <source files>
+git commit -m "fix(<scope>): code review patches — story <N.M>"
+git push origin <current-branch>
+```
+
+Use conventional commit format. Never add `Co-Authored-By`.
+
+#### 2. Verify CI
+
+Poll until the CI run completes (up to ~5 minutes, every 30 s):
+
+```bash
+gh run list --repo enokdev/helix --branch <current-branch> --limit 1 --json status,conclusion,databaseId
+```
+
+If the run fails, fetch logs and fix before proceeding:
+
+```bash
+gh run view <run-id> --repo enokdev/helix --log-failed
+```
+
+Do not close the issue or move the project task until CI is green.
+
+#### 3. Close the GitHub issue
+
+```bash
+gh issue list --repo enokdev/helix --search "Story <N>.<M>" --json number,title
+gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
+```
+
+#### 4. Move the GitHub project task to Done
+
+```bash
+# Discover IDs
+gh project list --owner enokdev --format json
+gh project field-list 1 --owner enokdev --format json
+gh project item-list 1 --owner enokdev --format json
+
+# Move item
+gh project item-edit \
+  --id <item-node-id> \
+  --field-id <status-field-id> \
+  --project-id <project-node-id> \
+  --single-select-option-id <done-option-id>
+```

@@ -9,6 +9,9 @@ import (
 // Compile-time check that ReflectResolver satisfies the Resolver interface.
 var _ Resolver = (*ReflectResolver)(nil)
 
+// Compile-time check that ReflectResolver satisfies the LifecycleResolver interface.
+var _ LifecycleResolver = (*ReflectResolver)(nil)
+
 // ReflectResolver resolves dependencies using Go reflection at runtime.
 // It is the default Helix resolver mode and stores singleton instances by type.
 type ReflectResolver struct {
@@ -36,6 +39,10 @@ func NewReflectResolver() *ReflectResolver {
 			return nil, false
 		},
 	}
+}
+
+func (r *ReflectResolver) setValueLookup(lookup func(key string) (any, bool)) {
+	r.valueLookup = lookup
 }
 
 // Register stores a component registration keyed by its concrete pointer type.
@@ -86,6 +93,45 @@ func (r *ReflectResolver) Graph() DependencyGraph {
 		graph.Edges[node] = append([]string(nil), deps...)
 	}
 	return graph
+}
+
+// LifecycleCandidates returns all non-lazy singleton components implementing
+// Lifecycle, in registration order. Uses reflect.Type as the seen-set key to
+// prevent collisions between types that share a short string representation.
+func (r *ReflectResolver) LifecycleCandidates() ([]LifecycleCandidate, error) {
+	seen := make(map[reflect.Type]struct{}, len(r.registrationOrder))
+	var candidates []LifecycleCandidate
+
+	for _, registrationType := range r.registrationOrder {
+		registration := r.registrations[registrationType]
+		if registration.Scope != ScopeSingleton || registration.Lazy {
+			continue
+		}
+		if !registrationType.Implements(lifecycleType) {
+			continue
+		}
+		if _, dup := seen[registrationType]; dup {
+			continue
+		}
+		seen[registrationType] = struct{}{}
+
+		value, err := r.resolveRegistration(registrationType, registration, newResolutionState())
+		if err != nil {
+			return nil, fmt.Errorf("core: resolve lifecycle %s: %w", registrationType, err)
+		}
+
+		instance, ok := value.Interface().(Lifecycle)
+		if !ok {
+			continue
+		}
+
+		candidates = append(candidates, LifecycleCandidate{
+			Name:     registrationType.String(),
+			Instance: instance,
+		})
+	}
+
+	return candidates, nil
 }
 
 func (r *ReflectResolver) resolveByType(requestedType reflect.Type) (reflect.Value, error) {

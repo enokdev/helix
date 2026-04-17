@@ -17,3 +17,20 @@ type Resolver interface {
 	Resolve(target any) error
 	Graph() DependencyGraph
 }
+
+// LifecycleCandidate holds a resolved non-lazy singleton component that
+// implements the Lifecycle interface.
+type LifecycleCandidate struct {
+	Name     string
+	Instance Lifecycle
+}
+
+// LifecycleResolver is an optional capability that a Resolver may implement
+// to enable Container.Start() and Container.Shutdown(). Resolvers that do not
+// implement this interface cause Start() to return a clear error.
+// ReflectResolver satisfies this interface by default.
+type LifecycleResolver interface {
+	// LifecycleCandidates returns all non-lazy singleton components implementing
+	// Lifecycle, in registration order. Dependency ordering is applied by the caller.
+	LifecycleCandidates() ([]LifecycleCandidate, error)
+}

@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-# last_updated: 2026-04-15
+# last_updated: 2026-04-17 — story 3-1 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-14
-last_updated: 2026-04-15
+last_updated: 2026-04-17
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -51,24 +51,24 @@ development_status:
   1-3-reflectresolver-enregistrement-resolution-singleton: done
   1-4-detection-des-cycles-de-dependances: done
   1-5-scope-prototype-lazy-loading: done
-  1-6-hooks-de-cycle-de-vie-graceful-shutdown: backlog
-  1-7-point-dentree-helix-run-marqueurs-de-composants: backlog
+  1-6-hooks-de-cycle-de-vie-graceful-shutdown: done
+  1-7-point-dentree-helix-run-marqueurs-de-composants: done
   epic-1-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 2: Configuration Centralisée
   # ─────────────────────────────────────────────
-  epic-2: backlog
-  2-1-loader-yaml-chaine-de-priorite: backlog
-  2-2-profils-de-configuration: backlog
-  2-3-rechargement-dynamique-de-la-configuration: backlog
+  epic-2: in-progress
+  2-1-loader-yaml-chaine-de-priorite: done
+  2-2-profils-de-configuration: done
+  2-3-rechargement-dynamique-de-la-configuration: done
   epic-2-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 3: Couche HTTP Déclarative
   # ─────────────────────────────────────────────
-  epic-3: backlog
-  3-1-abstraction-http-adaptateur-fiber: backlog
+  epic-3: in-progress
+  3-1-abstraction-http-adaptateur-fiber: done
   3-2-routing-par-convention-de-nommage: backlog
   3-3-routes-custom-via-directives: backlog
   3-4-extracteurs-types-validation-automatique: backlog

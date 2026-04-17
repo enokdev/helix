@@ -117,7 +117,87 @@ If `{sprint_status}` file does not exist, note that story status was updated in 
 > **Deferred:** <W>
 > **Dismissed:** <R>
 
-### 7. Next steps
+### 7. Commit, push and close GitHub issue
+
+Perform this section only when `{new_status}` = `done`.
+
+#### Commit
+
+Stage and commit all modified source files (exclude `_bmad-output/` — it is gitignored):
+
+```bash
+git add <source files changed during review>
+git commit -m "fix(<scope>): code review patches — story <story_key>"
+```
+
+Use conventional commit format from CLAUDE.md. Never add `Co-Authored-By`.
+
+#### Push
+
+```bash
+git push origin <current-branch>
+```
+
+#### Verify CI
+
+After pushing, wait for CI checks to complete and verify they pass:
+
+1. Get the SHA of the commit just pushed:
+   ```bash
+   git rev-parse HEAD
+   ```
+2. Poll until all checks are no longer pending (up to ~5 minutes, checking every 30 s):
+   ```bash
+   gh run list --repo enokdev/helix --branch <current-branch> --limit 1 --json status,conclusion,databaseId
+   ```
+3. If the run is `completed` with conclusion `success`: proceed to close the GitHub issue.
+4. If the run fails or is cancelled:
+   - Fetch the failing step logs:
+     ```bash
+     gh run view <run-id> --repo enokdev/helix --log-failed
+     ```
+   - Diagnose and fix the root cause in the source files.
+   - Stage, commit, and push the fix using the same conventional-commit format.
+   - Re-poll from step 2 until CI passes.
+   - **Do not close the GitHub issue or move the project task until CI is green.**
+5. If no CI run is found after 2 minutes, note it to the user and continue.
+
+#### Close GitHub issue
+
+1. Search for the open issue matching the story:
+   ```bash
+   gh issue list --repo enokdev/helix --search "Story <N.M>" --json number,title,state
+   ```
+2. Close it:
+   ```bash
+   gh issue close <number> --repo enokdev/helix --comment "Story <N.M> implémentée et validée — code review terminée. ✅"
+   ```
+   If no matching issue is found, note it to the user and continue.
+
+#### Move GitHub project task
+
+After closing the issue, move the corresponding item to **Done** in the GitHub project (`https://github.com/orgs/enokdev/projects/1`):
+
+1. Discover the project node ID, status field ID, and "Done" option ID:
+   ```bash
+   gh project list --owner enokdev --format json
+   gh project field-list 1 --owner enokdev --format json
+   ```
+2. Find the project item ID matching the story:
+   ```bash
+   gh project item-list 1 --owner enokdev --format json
+   ```
+3. Move the item to Done:
+   ```bash
+   gh project item-edit \
+     --id <item-node-id> \
+     --field-id <status-field-id> \
+     --project-id <project-node-id> \
+     --single-select-option-id <done-option-id>
+   ```
+   If the item is not found in the project, note it to the user and continue.
+
+### 8. Next steps
 
 Present the user with follow-up options:
 
