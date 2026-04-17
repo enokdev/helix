@@ -46,3 +46,11 @@
 
 - [Df1] Goroutine leak sur timeout `OnStop()` — goroutine abandonnée quand le timer expire, sans signal d'annulation. Limitation inhérente à `OnStop() error` (pas de `context.Context`), explicitement reconnue dans les Dev Notes 1.6. À traiter si l'interface `Lifecycle` est étendue avec `context.Context` dans une story future. [core/lifecycle_manager.go:157]
 - [Df2] Commentaire godoc de `lifecycle.go` mentionne SIGTERM/SIGINT alors que ce n'est pas encore câblé — sera exact après story 1.7. [core/lifecycle.go]
+
+## Deferred from: code review of 3-1-abstraction-http-adaptateur-fiber (2026-04-17)
+
+- [Df1] `Start` est bloquant (`app.Listen`) — comportement attendu par la spec ; les callers doivent le goroutiner explicitement. Lifecycle et démarrage automatique via starter réservés Epic 7. [web/internal/fiber_adapter.go:Start]
+- [Df2] Enregistrement de routes dupliquées non détecté — Fiber empile les handlers silencieusement. Comportement à trancher si une politique de routes unique est requise. [web/server.go:RegisterRoute]
+- [Df3] `serverOptions` vide — options Fiber (timeouts, body limits, TLS) non configurables via l'API publique. Sera alimenté dans les stories suivantes. [web/options.go]
+- [Df4] `Context` sans `Query`/`Body` — hors périmètre story 3.1, à implémenter en story 3.4. [web/context.go]
+- [Df5] `TestNoPublicFiberImports` autorise un seul fichier (`fiber_adapter.go`) par chemin exact — politique valide aujourd'hui ; à élargir en pattern `web/internal/*.go` si de nouveaux fichiers internes légitimes importent Fiber. [web/server_test.go:TestNoPublicFiberImports]
