@@ -2,8 +2,13 @@ package web
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"reflect"
+	"runtime"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -19,6 +24,18 @@ type routeConvention struct {
 	method      string
 	suffix      string
 	handlerName string
+}
+
+type controllerRoute struct {
+	method  string
+	path    string
+	handler HandlerFunc
+	order   int
+}
+
+type routeDirective struct {
+	method string
+	path   string
 }
 
 var routeConventions = []routeConvention{
@@ -49,14 +66,15 @@ func RegisterController(server HTTPServer, controller any) error {
 		return err
 	}
 
-	// First pass: validate all handler signatures before registering any route,
-	// so a bad signature never leaves the server in a partial state.
-	type pendingRoute struct {
-		method  string
-		path    string
-		handler HandlerFunc
+	directives, err := controllerRouteDirectives(controllerValue.Type(), controllerType.Name())
+	if err != nil {
+		return err
 	}
-	routes := make([]pendingRoute, 0, len(routeConventions))
+
+	// First pass: validate all handler signatures and route definitions before
+	// registering any route, so a bad directive never leaves partial state.
+	routes := make([]controllerRoute, 0, len(routeConventions)+len(directives))
+	order := 0
 	for _, convention := range routeConventions {
 		method := controllerValue.MethodByName(convention.handlerName)
 		if !method.IsValid() {
@@ -67,16 +85,52 @@ func RegisterController(server HTTPServer, controller any) error {
 		if err != nil {
 			return fmt.Errorf("web: register controller %s handler %s: %w", controllerType.Name(), convention.handlerName, err)
 		}
-		routes = append(routes, pendingRoute{
+		routes = append(routes, controllerRoute{
 			method:  convention.method,
 			path:    prefix + convention.suffix,
 			handler: handler,
+			order:   order,
 		})
+		order++
+	}
+
+	methodNames := make([]string, 0, len(directives))
+	for methodName := range directives {
+		methodNames = append(methodNames, methodName)
+	}
+	sort.Strings(methodNames)
+
+	for _, methodName := range methodNames {
+		methodDirectives := directives[methodName]
+		method := controllerValue.MethodByName(methodName)
+		if !method.IsValid() {
+			continue
+		}
+
+		handler, err := adaptControllerMethod(method)
+		if err != nil {
+			return fmt.Errorf("web: register controller %s handler %s: %w", controllerType.Name(), methodName, err)
+		}
+
+		for _, directive := range methodDirectives {
+			if _, err := validateRoute(directive.method, directive.path, handler); err != nil {
+				return fmt.Errorf("web: register controller %s directive %s %s: %w", controllerType.Name(), directive.method, directive.path, ErrInvalidDirective)
+			}
+			routes = append(routes, controllerRoute{
+				method:  directive.method,
+				path:    directive.path,
+				handler: handler,
+				order:   order,
+			})
+			order++
+		}
 	}
 
 	if len(routes) == 0 {
 		return fmt.Errorf("web: register controller %s: %w", controllerType.Name(), ErrInvalidController)
 	}
+
+	sortControllerRoutes(routes)
 
 	// Second pass: register all routes only after all handlers are validated.
 	for _, r := range routes {
@@ -85,6 +139,127 @@ func RegisterController(server HTTPServer, controller any) error {
 		}
 	}
 	return nil
+}
+
+func sortControllerRoutes(routes []controllerRoute) {
+	sort.SliceStable(routes, func(i, j int) bool {
+		iParameterized := strings.Contains(routes[i].path, ":")
+		jParameterized := strings.Contains(routes[j].path, ":")
+		if iParameterized != jParameterized {
+			return !iParameterized
+		}
+		return routes[i].order < routes[j].order
+	})
+}
+
+func controllerRouteDirectives(controllerMethodType reflect.Type, controllerName string) (map[string][]routeDirective, error) {
+	files := make(map[string]*ast.File)
+	fset := token.NewFileSet()
+	directives := make(map[string][]routeDirective)
+
+	for i := 0; i < controllerMethodType.NumMethod(); i++ {
+		method := controllerMethodType.Method(i)
+		runtimeFunc := runtime.FuncForPC(method.Func.Pointer())
+		if runtimeFunc == nil {
+			return nil, fmt.Errorf("web: parse directives for %s.%s: %w", controllerName, method.Name, ErrInvalidDirective)
+		}
+
+		filename, _ := runtimeFunc.FileLine(method.Func.Pointer())
+		if filename == "" {
+			return nil, fmt.Errorf("web: parse directives for %s.%s: %w", controllerName, method.Name, ErrInvalidDirective)
+		}
+
+		file, ok := files[filename]
+		if !ok {
+			parsed, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+			if err != nil {
+				return nil, fmt.Errorf("web: parse directives in %s: %w", filename, ErrInvalidDirective)
+			}
+			file = parsed
+			files[filename] = file
+		}
+
+		methodDirectives, err := parseMethodRouteDirectives(file, controllerName, method.Name)
+		if err != nil {
+			return nil, err
+		}
+		if len(methodDirectives) > 0 {
+			directives[method.Name] = methodDirectives
+		}
+	}
+
+	return directives, nil
+}
+
+func parseMethodRouteDirectives(file *ast.File, controllerName, methodName string) ([]routeDirective, error) {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Recv == nil || funcDecl.Name.Name != methodName {
+			continue
+		}
+		if !receiverMatches(funcDecl.Recv, controllerName) {
+			continue
+		}
+
+		return parseRouteDirectiveComments(controllerName, methodName, funcDecl.Doc)
+	}
+	return nil, nil
+}
+
+func receiverMatches(recv *ast.FieldList, controllerName string) bool {
+	if recv == nil || len(recv.List) != 1 {
+		return false
+	}
+
+	receiverType := recv.List[0].Type
+	if star, ok := receiverType.(*ast.StarExpr); ok {
+		receiverType = star.X
+	}
+
+	ident, ok := receiverType.(*ast.Ident)
+	return ok && ident.Name == controllerName
+}
+
+func parseRouteDirectiveComments(controllerName, methodName string, comments *ast.CommentGroup) ([]routeDirective, error) {
+	if comments == nil {
+		return nil, nil
+	}
+
+	directives := make([]routeDirective, 0, len(comments.List))
+	for _, comment := range comments.List {
+		text := comment.Text
+		switch {
+		case strings.HasPrefix(text, "//helix:route "):
+			directive, err := parseRouteDirective(text)
+			if err != nil {
+				return nil, fmt.Errorf("web: parse directive %s.%s %q: %w", controllerName, methodName, text, err)
+			}
+			directives = append(directives, directive)
+		case strings.HasPrefix(text, "// helix:route") || strings.HasPrefix(text, "//+helix:route") || strings.HasPrefix(text, "// +helix:route"):
+			return nil, fmt.Errorf("web: parse directive %s.%s %q: %w", controllerName, methodName, text, ErrInvalidDirective)
+		case strings.HasPrefix(text, "//helix:route") && !strings.HasPrefix(text, "//helix:route "):
+			return nil, fmt.Errorf("web: parse directive %s.%s %q: %w", controllerName, methodName, text, ErrInvalidDirective)
+		}
+	}
+	return directives, nil
+}
+
+func parseRouteDirective(text string) (routeDirective, error) {
+	fields := strings.Fields(strings.TrimPrefix(text, "//helix:route "))
+	if len(fields) != 2 {
+		return routeDirective{}, ErrInvalidDirective
+	}
+
+	directive := routeDirective{
+		method: fields[0],
+		path:   fields[1],
+	}
+	normalizedMethod, err := validateRoute(directive.method, directive.path, func(Context) error { return nil })
+	if err != nil {
+		return routeDirective{}, ErrInvalidDirective
+	}
+	directive.method = normalizedMethod
+	return directive, nil
 }
 
 func validateController(controller any) (reflect.Value, reflect.Type, error) {

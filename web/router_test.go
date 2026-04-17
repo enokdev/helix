@@ -1,9 +1,11 @@
 package web_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	helix "github.com/enokdev/helix"
@@ -169,6 +171,158 @@ func TestRegisterController_RejectsUnsupportedMethodSignature(t *testing.T) {
 	}
 }
 
+func TestRegisterController_RegistersCustomRouteDirective(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &CustomRouteController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/custom-routes/search", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.last != "search" {
+		t.Fatalf("last call = %q, want %q", controller.last, "search")
+	}
+}
+
+func TestRegisterController_RegistersMultipleCustomRouteDirectives(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		want   string
+	}{
+		{name: "get", method: http.MethodGet, want: "get"},
+		{name: "post", method: http.MethodPost, want: "post"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer(t)
+			controller := &CustomRouteController{}
+
+			if err := web.RegisterController(server, controller); err != nil {
+				t.Fatalf("RegisterController() error = %v", err)
+			}
+
+			req := httptest.NewRequest(tt.method, "/custom-routes/search", nil)
+			req.Header.Set("X-Method", tt.want)
+			resp, err := server.ServeHTTP(req)
+			if err != nil {
+				t.Fatalf("ServeHTTP() error = %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			if controller.last != tt.want {
+				t.Fatalf("last call = %q, want %q", controller.last, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegisterController_PrioritizesStaticCustomRoutesBeforeParameterizedConventions(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &CustomRouteController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/custom-routes/search", nil)
+	req.Header.Set("X-Method", "get")
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.last != "get" {
+		t.Fatalf("last call = %q, want %q; custom static route should not be captured by Show", controller.last, "get")
+	}
+}
+
+func TestRegisterController_IgnoresUnroutedMethods(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &UnroutedMethodController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/unrouted-methods/helper", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestRegisterController_RejectsMalformedRouteDirective(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		controller any
+	}{
+		{name: "space after slashes", controller: &SpaceDirectiveController{}},
+		{name: "plus prefix", controller: &PlusDirectiveController{}},
+		{name: "missing path", controller: &MissingPathDirectiveController{}},
+		{name: "too many tokens", controller: &TooManyTokensDirectiveController{}},
+		{name: "unsupported method", controller: &UnsupportedMethodDirectiveController{}},
+		{name: "invalid path", controller: &InvalidPathDirectiveController{}},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := web.RegisterController(newTestServer(t), tt.controller)
+			if !errors.Is(err, web.ErrInvalidDirective) {
+				t.Fatalf("RegisterController() error = %v, want ErrInvalidDirective", err)
+			}
+		})
+	}
+}
+
+func TestRegisterController_DoesNotPartiallyRegisterRoutesWhenDirectiveInvalid(t *testing.T) {
+	t.Parallel()
+
+	server := &recordingServer{}
+	err := web.RegisterController(server, &SpaceDirectiveController{})
+	if !errors.Is(err, web.ErrInvalidDirective) {
+		t.Fatalf("RegisterController() error = %v, want ErrInvalidDirective", err)
+	}
+	if len(server.routes) != 0 {
+		t.Fatalf("registered routes = %v, want none", server.routes)
+	}
+}
+
 func valueOrCalled(value string) string {
 	if value == "" {
 		return "called"
@@ -276,4 +430,105 @@ type UnsupportedSignatureController struct {
 
 func (c *UnsupportedSignatureController) Index(_ struct{}) error {
 	return nil
+}
+
+type CustomRouteController struct {
+	helix.Controller
+	last string
+}
+
+func (c *CustomRouteController) Show(ctx web.Context) error {
+	c.last = "show:" + ctx.Param("id")
+	return nil
+}
+
+//helix:route GET /custom-routes/search
+//helix:route POST /custom-routes/search
+func (c *CustomRouteController) Search(ctx web.Context) error {
+	c.last = strings.ToLower(ctx.Header("X-Method"))
+	if c.last == "" {
+		c.last = strings.ToLower(ctx.Param("method"))
+	}
+	if c.last == "" {
+		c.last = "search"
+	}
+	return nil
+}
+
+type UnroutedMethodController struct {
+	helix.Controller
+}
+
+func (c *UnroutedMethodController) Index() {}
+
+func (c *UnroutedMethodController) Helper() {}
+
+type SpaceDirectiveController struct {
+	helix.Controller
+}
+
+func (c *SpaceDirectiveController) Index() {}
+
+// helix:route GET /space-directives/search
+func (c *SpaceDirectiveController) Search() {}
+
+type PlusDirectiveController struct {
+	helix.Controller
+}
+
+// +helix:route GET /plus-directives/search
+func (c *PlusDirectiveController) Search() {}
+
+type MissingPathDirectiveController struct {
+	helix.Controller
+}
+
+//helix:route GET
+func (c *MissingPathDirectiveController) Search() {}
+
+type TooManyTokensDirectiveController struct {
+	helix.Controller
+}
+
+//helix:route GET /too-many-tokens-directives/search extra
+func (c *TooManyTokensDirectiveController) Search() {}
+
+type UnsupportedMethodDirectiveController struct {
+	helix.Controller
+}
+
+//helix:route TRACE /unsupported-method-directives/search
+func (c *UnsupportedMethodDirectiveController) Search() {}
+
+type InvalidPathDirectiveController struct {
+	helix.Controller
+}
+
+//helix:route GET invalid-path-directives/search
+func (c *InvalidPathDirectiveController) Search() {}
+
+type recordingServer struct {
+	routes []recordedRoute
+}
+
+type recordedRoute struct {
+	method string
+	path   string
+}
+
+func (s *recordingServer) Start(string) error {
+	return nil
+}
+
+func (s *recordingServer) Stop(context.Context) error {
+	return nil
+}
+
+func (s *recordingServer) RegisterRoute(method, path string, _ web.HandlerFunc) error {
+	s.routes = append(s.routes, recordedRoute{method: method, path: path})
+	return nil
+}
+
+func (s *recordingServer) ServeHTTP(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
