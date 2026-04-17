@@ -91,6 +91,7 @@ func TestServer_RegisterRouteSupportsHTTPMethods(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -139,6 +140,7 @@ func TestServer_RegisterRouteRejectsInvalidInput(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -161,7 +163,7 @@ func TestServer_StopWithoutStart(t *testing.T) {
 func TestServer_StopRejectsNilContext(t *testing.T) {
 	t.Parallel()
 
-	if err := newTestServer(t).Stop(nil); err == nil {
+	if err := newTestServer(t).Stop(nil); err == nil { //nolint:staticcheck
 		t.Fatal("Stop(nil) should return an error")
 	}
 }

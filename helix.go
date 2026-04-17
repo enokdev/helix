@@ -45,7 +45,7 @@ type App struct {
 
 // ConfigReloadable is implemented by components that react after a successful
 // configuration reload.
-type ConfigReloadable = config.ConfigReloadable
+type ConfigReloadable = config.Reloadable
 
 // Service marks a struct as a Helix service component.
 type Service struct{}

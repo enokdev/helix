@@ -452,7 +452,7 @@ func TestReloaderNotifiesAllReloadablesInOrder(t *testing.T) {
 
 	var orderMu sync.Mutex
 	var order []int
-	makeRecorder := func(id int) ConfigReloadable {
+	makeRecorder := func(id int) Reloadable {
 		return &funcReloadable{fn: func() {
 			orderMu.Lock()
 			order = append(order, id)
