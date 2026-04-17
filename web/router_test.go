@@ -561,7 +561,7 @@ func TestRegisterController_MapsSuccessReturnValuesToHTTPStatus(t *testing.T) {
 				t.Fatalf("Content-Type = %q, want application/json", got)
 			}
 
-			var got responseUser
+			var got ResponseUser
 			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 				t.Fatalf("decode success response: %v", err)
 			}
@@ -971,7 +971,7 @@ func (c *InvalidMaxTagController) Index(_ invalidMaxTagParams) error {
 	return nil
 }
 
-type responseUser struct {
+type ResponseUser struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 }
@@ -980,18 +980,18 @@ type ResponseMappingController struct {
 	helix.Controller
 }
 
-func (c *ResponseMappingController) Show(ctx web.Context) (*responseUser, error) {
-	return &responseUser{ID: ctx.Param("id"), Email: "alice@example.com"}, nil
+func (c *ResponseMappingController) Show(ctx web.Context) (*ResponseUser, error) {
+	return &ResponseUser{ID: ctx.Param("id"), Email: "alice@example.com"}, nil
 }
 
-func (c *ResponseMappingController) Create() (*responseUser, error) {
-	return &responseUser{ID: "created", Email: "created@example.com"}, nil
+func (c *ResponseMappingController) Create() (*ResponseUser, error) {
+	return &ResponseUser{ID: "created", Email: "created@example.com"}, nil
 }
 
 //helix:route GET /response-mappings/preview
 //helix:route POST /response-mappings/preview
-func (c *ResponseMappingController) Preview() responseUser {
-	return responseUser{ID: "preview", Email: "preview@example.com"}
+func (c *ResponseMappingController) Preview() ResponseUser {
+	return ResponseUser{ID: "preview", Email: "preview@example.com"}
 }
 
 type ErrorMappingController struct {
@@ -999,17 +999,17 @@ type ErrorMappingController struct {
 }
 
 //helix:route GET /error-mappings/not-found
-func (c *ErrorMappingController) NotFound() (*responseUser, error) {
+func (c *ErrorMappingController) NotFound() (*ResponseUser, error) {
 	return nil, helix.NotFoundError{Message: "user not found"}
 }
 
 //helix:route GET /error-mappings/validation
-func (c *ErrorMappingController) Validation() (*responseUser, error) {
+func (c *ErrorMappingController) Validation() (*ResponseUser, error) {
 	return nil, helix.ValidationError{Message: "email is required", Field: "email"}
 }
 
 //helix:route GET /error-mappings/generic
-func (c *ErrorMappingController) Generic() (*responseUser, error) {
+func (c *ErrorMappingController) Generic() (*ResponseUser, error) {
 	return nil, errors.New("database connection failed")
 }
 
@@ -1017,7 +1017,7 @@ type WrappedErrorController struct {
 	helix.Controller
 }
 
-func (c *WrappedErrorController) Index() (*responseUser, error) {
+func (c *WrappedErrorController) Index() (*ResponseUser, error) {
 	return nil, fmt.Errorf("repo: find user: %w", helix.NotFoundError{Message: "user not found"})
 }
 
@@ -1025,16 +1025,16 @@ type TooManyReturnsController struct {
 	helix.Controller
 }
 
-func (c *TooManyReturnsController) Index() (responseUser, string, error) {
-	return responseUser{}, "", nil
+func (c *TooManyReturnsController) Index() (ResponseUser, string, error) {
+	return ResponseUser{}, "", nil
 }
 
 type SecondReturnNotErrorController struct {
 	helix.Controller
 }
 
-func (c *SecondReturnNotErrorController) Index() (responseUser, string) {
-	return responseUser{}, ""
+func (c *SecondReturnNotErrorController) Index() (ResponseUser, string) {
+	return ResponseUser{}, ""
 }
 
 type DoubleErrorReturnController struct {
