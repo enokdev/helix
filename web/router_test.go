@@ -2,7 +2,9 @@ package web_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -323,6 +325,243 @@ func TestRegisterController_DoesNotPartiallyRegisterRoutesWhenDirectiveInvalid(t
 	}
 }
 
+func TestRegisterController_InjectsTypedQueryParams(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &TypedQueryController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/typed-queries?page_size=50&email=alice@example.com", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if !controller.called {
+		t.Fatal("handler was not called")
+	}
+	if controller.query.Page != 1 {
+		t.Fatalf("Page = %d, want default %d", controller.query.Page, 1)
+	}
+	if controller.query.PageSize != 50 {
+		t.Fatalf("PageSize = %d, want %d", controller.query.PageSize, 50)
+	}
+	if controller.query.Email != "alice@example.com" {
+		t.Fatalf("Email = %q, want %q", controller.query.Email, "alice@example.com")
+	}
+}
+
+func TestRegisterController_RejectsInvalidTypedQueryParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		query     string
+		wantCode  string
+		wantField string
+	}{
+		{name: "missing required email", query: "page_size=20", wantCode: "VALIDATION_FAILED", wantField: "email"},
+		{name: "invalid email", query: "page_size=20&email=not-an-email", wantCode: "VALIDATION_FAILED", wantField: "email"},
+		{name: "max exceeded", query: "page_size=101&email=alice@example.com", wantCode: "VALIDATION_FAILED", wantField: "page_size"},
+		{name: "invalid int", query: "page=abc&page_size=20&email=alice@example.com", wantCode: "INVALID_QUERY_PARAM", wantField: "page"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer(t)
+			controller := &TypedQueryController{}
+
+			if err := web.RegisterController(server, controller); err != nil {
+				t.Fatalf("RegisterController() error = %v", err)
+			}
+
+			resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/typed-queries?"+tt.query, nil))
+			if err != nil {
+				t.Fatalf("ServeHTTP() error = %v", err)
+			}
+			defer resp.Body.Close()
+
+			assertErrorResponse(t, resp, http.StatusBadRequest, tt.wantCode, tt.wantField)
+			if controller.called {
+				t.Fatal("handler should not be called when query extraction or validation fails")
+			}
+		})
+	}
+}
+
+func TestRegisterController_InjectsJSONBody(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &BodyBindingController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/body-bindings", strings.NewReader(`{"name":"Alice","email":"alice@example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if !controller.called {
+		t.Fatal("handler was not called")
+	}
+	if controller.body.Name != "Alice" {
+		t.Fatalf("Name = %q, want %q", controller.body.Name, "Alice")
+	}
+	if controller.body.Email != "alice@example.com" {
+		t.Fatalf("Email = %q, want %q", controller.body.Email, "alice@example.com")
+	}
+}
+
+func TestRegisterController_RejectsInvalidJSONBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		body      string
+		wantCode  string
+		wantField string
+	}{
+		{name: "empty body", body: "", wantCode: "INVALID_JSON"},
+		{name: "invalid json", body: `{"name":`, wantCode: "INVALID_JSON"},
+		{name: "unknown field", body: `{"name":"Alice","email":"alice@example.com","role":"admin"}`, wantCode: "INVALID_JSON", wantField: "role"},
+		{name: "invalid field type", body: `{"name":42,"email":"alice@example.com"}`, wantCode: "INVALID_JSON", wantField: "name"},
+		{name: "missing required email", body: `{"name":"Alice"}`, wantCode: "VALIDATION_FAILED", wantField: "email"},
+		{name: "invalid email", body: `{"name":"Alice","email":"not-an-email"}`, wantCode: "VALIDATION_FAILED", wantField: "email"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer(t)
+			controller := &BodyBindingController{}
+
+			if err := web.RegisterController(server, controller); err != nil {
+				t.Fatalf("RegisterController() error = %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/body-bindings", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := server.ServeHTTP(req)
+			if err != nil {
+				t.Fatalf("ServeHTTP() error = %v", err)
+			}
+			defer resp.Body.Close()
+
+			assertErrorResponse(t, resp, http.StatusBadRequest, tt.wantCode, tt.wantField)
+			if controller.called {
+				t.Fatal("handler should not be called when body extraction or validation fails")
+			}
+		})
+	}
+}
+
+func TestRegisterController_InjectsContextAndTypedQueryParams(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &MixedBindingController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/mixed-bindings/42?trace_id=abc", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.id != "42" {
+		t.Fatalf("id = %q, want %q", controller.id, "42")
+	}
+	if controller.query.TraceID != "abc" {
+		t.Fatalf("TraceID = %q, want %q", controller.query.TraceID, "abc")
+	}
+}
+
+func TestRegisterController_RejectsAmbiguousTypedInput(t *testing.T) {
+	t.Parallel()
+
+	err := web.RegisterController(newTestServer(t), &AmbiguousBindingController{})
+	if !errors.Is(err, web.ErrUnsupportedHandler) {
+		t.Fatalf("RegisterController() error = %v, want ErrUnsupportedHandler", err)
+	}
+}
+
+func TestRequestErrorMatchesErrInvalidRequest(t *testing.T) {
+	t.Parallel()
+
+	if !errors.Is(&web.RequestError{}, web.ErrInvalidRequest) {
+		t.Fatal("RequestError should match ErrInvalidRequest")
+	}
+}
+
+func TestRegisterController_RejectsInvalidMaxTagAtRegistration(t *testing.T) {
+	t.Parallel()
+
+	err := web.RegisterController(newTestServer(t), &InvalidMaxTagController{})
+	if !errors.Is(err, web.ErrUnsupportedHandler) {
+		t.Fatalf("RegisterController() error = %v, want ErrUnsupportedHandler", err)
+	}
+}
+
+func assertErrorResponse(t *testing.T, resp *http.Response, wantStatus int, wantCode, wantField string) {
+	t.Helper()
+
+	if resp.StatusCode != wantStatus {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("StatusCode = %d, want %d; body = %s", resp.StatusCode, wantStatus, string(body))
+	}
+
+	var payload struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Field   string `json:"field"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Code != wantCode {
+		t.Fatalf("error.code = %q, want %q", payload.Error.Code, wantCode)
+	}
+	if wantField != "" && payload.Error.Field != wantField {
+		t.Fatalf("error.field = %q, want %q", payload.Error.Field, wantField)
+	}
+	if payload.Error.Type == "" {
+		t.Fatal("error.type should not be empty")
+	}
+	if payload.Error.Message == "" {
+		t.Fatal("error.message should not be empty")
+	}
+}
+
 func valueOrCalled(value string) string {
 	if value == "" {
 		return "called"
@@ -506,6 +745,81 @@ type InvalidPathDirectiveController struct {
 
 //helix:route GET invalid-path-directives/search
 func (c *InvalidPathDirectiveController) Search() {}
+
+type TypedQueryController struct {
+	helix.Controller
+	called bool
+	query  typedQueryParams
+}
+
+type typedQueryParams struct {
+	Page     int    `query:"page" default:"1" validate:"min=1"`
+	PageSize int    `query:"page_size" default:"20" max:"100" validate:"min=1"`
+	Email    string `query:"email" validate:"required,email"`
+}
+
+func (c *TypedQueryController) Index(params typedQueryParams) error {
+	c.called = true
+	c.query = params
+	return nil
+}
+
+type BodyBindingController struct {
+	helix.Controller
+	called bool
+	body   createBody
+}
+
+type createBody struct {
+	Name  string `json:"name" validate:"required"`
+	Email string `json:"email" validate:"required,email"`
+}
+
+func (c *BodyBindingController) Create(body createBody) error {
+	c.called = true
+	c.body = body
+	return nil
+}
+
+type MixedBindingController struct {
+	helix.Controller
+	id    string
+	query mixedQueryParams
+}
+
+type mixedQueryParams struct {
+	TraceID string `query:"trace_id" validate:"required"`
+}
+
+func (c *MixedBindingController) Show(ctx web.Context, params mixedQueryParams) error {
+	c.id = ctx.Param("id")
+	c.query = params
+	return nil
+}
+
+type AmbiguousBindingController struct {
+	helix.Controller
+}
+
+type ambiguousInput struct {
+	ID string `query:"id" json:"id"`
+}
+
+func (c *AmbiguousBindingController) Index(input ambiguousInput) error {
+	return nil
+}
+
+type InvalidMaxTagController struct {
+	helix.Controller
+}
+
+type invalidMaxTagParams struct {
+	Page int `query:"page" max:"abc"`
+}
+
+func (c *InvalidMaxTagController) Index(params invalidMaxTagParams) error {
+	return nil
+}
 
 type recordingServer struct {
 	routes []recordedRoute

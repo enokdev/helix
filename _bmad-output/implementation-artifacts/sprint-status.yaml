@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-# last_updated: 2026-04-17 — story 3-2 review
+# last_updated: 2026-04-17 — story 3-4 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-14
-last_updated: 2026-04-17
+last_updated: 2026-04-17 — story 3-4 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -70,8 +70,8 @@ development_status:
   epic-3: in-progress
   3-1-abstraction-http-adaptateur-fiber: done
   3-2-routing-par-convention-de-nommage: done
-  3-3-routes-custom-via-directives: backlog
-  3-4-extracteurs-types-validation-automatique: backlog
+  3-3-routes-custom-via-directives: done
+  3-4-extracteurs-types-validation-automatique: done
   3-5-mapping-automatique-retour-http-status: backlog
   3-6-error-handler-centralise: backlog
   3-7-guards-interceptors-declaratifs: backlog

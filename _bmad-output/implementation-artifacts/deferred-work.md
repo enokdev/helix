@@ -1,4 +1,23 @@
 
+## Deferred from: code review of story-3-4 (2026-04-17)
+
+- [D-3.4-1] `DisallowUnknownFields()` sans opt-out dans `bindJSON` — aucune possibilité de configurer l'acceptation de champs inconnus ; limitation de forward-compatibility, à adresser dans une future story (ex. tag `binding:"lenient"`). [web/binding.go:bindJSON]
+- [D-3.4-2] Pas de vérification `Content-Type` avant décodage JSON — un body form-encoded ou texte produit `INVALID_JSON` plutôt qu'un `415 Unsupported Media Type` ; amélioration UX à traiter dans un futur error-handler ou story dédiée. [web/binding.go:bindJSON]
+- [D-3.4-3] Embedded structs (anonymous fields) non visitées dans `newBindingPlan` — les champs des structs embarquées ne sont pas bindés ; out-of-scope Story 3.4, à documenter et traiter si le pattern est adopté par les utilisateurs. [web/binding.go:newBindingPlan]
+- [D-3.4-4] Seule la première erreur de validation retournée — `validationErrors[0]` uniquement ; un retour multi-erreurs améliorerait l'UX des formulaires ; à adresser avec une évolution de `ErrorResponse`. [web/binding.go:validationRequestError]
+- [D-3.4-5] Body JSON `null` contourne le garde "empty body" — JSON `null` (4 bytes) passe la vérification `len(body) == 0` et produce un struct zéro ; la validation `required` atténue le risque mais pas sur les structs sans champs obligatoires. [web/binding.go:194]
+- [D-3.4-6] `RequestError{}` zero-value a `status=0` — le type exporté avec champs non exportés permet la construction d'un zero-value qui enverrait status 0 à Fiber ; à corriger en rendant le type non exporté ou en ajoutant un guard dans l'adapter. [web/errors.go:RequestError]
+- [D-3.4-7] Type concret implémentant `Context` traité comme struct de binding — `methodType.In(0) == contextType` utilise l'égalité exacte, pas `Implements()` ; une signature `func(c *ConcreteCtx) Index()` produirait un ErrUnsupportedHandler trompeur. [web/binding.go:65]
+- [D-3.4-8] `json:",omitempty"` sans nom explicite → ErrUnsupportedHandler trompeur — `externalTagName(",omitempty")` retourne `""` ; si tous les champs d'une struct utilisent ce pattern, la registration échoue sans message clair. [web/binding.go:97]
+- [D-3.4-9] Interface `StatusCode()+ResponseBody()` trop large dans l'adapter — toute erreur tierce exposant ces deux méthodes sera consommée et transformée en JSON 400, bypassing le Fiber error handler global. [web/internal/fiber_adapter.go:58]
+
+## Deferred from: code review of 3-3-routes-custom-via-directives (2026-04-17)
+
+- [D1] Parsing AST à runtime incompatible avec `go build -trimpath` et binaires déployés sans source — `runtime.FuncForPC + parser.ParseFile` requiert les sources sur disque ; limite connue, réservée Epic 10 codegen. [web/router.go:controllerRouteDirectives]
+- [D2] Erreur `validateRoute` écrasée par `ErrInvalidDirective` — la cause racine `ErrInvalidRoute` (méthode invalide, chemin sans `/`, etc.) est perdue dans la chaîne d'erreurs ; à distinguer si le diagnostic fin devient une exigence. [web/router.go:115-118]
+- [D3] Ordre des directives alphabétique par nom de méthode (via `sort.Strings`) non documenté — contreintuitif vs ordre de déclaration source ; à documenter ou à changer pour l'ordre AST si nécessaire. [web/router.go:97-101]
+- [D4] Pas de test pour `//helix:route` sur une méthode conventionnelle (`Index`, `Show`, etc.) — comportement spécifié ("enregistrer les deux routes") mais aucun test ne le vérifie. [web/router_test.go]
+
 ## Deferred from: code review of story-1-1-initialisation-du-projet-structure-de-base (2026-04-14)
 
 - Repo `enokdev/helix` hardcodé dans skill BMad `.claude/skills/bmad-code-review/steps/step-04-present.md` — limitation tooling intentionnelle pour ce projet

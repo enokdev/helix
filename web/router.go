@@ -364,14 +364,15 @@ func hasVowelSuffix(word string, offsetFromEnd int) bool {
 
 func adaptControllerMethod(method reflect.Value) (HandlerFunc, error) {
 	methodType := method.Type()
-	if methodType.NumIn() > 1 || methodType.NumOut() > 1 {
-		return nil, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
-	}
-	if methodType.NumIn() == 1 && methodType.In(0) != contextType {
+	if methodType.NumOut() > 1 {
 		return nil, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
 	}
 	if methodType.NumOut() == 1 && !methodType.Out(0).Implements(errorType) {
 		return nil, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
+	}
+	argumentPlan, err := newControllerArgumentPlan(methodType)
+	if err != nil {
+		return nil, err
 	}
 
 	return func(ctx Context) error {
@@ -379,9 +380,9 @@ func adaptControllerMethod(method reflect.Value) (HandlerFunc, error) {
 			return fmt.Errorf("web: adapt handler: nil context")
 		}
 
-		args := []reflect.Value(nil)
-		if methodType.NumIn() == 1 {
-			args = []reflect.Value{reflect.ValueOf(ctx)}
+		args, err := argumentPlan.build(ctx)
+		if err != nil {
+			return err
 		}
 
 		results := method.Call(args)

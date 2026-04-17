@@ -15,8 +15,10 @@ const testTimeout = 30_000
 // creating a package cycle.
 type Context interface {
 	Param(key string) string
+	Query(key string) string
 	Header(key string) string
 	IP() string
+	Body() []byte
 }
 
 // HandlerFunc handles a request through the internal adapter.
@@ -53,7 +55,16 @@ func (a *fiberAdapter) Stop(ctx context.Context) error {
 // RegisterRoute registers a route on the underlying Fiber app.
 func (a *fiberAdapter) RegisterRoute(method, path string, handler HandlerFunc) error {
 	fiberHandler := func(ctx *fiber.Ctx) error {
-		return handler(fiberContext{ctx: ctx})
+		if err := handler(fiberContext{ctx: ctx}); err != nil {
+			if httpErr, ok := err.(interface {
+				StatusCode() int
+				ResponseBody() any
+			}); ok {
+				return ctx.Status(httpErr.StatusCode()).JSON(httpErr.ResponseBody())
+			}
+			return err
+		}
+		return nil
 	}
 
 	switch method {
@@ -89,10 +100,21 @@ func (c fiberContext) Param(key string) string {
 	return c.ctx.Params(key)
 }
 
+func (c fiberContext) Query(key string) string {
+	return c.ctx.Query(key)
+}
+
 func (c fiberContext) Header(key string) string {
 	return c.ctx.Get(key)
 }
 
 func (c fiberContext) IP() string {
 	return c.ctx.IP()
+}
+
+func (c fiberContext) Body() []byte {
+	body := c.ctx.BodyRaw()
+	copied := make([]byte, len(body))
+	copy(copied, body)
+	return copied
 }

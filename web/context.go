@@ -4,6 +4,8 @@ package web
 // underlying HTTP framework context.
 type Context interface {
 	Param(key string) string
+	Query(key string) string
 	Header(key string) string
 	IP() string
+	Body() []byte
 }
