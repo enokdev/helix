@@ -784,7 +784,7 @@ func TestRegisterController_AppliesCacheInterceptorAfterGuards(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	var first cachedResponse
+	var first CachedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&first); err != nil {
 		t.Fatalf("decode first response: %v", err)
 	}
@@ -796,7 +796,7 @@ func TestRegisterController_AppliesCacheInterceptorAfterGuards(t *testing.T) {
 		t.Fatalf("ServeHTTP(second) error = %v", err)
 	}
 	defer resp.Body.Close()
-	var second cachedResponse
+	var second CachedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&second); err != nil {
 		t.Fatalf("decode second response: %v", err)
 	}
@@ -1405,7 +1405,7 @@ func (c *AdminController) Index() {
 	c.calls++
 }
 
-type cachedResponse struct {
+type CachedResponse struct {
 	Call int    `json:"call"`
 	Item string `json:"item"`
 }
@@ -1417,9 +1417,9 @@ type CachedController struct {
 
 //helix:guard authenticated
 //helix:interceptor cache:5m
-func (c *CachedController) Index(ctx web.Context) cachedResponse {
+func (c *CachedController) Index(ctx web.Context) CachedResponse {
 	c.calls++
-	return cachedResponse{Call: c.calls, Item: ctx.Query("item")}
+	return CachedResponse{Call: c.calls, Item: ctx.Query("item")}
 }
 
 type ChainedController struct {
