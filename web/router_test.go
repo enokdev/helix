@@ -274,6 +274,6 @@ type UnsupportedSignatureController struct {
 	helix.Controller
 }
 
-func (c *UnsupportedSignatureController) Index(params struct{}) error {
+func (c *UnsupportedSignatureController) Index(_ struct{}) error {
 	return nil
 }
