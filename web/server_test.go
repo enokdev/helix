@@ -448,7 +448,7 @@ func (h *ApplicationErrorHandler) NotFound(ctx web.Context, err helix.NotFoundEr
 type UnmarkedErrorHandler struct{}
 
 //helix:handles ValidationError
-func (h *UnmarkedErrorHandler) Handle(err helix.ValidationError) (any, int) {
+func (h *UnmarkedErrorHandler) Handle(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
@@ -457,7 +457,7 @@ type NoSuffix struct {
 }
 
 //helix:handles ValidationError
-func (h *NoSuffix) Handle(err helix.ValidationError) (any, int) {
+func (h *NoSuffix) Handle(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
@@ -466,7 +466,7 @@ type MalformedDirectiveErrorHandler struct {
 }
 
 // helix:handles ValidationError
-func (h *MalformedDirectiveErrorHandler) Handle(err helix.ValidationError) (any, int) {
+func (h *MalformedDirectiveErrorHandler) Handle(_ helix.ValidationError) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
