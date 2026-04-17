@@ -287,11 +287,11 @@ func exceedsMax(value reflect.Value, maxValue string) bool {
 
 	switch target.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		max, err := strconv.ParseInt(maxValue, 10, target.Type().Bits())
-		return err != nil || target.Int() > max
+		maxInt, err := strconv.ParseInt(maxValue, 10, target.Type().Bits())
+		return err != nil || target.Int() > maxInt
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		max, err := strconv.ParseUint(maxValue, 10, target.Type().Bits())
-		return err != nil || target.Uint() > max
+		maxUint, err := strconv.ParseUint(maxValue, 10, target.Type().Bits())
+		return err != nil || target.Uint() > maxUint
 	default:
 		return false
 	}

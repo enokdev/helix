@@ -805,7 +805,7 @@ type ambiguousInput struct {
 	ID string `query:"id" json:"id"`
 }
 
-func (c *AmbiguousBindingController) Index(input ambiguousInput) error {
+func (c *AmbiguousBindingController) Index(_ ambiguousInput) error {
 	return nil
 }
 
@@ -817,7 +817,7 @@ type invalidMaxTagParams struct {
 	Page int `query:"page" max:"abc"`
 }
 
-func (c *InvalidMaxTagController) Index(params invalidMaxTagParams) error {
+func (c *InvalidMaxTagController) Index(_ invalidMaxTagParams) error {
 	return nil
 }
 
