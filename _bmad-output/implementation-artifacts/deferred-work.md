@@ -42,6 +42,15 @@
 - [Df1] L'intervalle de reload est résolu une seule fois au démarrage de `Start()` et n'est pas relu après un reload réussi — changements dynamiques d'intervalle ignorés silencieusement. Hors périmètre story 2.3 ; à traiter si le rechargement dynamique d'intervalle devient une exigence opérationnelle. [config/reload.go:156]
 - [Df2] `defaultReloadSignalSource` n'a aucune couverture de test directe — le chemin `signal.Notify` n'est jamais exercé en test. AC8 interdit les vrais signaux OS en test ; à couvrir si une intégration de signaux réels est ajoutée. [config/reload_signal.go]
 
+## Deferred from: code review of 3-2-routing-par-convention-de-nommage (2026-04-17)
+
+- [D1] `pascalWords` génère des URLs incorrectes pour les acronymes terminaux (`UserHTTPController`→`/user-https`, `UserIDController`→`/user-ids`) — limite connue de l'algorithme de split PascalCase ; à traiter si le routage d'acronymes devient un besoin réel. [web/router.go:pascalWords]
+- [D2] `pluralize` naïf pour les mots irréguliers anglais (`child`→`childs`, `person`→`persons`, `series`→`serieses`) — spec demande uniquement les "cas simples attendus" (user, blog-post, category) ; à étendre via une table ou une lib de pluralisation si des cas irréguliers apparaissent. [web/router.go:pluralize]
+- [D3] Aucun mécanisme d'override du préfixe de route — versioning (`/v1/users`), ressources imbriquées (`/orgs/:id/members`) et noms qui se mappent mal sont impossibles — à introduire via méthode d'interface `RoutePrefix() string` ou struct tag dans une story dédiée. [web/router.go:RegisterController]
+- [D4] `pluralize` sur segment de 1 char produit une route nonsensique (`YController`→`/ies`) — cas dégénéré, aucun controller réel ne devrait être nommé ainsi ; à corriger avec un guard `len(word) <= 1` si nécessaire. [web/router.go:pluralize]
+- [D5] `ErrInvalidController` renvoyé sans contexte diagnostique quand zéro méthode conventionnelle est trouvée — le développeur ne sait pas si la cause est une casse incorrecte ou des noms non conventionnels. [web/router.go:RegisterController]
+- [D6] `adaptControllerMethod` utilise le même message d'erreur pour trois causes distinctes (trop d'arguments, mauvais type d'argument, mauvais type de retour) — complique le débogage ; à distinguer dans le message d'erreur. [web/router.go:adaptControllerMethod]
+
 ## Deferred from: code review of 1-6-hooks-de-cycle-de-vie-graceful-shutdown (2026-04-15)
 
 - [Df1] Goroutine leak sur timeout `OnStop()` — goroutine abandonnée quand le timer expire, sans signal d'annulation. Limitation inhérente à `OnStop() error` (pas de `context.Context`), explicitement reconnue dans les Dev Notes 1.6. À traiter si l'interface `Lifecycle` est étendue avec `context.Context` dans une story future. [core/lifecycle_manager.go:157]

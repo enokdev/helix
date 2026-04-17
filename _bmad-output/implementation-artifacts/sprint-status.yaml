@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-# last_updated: 2026-04-17 — story 3-1 done
+# last_updated: 2026-04-17 — story 3-2 review
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -69,7 +69,7 @@ development_status:
   # ─────────────────────────────────────────────
   epic-3: in-progress
   3-1-abstraction-http-adaptateur-fiber: done
-  3-2-routing-par-convention-de-nommage: backlog
+  3-2-routing-par-convention-de-nommage: done
   3-3-routes-custom-via-directives: backlog
   3-4-extracteurs-types-validation-automatique: backlog
   3-5-mapping-automatique-retour-http-status: backlog
