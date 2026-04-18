@@ -713,7 +713,7 @@ func renderExecuteQuery(buffer *bytes.Buffer, repository repositoryModel, return
 	}
 }
 
-func renderReturnError(buffer *bytes.Buffer, returnKind returnKind, _ string, errExpr string) {
+func renderReturnError(buffer *bytes.Buffer, returnKind returnKind, _, errExpr string) {
 	switch returnKind {
 	case returnOne:
 		fmt.Fprintf(buffer, "\t\treturn nil, %s\n", errExpr)
