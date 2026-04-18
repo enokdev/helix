@@ -44,7 +44,7 @@ func TestContextWithTransactionRejectsInvalidInputs(t *testing.T) {
 	if _, err := ContextWithTransaction[*testTX](context.TODO(), contextTestTransaction{tx: &testTX{}}); err != nil {
 		t.Fatalf("ContextWithTransaction valid inputs returned error: %v", err)
 	}
-	if _, err := ContextWithTransaction[*testTX](nil, contextTestTransaction{tx: &testTX{}}); err == nil {
+	if _, err := ContextWithTransaction[*testTX](nil, contextTestTransaction{tx: &testTX{}}); err == nil { //nolint:staticcheck
 		t.Fatal("ContextWithTransaction nil context returned nil error")
 	}
 
