@@ -19,9 +19,10 @@ import (
 )
 
 var (
-	errInvalidDirective = errors.New("invalid query directive")
-	errInvalidQuery     = errors.New("invalid query method")
-	errInvalidPackage   = errors.New("invalid package")
+	errInvalidDirective     = errors.New("invalid query directive")
+	errInvalidTransactional = errors.New("invalid transactional method")
+	errInvalidQuery         = errors.New("invalid query method")
+	errInvalidPackage       = errors.New("invalid package")
 )
 
 // Result describes the outcome of one generation run.
@@ -121,6 +122,28 @@ type queryOrder struct {
 	Field  string
 	Column string
 	Desc   bool
+}
+
+type transactionalServiceModel struct {
+	PackageName string
+	Service     string
+	Methods     []transactionalMethod
+}
+
+type transactionalMethod struct {
+	Name        string
+	Params      []methodParam
+	ResultExprs []string
+}
+
+type methodParam struct {
+	Name string
+	Type string
+}
+
+type generatedFile struct {
+	path    string
+	content []byte
 }
 
 type queryOperator string
@@ -262,6 +285,8 @@ func (p *packageModel) resolveEmbeds() {
 }
 
 func generatePackage(pkg *packageModel) (int, error) {
+	var files []generatedFile
+
 	repositories, err := discoverRepositories(pkg)
 	if err != nil {
 		return 0, err
@@ -276,11 +301,32 @@ func generatePackage(pkg *packageModel) (int, error) {
 			return 0, fmt.Errorf("format generated repository %s: %w", repository.Interface, err)
 		}
 		path := filepath.Join(pkg.dir, snakeName(repository.Interface)+"_query_gen.go")
-		if err := writeFileIfChanged(path, formatted); err != nil {
+		files = append(files, generatedFile{path: path, content: formatted})
+	}
+
+	services, err := discoverTransactionalServices(pkg)
+	if err != nil {
+		return 0, err
+	}
+	for _, service := range services {
+		content, err := renderTransactionalService(service)
+		if err != nil {
+			return 0, err
+		}
+		formatted, err := format.Source(content)
+		if err != nil {
+			return 0, fmt.Errorf("format generated transactional service %s: %w", service.Service, err)
+		}
+		path := filepath.Join(pkg.dir, snakeName(service.Service)+"_txn_gen.go")
+		files = append(files, generatedFile{path: path, content: formatted})
+	}
+
+	for _, file := range files {
+		if err := writeFileIfChanged(file.path, file.content); err != nil {
 			return 0, err
 		}
 	}
-	return len(repositories), nil
+	return len(files), nil
 }
 
 func discoverRepositories(pkg *packageModel) ([]repositoryModel, error) {
@@ -315,6 +361,69 @@ func discoverRepositories(pkg *packageModel) ([]repositoryModel, error) {
 		return repositories[i].Interface < repositories[j].Interface
 	})
 	return repositories, nil
+}
+
+func discoverTransactionalServices(pkg *packageModel) ([]transactionalServiceModel, error) {
+	servicesByName := make(map[string]*transactionalServiceModel)
+	var serviceNames []string
+
+	for _, file := range pkg.files {
+		for _, decl := range file.Decls {
+			funcDecl, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+
+			hasDirective, err := parseTransactionalDirective(funcDecl.Doc)
+			if err != nil {
+				if funcDecl.Recv == nil || len(funcDecl.Recv.List) == 0 {
+					return nil, fmt.Errorf("cli/codegen: parse transactional directive %s.%s: free function not allowed: %w", pkg.name, funcDecl.Name.Name, err)
+				}
+				serviceName := receiverServiceName(funcDecl.Recv.List[0].Type)
+				if serviceName == "" {
+					serviceName = "unknown"
+				}
+				return nil, fmt.Errorf("cli/codegen: parse transactional directive %s.%s.%s: %w", pkg.name, serviceName, funcDecl.Name.Name, err)
+			}
+			if !hasDirective {
+				continue
+			}
+			if funcDecl.Recv == nil || len(funcDecl.Recv.List) == 0 {
+				return nil, fmt.Errorf("cli/codegen: parse transactional method %s.%s: receiver required: %w", pkg.name, funcDecl.Name.Name, errInvalidTransactional)
+			}
+
+			serviceName, err := parseTransactionalReceiver(funcDecl.Recv.List[0].Type)
+			if err != nil {
+				return nil, fmt.Errorf("cli/codegen: parse transactional method %s.%s: %w", pkg.name, funcDecl.Name.Name, err)
+			}
+			if _, ok := pkg.structs[serviceName]; !ok {
+				return nil, fmt.Errorf("cli/codegen: parse transactional method %s.%s.%s: receiver must be pointer to struct: %w", pkg.name, serviceName, funcDecl.Name.Name, errInvalidTransactional)
+			}
+			method, err := parseTransactionalMethod(funcDecl.Name.Name, funcDecl.Type)
+			if err != nil {
+				return nil, fmt.Errorf("cli/codegen: parse transactional method %s.%s.%s: %w", pkg.name, serviceName, funcDecl.Name.Name, err)
+			}
+
+			service := servicesByName[serviceName]
+			if service == nil {
+				service = &transactionalServiceModel{PackageName: pkg.name, Service: serviceName}
+				servicesByName[serviceName] = service
+				serviceNames = append(serviceNames, serviceName)
+			}
+			service.Methods = append(service.Methods, method)
+		}
+	}
+
+	sort.Strings(serviceNames)
+	services := make([]transactionalServiceModel, 0, len(serviceNames))
+	for _, serviceName := range serviceNames {
+		service := servicesByName[serviceName]
+		sort.Slice(service.Methods, func(i, j int) bool {
+			return service.Methods[i].Name < service.Methods[j].Name
+		})
+		services = append(services, *service)
+	}
+	return services, nil
 }
 
 func parseRepositoryInterface(pkg *packageModel, name string, interfaceType *ast.InterfaceType) (repositoryModel, bool, error) {
@@ -416,6 +525,148 @@ func parseQueryDirective(iface, method string, comments *ast.CommentGroup) (bool
 		}
 	}
 	return found, nil
+}
+
+func parseTransactionalDirective(comments *ast.CommentGroup) (bool, error) {
+	if comments == nil {
+		return false, nil
+	}
+
+	found := false
+	for _, comment := range comments.List {
+		text := comment.Text
+		switch {
+		case text == "//helix:transactional":
+			if found {
+				return false, errInvalidTransactional
+			}
+			found = true
+		case strings.HasPrefix(text, "// helix:transactional") ||
+			strings.HasPrefix(text, "//+helix:transactional") ||
+			strings.HasPrefix(text, "// +helix:transactional") ||
+			strings.HasPrefix(text, "//helix:transactional"):
+			return false, errInvalidTransactional
+		}
+	}
+	return found, nil
+}
+
+func parseTransactionalReceiver(expr ast.Expr) (string, error) {
+	star, ok := expr.(*ast.StarExpr)
+	if !ok {
+		return "", fmt.Errorf("receiver must be pointer to struct: %w", errInvalidTransactional)
+	}
+	ident, ok := star.X.(*ast.Ident)
+	if !ok {
+		return "", fmt.Errorf("receiver must be pointer to struct: %w", errInvalidTransactional)
+	}
+	return ident.Name, nil
+}
+
+func receiverServiceName(expr ast.Expr) string {
+	if serviceName, err := parseTransactionalReceiver(expr); err == nil {
+		return serviceName
+	}
+	if ident, ok := expr.(*ast.Ident); ok {
+		return ident.Name
+	}
+	return ""
+}
+
+func parseTransactionalMethod(name string, funcType *ast.FuncType) (transactionalMethod, error) {
+	if funcType.Params == nil || len(funcType.Params.List) == 0 || !isContextType(funcType.Params.List[0].Type) {
+		return transactionalMethod{}, fmt.Errorf("missing context.Context first parameter: %w", errInvalidTransactional)
+	}
+	if funcType.Results == nil || len(funcType.Results.List) == 0 {
+		return transactionalMethod{}, fmt.Errorf("must return error as final result: %w", errInvalidTransactional)
+	}
+	lastResult := funcType.Results.List[len(funcType.Results.List)-1]
+	if len(lastResult.Names) > 1 || !isErrorType(lastResult.Type) {
+		return transactionalMethod{}, fmt.Errorf("must return error as final result: %w", errInvalidTransactional)
+	}
+
+	return transactionalMethod{
+		Name:        name,
+		Params:      transactionalParams(funcType.Params),
+		ResultExprs: transactionalResultExprs(funcType.Results),
+	}, nil
+}
+
+// reservedTransactionalNames contains identifiers emitted by renderTransactionalMethod.
+// Any user-provided parameter with one of these names is renamed to avoid shadowing or
+// emitting invalid Go identifiers in the generated call site.
+var reservedTransactionalNames = map[string]struct{}{
+	"txCtx":   {},
+	"callErr": {},
+	"err":     {},
+	"w":       {},
+}
+
+func transactionalParams(params *ast.FieldList) []methodParam {
+	var result []methodParam
+	argIndex := 0
+	for _, field := range params.List {
+		fieldType := exprString(field.Type)
+		if len(field.Names) == 0 {
+			name := "ctx"
+			if argIndex > 0 {
+				name = fmt.Sprintf("arg%d", argIndex)
+			}
+			result = append(result, methodParam{Name: name, Type: fieldType})
+			argIndex++
+			continue
+		}
+		for _, name := range field.Names {
+			paramName := name.Name
+			if argIndex == 0 {
+				paramName = "ctx"
+			} else if paramName == "_" || isReservedTransactionalName(paramName) {
+				paramName = fmt.Sprintf("arg%d", argIndex)
+			}
+			result = append(result, methodParam{Name: paramName, Type: fieldType})
+			argIndex++
+		}
+	}
+	return result
+}
+
+func isReservedTransactionalName(name string) bool {
+	if _, ok := reservedTransactionalNames[name]; ok {
+		return true
+	}
+	// result0, result1, … are used as intermediate variables in generated code.
+	if strings.HasPrefix(name, "result") && len(name) > 6 {
+		allDigits := true
+		for _, c := range name[6:] {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		return allDigits
+	}
+	return false
+}
+
+func transactionalResultExprs(results *ast.FieldList) []string {
+	if results == nil {
+		return nil
+	}
+	var exprs []string
+	for i, result := range results.List {
+		if i == len(results.List)-1 {
+			break
+		}
+		resultType := exprString(result.Type)
+		count := len(result.Names)
+		if count == 0 {
+			count = 1
+		}
+		for i := 0; i < count; i++ {
+			exprs = append(exprs, resultType)
+		}
+	}
+	return exprs
 }
 
 func parseQueryMethod(pkg *packageModel, repository repositoryModel, name string, funcType *ast.FuncType) (queryMethod, error) {
@@ -722,6 +973,128 @@ func renderReturnError(buffer *bytes.Buffer, returnKind returnKind, _, errExpr s
 	default:
 		fmt.Fprintf(buffer, "\t\treturn nil, %s\n", errExpr)
 	}
+}
+
+func renderTransactionalService(service transactionalServiceModel) ([]byte, error) {
+	var buffer bytes.Buffer
+	structName := lowerFirst(service.Service) + "Transactional"
+
+	fmt.Fprintf(&buffer, "// Code generated by helix generate. DO NOT EDIT.\n\n")
+	fmt.Fprintf(&buffer, "package %s\n\n", service.PackageName)
+	fmt.Fprintf(&buffer, "import (\n")
+	fmt.Fprintf(&buffer, "\t\"context\"\n\n")
+	fmt.Fprintf(&buffer, "\t\"github.com/enokdev/helix/data\"\n")
+	fmt.Fprintf(&buffer, "\tgormlib \"gorm.io/gorm\"\n")
+	fmt.Fprintf(&buffer, ")\n\n")
+
+	fmt.Fprintf(&buffer, "type %s struct {\n", structName)
+	fmt.Fprintf(&buffer, "\ttarget *%s\n", service.Service)
+	fmt.Fprintf(&buffer, "\ttxManager data.TransactionManager[*gormlib.DB]\n")
+	fmt.Fprintf(&buffer, "}\n\n")
+
+	fmt.Fprintf(&buffer, "func New%sTransactional(target *%s, txManager data.TransactionManager[*gormlib.DB]) *%s {\n", service.Service, service.Service, structName)
+	fmt.Fprintf(&buffer, "\treturn &%s{target: target, txManager: txManager}\n", structName)
+	fmt.Fprintf(&buffer, "}\n\n")
+
+	for _, method := range service.Methods {
+		renderTransactionalMethod(&buffer, structName, method)
+	}
+	return buffer.Bytes(), nil
+}
+
+func renderTransactionalMethod(buffer *bytes.Buffer, structName string, method transactionalMethod) {
+	fmt.Fprintf(buffer, "func (w *%s) %s(", structName, method.Name)
+	renderTransactionalParams(buffer, method.Params)
+	fmt.Fprintf(buffer, ")")
+	renderTransactionalResults(buffer, method.ResultExprs)
+	fmt.Fprintf(buffer, " {\n")
+
+	if len(method.ResultExprs) == 0 {
+		fmt.Fprintf(buffer, "\treturn w.txManager.WithinTransaction(ctx, func(txCtx context.Context, _ data.Transaction[*gormlib.DB]) error {\n")
+		fmt.Fprintf(buffer, "\t\treturn w.target.%s(", method.Name)
+		renderTransactionalCallArgs(buffer, method.Params, "txCtx")
+		fmt.Fprintf(buffer, ")\n")
+		fmt.Fprintf(buffer, "\t})\n")
+		fmt.Fprintf(buffer, "}\n\n")
+		return
+	}
+
+	for i, resultExpr := range method.ResultExprs {
+		fmt.Fprintf(buffer, "\tvar result%d %s\n", i, resultExpr)
+	}
+	fmt.Fprintf(buffer, "\terr := w.txManager.WithinTransaction(ctx, func(txCtx context.Context, _ data.Transaction[*gormlib.DB]) error {\n")
+	fmt.Fprintf(buffer, "\t\tvar callErr error\n")
+	fmt.Fprintf(buffer, "\t\t")
+	for i := range method.ResultExprs {
+		if i > 0 {
+			fmt.Fprintf(buffer, ", ")
+		}
+		fmt.Fprintf(buffer, "result%d", i)
+	}
+	fmt.Fprintf(buffer, ", callErr = w.target.%s(", method.Name)
+	renderTransactionalCallArgs(buffer, method.Params, "txCtx")
+	fmt.Fprintf(buffer, ")\n")
+	fmt.Fprintf(buffer, "\t\treturn callErr\n")
+	fmt.Fprintf(buffer, "\t})\n")
+	fmt.Fprintf(buffer, "\tif err != nil {\n")
+	fmt.Fprintf(buffer, "\t\treturn ")
+	renderTransactionalReturnValues(buffer, method.ResultExprs, "err")
+	fmt.Fprintf(buffer, "\n")
+	fmt.Fprintf(buffer, "\t}\n")
+	fmt.Fprintf(buffer, "\treturn ")
+	renderTransactionalReturnValues(buffer, method.ResultExprs, "nil")
+	fmt.Fprintf(buffer, "\n")
+	fmt.Fprintf(buffer, "}\n\n")
+}
+
+func renderTransactionalParams(buffer *bytes.Buffer, params []methodParam) {
+	for i, param := range params {
+		if i > 0 {
+			fmt.Fprintf(buffer, ", ")
+		}
+		fmt.Fprintf(buffer, "%s %s", param.Name, param.Type)
+	}
+}
+
+func renderTransactionalResults(buffer *bytes.Buffer, resultExprs []string) {
+	if len(resultExprs) == 0 {
+		fmt.Fprintf(buffer, " error")
+		return
+	}
+	fmt.Fprintf(buffer, " (")
+	for i, resultExpr := range resultExprs {
+		if i > 0 {
+			fmt.Fprintf(buffer, ", ")
+		}
+		fmt.Fprintf(buffer, "%s", resultExpr)
+	}
+	fmt.Fprintf(buffer, ", error)")
+}
+
+func renderTransactionalCallArgs(buffer *bytes.Buffer, params []methodParam, ctxName string) {
+	for i, param := range params {
+		if i > 0 {
+			fmt.Fprintf(buffer, ", ")
+		}
+		if i == 0 {
+			fmt.Fprintf(buffer, "%s", ctxName)
+			continue
+		}
+		fmt.Fprintf(buffer, "%s", param.Name)
+	}
+}
+
+func renderTransactionalReturnValues(buffer *bytes.Buffer, resultExprs []string, errExpr string) {
+	for i := range resultExprs {
+		if i > 0 {
+			fmt.Fprintf(buffer, ", ")
+		}
+		fmt.Fprintf(buffer, "result%d", i)
+	}
+	if len(resultExprs) > 0 {
+		fmt.Fprintf(buffer, ", ")
+	}
+	fmt.Fprintf(buffer, "%s", errExpr)
 }
 
 func writeFileIfChanged(path string, content []byte) error {

@@ -13,12 +13,13 @@ import (
 )
 
 var (
-	errInvalidRepository = errors.New("invalid repository")
-	errInvalidDB         = errors.New("invalid database handle")
-	errInvalidEntity     = errors.New("invalid entity")
-	errInvalidContext    = errors.New("invalid context")
-	errInvalidPage       = errors.New("invalid page request")
-	errInvalidTotal      = errors.New("invalid total")
+	errInvalidRepository  = errors.New("invalid repository")
+	errInvalidDB          = errors.New("invalid database handle")
+	errInvalidEntity      = errors.New("invalid entity")
+	errInvalidContext     = errors.New("invalid context")
+	errInvalidTransaction = errors.New("invalid transaction")
+	errInvalidPage        = errors.New("invalid page request")
+	errInvalidTotal       = errors.New("invalid total")
 )
 
 // Compile-time check that *Repository[T, ID] implements data.Repository[T, ID, *gormlib.DB].
@@ -173,25 +174,39 @@ func (r *Repository[T, ID]) database(ctx context.Context, action string) (*gorml
 	if r == nil {
 		return nil, wrapError(action, errInvalidRepository)
 	}
+	if ctx == nil {
+		return nil, wrapError(action, errInvalidContext)
+	}
 	if r.err != nil {
 		return nil, wrapError(action, r.err)
 	}
+	if tx, ok := data.TransactionFromContext[*gormlib.DB](ctx); ok {
+		db := tx.Unwrap()
+		if db == nil {
+			return nil, wrapError(action, errInvalidTransaction)
+		}
+		return db.WithContext(ctx), nil
+	}
 	if r.db == nil {
 		return nil, wrapError(action, errInvalidDB)
-	}
-	if ctx == nil {
-		return nil, wrapError(action, errInvalidContext)
 	}
 	return r.db.WithContext(ctx), nil
 }
 
 // Database validates db and binds ctx for generated GORM queries.
 func Database(ctx context.Context, db *gormlib.DB, action string) (*gormlib.DB, error) {
-	if db == nil {
-		return nil, wrapError(action, errInvalidDB)
-	}
 	if ctx == nil {
 		return nil, wrapError(action, errInvalidContext)
+	}
+	if tx, ok := data.TransactionFromContext[*gormlib.DB](ctx); ok {
+		txDB := tx.Unwrap()
+		if txDB == nil {
+			return nil, wrapError(action, errInvalidTransaction)
+		}
+		return txDB.WithContext(ctx), nil
+	}
+	if db == nil {
+		return nil, wrapError(action, errInvalidDB)
 	}
 	return db.WithContext(ctx), nil
 }

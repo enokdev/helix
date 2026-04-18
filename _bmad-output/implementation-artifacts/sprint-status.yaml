@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-18 - story 4-3 done
+last_updated: 2026-04-18 - story 4-4 review
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-18 - story 4-3 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-18 - story 4-3 done
+last_updated: 2026-04-18 - story 4-4 review
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -87,7 +87,7 @@ development_status:
   4-1-interface-repository-generique: done
   4-2-adaptateur-gorm-implementation-repository: done
   4-3-generation-automatique-de-requetes-query-auto: done
-  4-4-transactions-declaratives-helix-transactional: backlog
+  4-4-transactions-declaratives-helix-transactional: done
   epic-4-retrospective: optional
 
   # ─────────────────────────────────────────────

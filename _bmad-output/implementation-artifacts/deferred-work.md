@@ -142,3 +142,8 @@
 - `ColumnFor` : pas de garde `db == nil` — en pratique Database() protège en amont, mais l'export rend la fonction appelable seule [data/gorm/adapter.go:ColumnFor]
 - Code généré importe `gorm.io/gorm/clause` directement — code utilisateur, pas de violation AC10, mais ça lie l'utilisateur à l'API clause de GORM [generator.go:renderPredicateQuery]
 - Entité définie dans un package externe (ex: `pkg.User`) produit "entity not found" au lieu d'un message expliquant que les types cross-package ne sont pas supportés [generator.go:parseRepositoryInterface]
+
+## Deferred from: code review of 4-4-transactions-declaratives-helix-transactional (2026-04-18)
+
+- [D-4.4-1] Panic dans callback `WithinTransaction` non testé explicitement — GORM garantit rollback on panic via `recover()` interne ; les dev notes exigent un test si on s'appuie sur ce comportement documenté ; à traiter dans une story de test transactionnel avancé. [data/gorm/transaction_manager.go]
+- [D-4.4-2] `go/format` utilisé au lieu de gofumpt dans `renderTransactionalService` — pattern pré-existant dans le query generator (story 4.3) ; aligner le générateur sur gofumpt est une amélioration à traiter dans une story de qualité codegen. [cli/internal/codegen/generator.go]

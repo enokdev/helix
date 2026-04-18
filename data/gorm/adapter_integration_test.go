@@ -289,6 +289,71 @@ func TestRepositoryWithTransaction(t *testing.T) {
 	}
 }
 
+func TestTransactionManagerCommitRollbackAndContextPropagation(t *testing.T) {
+	ctx := context.Background()
+	db := openIntegrationDB(t)
+	manager := datagorm.NewTransactionManager(db)
+	repo := datagorm.NewRepository[integrationUser, int](db)
+
+	if err := manager.WithinTransaction(ctx, func(txCtx context.Context, tx data.Transaction[*gormlib.DB]) error {
+		if tx == nil || tx.Unwrap() == nil {
+			t.Fatal("transaction callback received nil transaction")
+		}
+		if _, ok := data.TransactionFromContext[*gormlib.DB](txCtx); !ok {
+			t.Fatal("transaction context does not contain active transaction")
+		}
+		return repo.Save(txCtx, &integrationUser{Email: "commit@example.test", Name: "Commit User"})
+	}); err != nil {
+		t.Fatalf("WithinTransaction commit returned error: %v", err)
+	}
+	assertEmailCount(t, repo, "commit@example.test", 1)
+
+	sentinel := errors.New("rollback sentinel")
+	err := manager.WithinTransaction(ctx, func(txCtx context.Context, tx data.Transaction[*gormlib.DB]) error {
+		if err := repo.Save(txCtx, &integrationUser{Email: "rollback@example.test", Name: "Rollback User"}); err != nil {
+			return err
+		}
+
+		nestedErr := manager.WithinTransaction(txCtx, func(nestedCtx context.Context, nestedTx data.Transaction[*gormlib.DB]) error {
+			if nestedTx.Unwrap() != tx.Unwrap() {
+				t.Fatal("nested transaction did not reuse existing transaction")
+			}
+			return repo.Save(nestedCtx, &integrationUser{Email: "nested-rollback@example.test", Name: "Nested Rollback User"})
+		})
+		if nestedErr != nil {
+			return nestedErr
+		}
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("WithinTransaction rollback error = %v, want sentinel", err)
+	}
+	assertEmailCount(t, repo, "rollback@example.test", 0)
+	assertEmailCount(t, repo, "nested-rollback@example.test", 0)
+}
+
+func TestDatabaseUsesTransactionFromContext(t *testing.T) {
+	ctx := context.Background()
+	db := openIntegrationDB(t)
+	manager := datagorm.NewTransactionManager(db)
+	repo := datagorm.NewRepository[integrationUser, int](db)
+
+	err := manager.WithinTransaction(ctx, func(txCtx context.Context, _ data.Transaction[*gormlib.DB]) error {
+		txDB, err := datagorm.Database(txCtx, db, "test database helper")
+		if err != nil {
+			return err
+		}
+		if err := txDB.Create(&integrationUser{Email: "database-helper@example.test", Name: "Database Helper"}).Error; err != nil {
+			return err
+		}
+		return errors.New("force rollback")
+	})
+	if err == nil {
+		t.Fatal("WithinTransaction returned nil error")
+	}
+	assertEmailCount(t, repo, "database-helper@example.test", 0)
+}
+
 func openIntegrationDB(t *testing.T) *gormlib.DB {
 	t.Helper()
 
@@ -346,5 +411,19 @@ func assertNames(t *testing.T, users []integrationUser, want []string) {
 	sort.Strings(want)
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("names = %v, want %v", got, want)
+	}
+}
+
+func assertEmailCount(t *testing.T, repo *datagorm.Repository[integrationUser, int], email string, want int) {
+	t.Helper()
+
+	got, err := repo.FindWhere(context.Background(), mustFilter(t, data.LogicalAnd,
+		data.Condition{Field: "Email", Operator: data.OperatorEqual, Value: email},
+	))
+	if err != nil {
+		t.Fatalf("FindWhere %q returned error: %v", email, err)
+	}
+	if len(got) != want {
+		t.Fatalf("FindWhere %q returned %d rows, want %d", email, len(got), want)
 	}
 }
