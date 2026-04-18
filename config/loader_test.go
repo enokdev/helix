@@ -176,6 +176,40 @@ func TestLoaderMissingProfileIsSkipped(t *testing.T) {
 	}
 }
 
+func TestLoaderAllowMissingConfigLoadsProfilesDefaultsAndEnv(t *testing.T) {
+	configDir := writeConfigFile(t, "application-test.yaml", `
+server:
+  port: 8081
+app:
+  name: test
+`)
+	t.Setenv("SERVER_PORT", "9090")
+
+	loader := NewLoader(
+		WithConfigPaths(configDir),
+		WithAllowMissingConfig(),
+		WithProfiles("test"),
+		WithDefaults(map[string]any{"app.mode": "default-mode"}),
+	)
+
+	var cfg loaderTestConfig
+	if err := loader.Load(&cfg); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Port != 9090 {
+		t.Fatalf("cfg.Server.Port = %d, want ENV override 9090", cfg.Server.Port)
+	}
+	if cfg.App.Name != "test" {
+		t.Fatalf("cfg.App.Name = %q, want test", cfg.App.Name)
+	}
+	if cfg.App.Mode != "default-mode" {
+		t.Fatalf("cfg.App.Mode = %q, want default-mode", cfg.App.Mode)
+	}
+	if loader.ConfigFileUsed() != "" {
+		t.Fatalf("ConfigFileUsed() = %q, want empty without application.yaml", loader.ConfigFileUsed())
+	}
+}
+
 func TestLoaderAllSettingsDeepCopy(t *testing.T) {
 	t.Parallel()
 
