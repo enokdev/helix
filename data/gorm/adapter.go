@@ -185,6 +185,17 @@ func (r *Repository[T, ID]) database(ctx context.Context, action string) (*gorml
 	return r.db.WithContext(ctx), nil
 }
 
+// Database validates db and binds ctx for generated GORM queries.
+func Database(ctx context.Context, db *gormlib.DB, action string) (*gormlib.DB, error) {
+	if db == nil {
+		return nil, wrapError(action, errInvalidDB)
+	}
+	if ctx == nil {
+		return nil, wrapError(action, errInvalidContext)
+	}
+	return db.WithContext(ctx), nil
+}
+
 func (r *Repository[T, ID]) applyFilter(db *gormlib.DB, filter data.Filter) (*gormlib.DB, error) {
 	if err := filter.Validate(); err != nil {
 		return nil, err
@@ -260,7 +271,8 @@ func (r *Repository[T, ID]) expressionFor(db *gormlib.DB, condition data.Conditi
 	}
 }
 
-func (r *Repository[T, ID]) columnFor(db *gormlib.DB, field string) (clause.Column, error) {
+// ColumnFor resolves field to a validated GORM column for T.
+func ColumnFor[T any](db *gormlib.DB, field string) (clause.Column, error) {
 	stmt := &gormlib.Statement{DB: db}
 	if err := stmt.Parse(new(T)); err != nil {
 		return clause.Column{}, err
@@ -274,6 +286,15 @@ func (r *Repository[T, ID]) columnFor(db *gormlib.DB, field string) (clause.Colu
 		return clause.Column{}, data.ErrInvalidFilter
 	}
 	return clause.Column{Name: schemaField.DBName}, nil
+}
+
+func (r *Repository[T, ID]) columnFor(db *gormlib.DB, field string) (clause.Column, error) {
+	return ColumnFor[T](db, field)
+}
+
+// WrapError maps adapter-specific errors to public Helix data errors.
+func WrapError(action string, err error) error {
+	return wrapError(action, err)
 }
 
 func wrapError(action string, err error) error {
@@ -290,6 +311,11 @@ func wrapError(action string, err error) error {
 	default:
 		return fmt.Errorf("data/gorm: %s: %w", action, err)
 	}
+}
+
+// EscapeLike escapes SQL LIKE wildcard characters for generated queries.
+func EscapeLike(value string) string {
+	return escapeLike(value)
 }
 
 func valuesForIN(value any) []any {

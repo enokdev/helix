@@ -132,3 +132,13 @@
 - WithTransaction guérit silencieusement un repo invalide (errInvalidDB) [adapter.go:153-162] — spec silencieuse sur ce cas; à clarifier dans l'API publique
 - clause.Eq{nil} pour OperatorIsNull dépend du comportement interne GORM [adapter.go:247] — integration test passe; surveiller lors de migration de driver GORM
 - columnFor reparsing schema par condition [adapter.go:255-266] — GORM cache schema via cacheStore; optimisation possible si profiling révèle un problème
+
+## Deferred from: code review of 4-3-generation-automatique-de-requetes-query-auto (2026-04-18)
+
+- `writeFileIfChanged` : rename cross-device possible (os.TempDir() peut être sur un FS différent) + defer os.Remove inutile après un rename réussi [generator.go:writeFileIfChanged]
+- `cli/generate.go` ignore silencieusement le champ `Result` retourné par Generate — les fichiers générés ne sont pas loggés/reportés [cli/generate.go]
+- `context.Background()` sans annulation signal dans cmd/helix/main.go — la génération ne peut pas être interrompue proprement [cmd/helix/main.go]
+- Helpers exportés (`WrapError`, `EscapeLike`, `Database`, `ColumnFor`) sans contrat de stabilité documenté dans godoc [data/gorm/adapter.go]
+- `ColumnFor` : pas de garde `db == nil` — en pratique Database() protège en amont, mais l'export rend la fonction appelable seule [data/gorm/adapter.go:ColumnFor]
+- Code généré importe `gorm.io/gorm/clause` directement — code utilisateur, pas de violation AC10, mais ça lie l'utilisateur à l'API clause de GORM [generator.go:renderPredicateQuery]
+- Entité définie dans un package externe (ex: `pkg.User`) produit "entity not found" au lieu d'un message expliquant que les types cross-package ne sont pas supportés [generator.go:parseRepositoryInterface]
