@@ -1,4 +1,16 @@
 
+## Deferred from: code review of 4-1-interface-repository-generique (2026-04-18)
+
+- [D-4.1-1] Sanitization de `Condition.Field` — risque d'injection pour les adaptateurs qui interpolent le nom de colonne dans le SQL (colonnes non paramétrables) ; responsabilité de l'adaptateur GORM (Story 4.2). [data/filter.go:44-45]
+- [D-4.1-2] `OperatorContains` — échappement des wildcards `%` et `_` non documenté au niveau contrat ; les adaptateurs doivent escaper avant de construire le `LIKE ?`. À documenter ou enforcer dans Story 4.2. [data/filter.go:22]
+- [D-4.1-3] `FindAll()` sans borne — charge toute la table en mémoire ; choix API délibéré conforme au spec ; les consommateurs doivent utiliser `Paginate` pour les grands volumes. À documenter dans le guide dev. [data/repository.go:5]
+- [D-4.1-4] `testRepository.FindWhere` ignore le filtre passé — stub compile-time uniquement ; tests comportementaux (filtre effectivement appliqué) délégués à Story 4.2 avec l'implémentation GORM réelle. [data/repository_test.go:28-30]
+- [D-4.1-5] `Paginate` — valeurs négatives ou zéro pour `page`/`size` non rejetées au niveau de l'interface ; validation à enforcer dans chaque implémentation concrète (Story 4.2). [data/repository.go:10]
+- [D-4.1-6] Type mismatch `Value` vs opérateur (ex: `string` passé à `OperatorGreaterThan`) — `any` est intentionnel pour la portabilité ORM-neutral ; l'adaptateur doit valider/coercer le type concret. [data/filter.go:46-47]
+- [D-4.1-7] `Page.Total` négatif possible — aucun invariant au niveau contrat ; les implémentations doivent s'assurer que `Total >= 0` (Story 4.2). [data/pagination.go:6]
+- [D-4.1-8] `Unwrap()` peut retourner nil — interface `Transaction` ne documente pas si nil est une valeur de retour valide ; les adaptateurs qui font une type assertion bare paniquent. À clarifier dans la doc de Story 4.2. [data/transaction.go:5]
+- [D-4.1-9] `Page.Total` est `int` — conforme au spec ; `int` est 64 bits sur toutes les cibles modernes (linux/amd64, darwin/arm64) ; à reconsidérer uniquement si un support 32 bits est requis. [data/pagination.go:6]
+
 ## Deferred from: code review of 3-7-guards-interceptors-declaratifs (2026-04-17)
 
 - [D-3.7-1] Changement cassant sur l'interface publique `Context` (`Method()`, `OriginalURL()`) — requis par spec, doubles de test mis à jour dans `web/internal/` ; les implémentations externes doivent être mises à jour. [web/context.go]
