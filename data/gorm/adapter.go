@@ -33,7 +33,7 @@ type Repository[T any, ID any] struct {
 // NewRepository creates a GORM-backed repository.
 // If db is nil, the returned repository is invalid: every method call will
 // return an error wrapping errInvalidDB without panicking.
-func NewRepository[T any, ID any](db *gormlib.DB) *Repository[T, ID] {
+func NewRepository[T, ID any](db *gormlib.DB) *Repository[T, ID] {
 	if db == nil {
 		return &Repository[T, ID]{err: errInvalidDB}
 	}
