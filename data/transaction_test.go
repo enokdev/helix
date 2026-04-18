@@ -41,6 +41,9 @@ func TestContextTransactionRoundTrip(t *testing.T) {
 }
 
 func TestContextWithTransactionRejectsInvalidInputs(t *testing.T) {
+	if _, err := ContextWithTransaction[*testTX](context.TODO(), contextTestTransaction{tx: &testTX{}}); err != nil {
+		t.Fatalf("ContextWithTransaction valid inputs returned error: %v", err)
+	}
 	if _, err := ContextWithTransaction[*testTX](nil, contextTestTransaction{tx: &testTX{}}); err == nil {
 		t.Fatal("ContextWithTransaction nil context returned nil error")
 	}
@@ -55,7 +58,7 @@ func TestContextWithTransactionRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestTransactionManagerContract(t *testing.T) {
+func TestTransactionManagerContract(_ *testing.T) {
 	var _ TransactionManager[*testTX] = testTransactionManager{}
 }
 
