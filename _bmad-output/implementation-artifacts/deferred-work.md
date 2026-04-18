@@ -124,3 +124,11 @@
 - Pas de synchronisation sur `errorHandlers` — Même pattern que `RegisterRoute` ; à traiter globalement si la concurrence post-démarrage doit être supportée.
 - Méthodes promues d'embedded types échouent si source absente — Sous-cas de l'issue AST.
 - Nil `*ErrorType` passé au handler — Cas rare mais possible ; l'implémenteur doit gérer les nil-pointer receivers.
+
+## Deferred from: code review of story-4.2 (2026-04-18)
+
+- Race COUNT vs SELECT dans Paginate sans transaction englobante [adapter.go:130-140] — hors périmètre story (begin/commit appartient à story `//helix:transactional`)
+- OR filter peut saigner dans les scopes GORM existants si db porte des clauses [adapter.go:197-203] — comportement GORM clause, integration test passe; à revisiter si multi-scope est supporté
+- WithTransaction guérit silencieusement un repo invalide (errInvalidDB) [adapter.go:153-162] — spec silencieuse sur ce cas; à clarifier dans l'API publique
+- clause.Eq{nil} pour OperatorIsNull dépend du comportement interne GORM [adapter.go:247] — integration test passe; surveiller lors de migration de driver GORM
+- columnFor reparsing schema par condition [adapter.go:255-266] — GORM cache schema via cacheStore; optimisation possible si profiling révèle un problème
