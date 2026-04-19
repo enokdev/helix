@@ -20,18 +20,18 @@ const (
 	defaultServerPort    = "8080"
 )
 
-// WebStarter auto-configures the HTTP server when Fiber is available.
-type WebStarter struct {
+// Starter auto-configures the HTTP server when Fiber is available.
+type Starter struct {
 	cfg helixconfig.Loader
 }
 
-// New creates a WebStarter using the provided configuration loader.
-func New(cfg helixconfig.Loader) *WebStarter {
-	return &WebStarter{cfg: cfg}
+// New creates a Starter using the provided configuration loader.
+func New(cfg helixconfig.Loader) *Starter {
+	return &Starter{cfg: cfg}
 }
 
 // Condition reports whether the web starter should be activated.
-func (s *WebStarter) Condition() bool {
+func (s *Starter) Condition() bool {
 	data, err := os.ReadFile("go.mod")
 	if err != nil || !bytes.Contains(data, []byte("gofiber/fiber")) {
 		return false
@@ -50,7 +50,7 @@ func (s *WebStarter) Condition() bool {
 }
 
 // Configure registers the HTTP server lifecycle in the container.
-func (s *WebStarter) Configure(container *core.Container) {
+func (s *Starter) Configure(container *core.Container) {
 	if container == nil {
 		return
 	}

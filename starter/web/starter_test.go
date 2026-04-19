@@ -48,7 +48,7 @@ func (f *fakeHTTPServer) ServeHTTP(*http.Request) (*http.Response, error) {
 	return nil, nil
 }
 
-func TestWebStarterCondition(t *testing.T) {
+func TestStarterCondition(t *testing.T) {
 	tests := []struct {
 		name       string
 		goMod      string
@@ -109,7 +109,7 @@ require github.com/spf13/viper v1.20.1
 		t.Run(tt.name, func(t *testing.T) {
 			chdirWithGoMod(t, tt.goMod)
 
-			var starter *WebStarter
+			var starter *Starter
 			if tt.useConfig {
 				starter = New(tt.cfg)
 			} else {
@@ -123,7 +123,7 @@ require github.com/spf13/viper v1.20.1
 	}
 }
 
-func TestWebStarterConditionMissingGoMod(t *testing.T) {
+func TestStarterConditionMissingGoMod(t *testing.T) {
 	oldDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get cwd: %v", err)
@@ -143,7 +143,7 @@ func TestWebStarterConditionMissingGoMod(t *testing.T) {
 	}
 }
 
-func TestWebStarterConfigureRegistersLifecycleWithDefaultPort(t *testing.T) {
+func TestStarterConfigureRegistersLifecycleWithDefaultPort(t *testing.T) {
 	container := newTestContainer()
 
 	New(nil).Configure(container)
@@ -158,7 +158,7 @@ func TestWebStarterConfigureRegistersLifecycleWithDefaultPort(t *testing.T) {
 	}
 }
 
-func TestWebStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
+func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 	container := newTestContainer()
 	cfg := fakeConfig{values: map[string]any{"server.port": 9090}}
 
