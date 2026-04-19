@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // testTimeout is the default timeout in milliseconds used by ServeHTTP.
@@ -38,14 +40,100 @@ type Adapter interface {
 	ServeHTTP(req *http.Request) (*http.Response, error)
 }
 
+// AdapterOption configures a fiberAdapter.
+type AdapterOption func(*adapterOptions)
+
+type adapterOptions struct {
+	tracerProvider trace.TracerProvider
+}
+
+// WithTracerProvider installs an OTel TracerProvider in the adapter.
+// When non-nil, a tracing middleware is added before all routes.
+func WithTracerProvider(tp trace.TracerProvider) AdapterOption {
+	return func(o *adapterOptions) {
+		o.tracerProvider = tp
+	}
+}
+
 // fiberAdapter adapts Fiber to Helix's public HTTP abstractions.
 type fiberAdapter struct {
 	app *fiber.App
 }
 
 // NewAdapter creates a Fiber-backed adapter.
-func NewAdapter() Adapter {
-	return &fiberAdapter{app: fiber.New()}
+func NewAdapter(opts ...AdapterOption) Adapter {
+	o := &adapterOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(o)
+		}
+	}
+
+	app := fiber.New()
+
+	if o.tracerProvider != nil {
+		app.Use(tracingMiddleware(o.tracerProvider))
+	}
+
+	return &fiberAdapter{app: app}
+}
+
+// tracingMiddleware returns a Fiber middleware that creates an OTel span for
+// every request and propagates the W3C trace context.
+//
+// Span name is set to "METHOD /route/:param" after routing completes so that
+// parametrised paths (e.g. /users/:id) are used instead of raw URLs, which
+// prevents cardinality explosion in tracing backends.
+func tracingMiddleware(tp trace.TracerProvider) fiber.Handler {
+	tracer := tp.Tracer("helix.web")
+	// Use a fixed W3C propagator so the middleware works independently of
+	// whether the caller has set a global TextMapPropagator via otel.SetTextMapPropagator.
+	propagator := propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	)
+
+	return func(c *fiber.Ctx) error {
+		// Extract incoming trace context from request headers.
+		carrier := fiberHeaderCarrier{ctx: c}
+		ctx := propagator.Extract(c.UserContext(), carrier)
+
+		// Start span with a temporary name (route not resolved yet).
+		ctx, span := tracer.Start(ctx, c.Method()+" "+c.OriginalURL())
+		defer span.End()
+		c.SetUserContext(ctx)
+
+		err := c.Next()
+
+		// Update span name with the matched route pattern after routing.
+		if route := c.Route(); route != nil {
+			span.SetName(c.Method() + " " + route.Path)
+		}
+
+		// Inject outgoing trace context into response headers.
+		propagator.Inject(ctx, carrier)
+
+		return err
+	}
+}
+
+// fiberHeaderCarrier implements propagation.TextMapCarrier for Fiber contexts.
+// It reads from request headers and writes to response headers.
+type fiberHeaderCarrier struct {
+	ctx *fiber.Ctx
+}
+
+func (c fiberHeaderCarrier) Get(key string) string {
+	return string(c.ctx.Request().Header.Peek(key))
+}
+
+func (c fiberHeaderCarrier) Set(key, value string) {
+	c.ctx.Set(key, value)
+}
+
+// Keys returns nil — the W3C TraceContext propagator does not call Keys for extraction.
+func (c fiberHeaderCarrier) Keys() []string {
+	return nil
 }
 
 // Start begins listening on addr.

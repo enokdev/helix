@@ -182,3 +182,9 @@
 - **`knownConfigKeys` couvre seulement `helix.logging.levels.web`** (`config/reload.go:19`): les ENV vars pour d'autres namespaces (ex. `HELIX_LOGGING_LEVELS_DATA`) ne sont jamais bindées via `BindEnv`. La spec story-6-3 demande le minimal (web seulement); extension à d'autres namespaces relève d'Epic 7 ou d'une story dédiée.
 - **Valeurs non-string dans namespace levels silencieusement ignorées** (`observability/logging.go:289-292`): si YAML contient `web: 1` (entier), l'assertion `.(string)` échoue silencieusement et le namespace est ignoré. Corriger nécessiterait un changement de signature de `resolveLoggingConfig` ou un log de warning (sans logger disponible à ce stade).
 - **`writeSuccessResponse` fixe le HTTP status avant que `ctx.JSON` réussisse** (`web/response.go:25-26`): `ctx.Status(...)` est appelé avant `ctx.JSON(payload)`; si JSON échoue, le status peut déjà être envoyé au client. Pattern pré-existant, non introduit par story-6-3.
+
+
+## Deferred from: code review of 6-4-tracing-opentelemetry-opt-in (2026-04-19)
+
+- **Span status/error non enregistré sur échec handler** (`web/internal/fiber_adapter.go`, `tracingMiddleware`): `c.Next()` retourne une erreur mais ni `span.RecordError(err)` ni `span.SetStatus(codes.Error, ...)` ne sont appelés. Tous les spans apparaissent OK dans les backends de tracing même en cas d'échec. Hors périmètre story 6.4 (Span attributes HTTP sémantiques exclus).
+- **`WithInsecure()` hardcodé pour OTLP/Jaeger** (`observability/tracing.go`, `buildExporter`): les exporters `otlp` et `jaeger` passent `otlptracehttp.WithInsecure()` inconditionnellement. Aucune option TLS disponible. Hors périmètre story 6.4 (Support TLS OTLP exclu explicitement).
