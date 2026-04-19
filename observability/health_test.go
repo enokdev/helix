@@ -194,7 +194,6 @@ func TestHealthCheckerFromContainerIncludesDownIndicator(t *testing.T) {
 	}
 }
 
-
 func TestHealthCheckerFromContainerWrapsResolveErrors(t *testing.T) {
 	t.Parallel()
 
