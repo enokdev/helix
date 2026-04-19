@@ -17,10 +17,12 @@ var knownConfigKeys = []string{
 	reloadIntervalKey,
 	"helix.logging.level",
 	"helix.logging.levels.web",
+	"helix.starters.web.enabled",
 	"helix.starters.observability.tracing.enabled",
 	"helix.starters.observability.tracing.exporter",
 	"helix.starters.observability.tracing.endpoint",
 	"helix.starters.observability.tracing.service-name",
+	"server.port",
 }
 
 // Reloadable is implemented by components that need to react after a
