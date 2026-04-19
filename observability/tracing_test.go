@@ -191,7 +191,7 @@ func TestConfigureTracing_NoopWhenDisabled_NoGlobalSideEffect(t *testing.T) {
 	}
 }
 
-func TestWithTracerProvider_NilSafe(t *testing.T) {
+func TestWithTracerProvider_NilSafe(_ *testing.T) {
 	// verify that noop.NewTracerProvider() satisfies the trace.TracerProvider interface
 	// and that the assignment compiles without error.
 	tp := noop.NewTracerProvider()
