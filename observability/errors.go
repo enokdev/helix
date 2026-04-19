@@ -10,3 +10,6 @@ var ErrInvalidActuator = errors.New("observability: invalid actuator")
 
 // ErrInvalidMetrics is returned when metrics routes or observers cannot be configured.
 var ErrInvalidMetrics = errors.New("observability: invalid metrics")
+
+// ErrInvalidTracing is returned when tracing configuration is invalid.
+var ErrInvalidTracing = errors.New("observability: invalid tracing")
