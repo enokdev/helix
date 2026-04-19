@@ -45,7 +45,7 @@ func NewServer(opts ...Option) HTTPServer {
 	}
 
 	s := &server{
-		adapter:              fiberinternal.NewAdapter(),
+		adapter:              fiberinternal.NewAdapter(fiberinternal.WithTracerProvider(options.tracerProvider)),
 		errorHandlers:        make(map[string]errorHandlerInvoker),
 		guards:               make(map[string]Guard),
 		guardFactories:       make(map[string]GuardFactory),

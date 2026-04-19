@@ -1,7 +1,10 @@
 package web
 
+import "go.opentelemetry.io/otel/trace"
+
 type serverOptions struct {
-	routeObserver RouteObserver
+	routeObserver  RouteObserver
+	tracerProvider trace.TracerProvider
 }
 
 // Option configures an HTTP server.
@@ -16,5 +19,18 @@ func WithRouteObserver(observer RouteObserver) Option {
 			return
 		}
 		o.routeObserver = observer
+	}
+}
+
+// WithTracerProvider installs an OpenTelemetry TracerProvider that
+// automatically creates a span for every incoming HTTP request and propagates
+// the W3C trace context via traceparent/tracestate headers.
+// A nil provider is silently ignored — tracing is disabled.
+func WithTracerProvider(tp trace.TracerProvider) Option {
+	return func(o *serverOptions) {
+		if tp == nil || isNilValue(tp) {
+			return
+		}
+		o.tracerProvider = tp
 	}
 }
