@@ -10,6 +10,7 @@ type Option func(*appOptions)
 
 type appOptions struct {
 	components       []any
+	mockBeans        []mockBean
 	configPaths      []string
 	configDefaults   map[string]any
 	containerOptions []core.Option

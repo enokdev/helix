@@ -17,6 +17,27 @@ type rootTestService struct {
 	Port       int                 `value:"server.port"`
 }
 
+type rootTestStore interface {
+	Name() string
+}
+
+type rootRealStore struct{}
+
+func (s *rootRealStore) Name() string {
+	return "real"
+}
+
+type rootMockStore struct{}
+
+func (s *rootMockStore) Name() string {
+	return "mock"
+}
+
+type rootStoreService struct {
+	Service
+	Store rootTestStore `inject:"true"`
+}
+
 func TestNewTestAppAndGetBean(t *testing.T) {
 	t.Parallel()
 
@@ -53,5 +74,19 @@ func TestTestContainerOptions(t *testing.T) {
 	service := GetBean[*rootTestService](app)
 	if service.Port != 5151 {
 		t.Fatalf("service.Port = %d, want 5151", service.Port)
+	}
+}
+
+func TestMockBeanWrapper(t *testing.T) {
+	t.Parallel()
+
+	app := NewTestApp(t,
+		TestComponents(&rootRealStore{}, &rootStoreService{}),
+		MockBean[rootTestStore](&rootMockStore{}),
+	)
+
+	service := GetBean[*rootStoreService](app)
+	if service.Store.Name() != "mock" {
+		t.Fatalf("service.Store.Name() = %q, want mock", service.Store.Name())
 	}
 }

@@ -1,4 +1,10 @@
 
+## Deferred from: code review of 5-2-helix-mockbean-remplacement-automatique-par-mock (2026-04-19)
+
+- [D-5.2-1] Composant multi-interfaces filtré entièrement par `MockBean[A]` → interface B non couverte devient unresolvable avec message sans contexte mock. Limitation architecturale du filtrage par assignabilité ; à adresser si des composants multi-interfaces deviennent courants dans les tests. [testutil/mock.go:71-82]
+- [D-5.2-2] Mock impl satisfaisant des interfaces supplémentaires au-delà de la cible T → `ErrUnresolvable` "multiple registrations" au démarrage du container sans mention de la cause mock. Limitation du resolver existant ; à améliorer avec un message d'erreur enrichi dans core. [testutil/app.go:58-62]
+- [D-5.2-3] Éventuel wrapper `ComponentRegistration` passé via `WithComponents` contourne `isReplacedComponent` car `reflect.TypeOf` voit le wrapper, pas le type interne. Non déclenché par l'API publique actuelle ; à traiter si une API ComponentRegistration publique est introduite. [testutil/mock.go:71-82]
+
 ## Deferred from: code review of 4-1-interface-repository-generique (2026-04-18)
 
 - [D-4.1-1] Sanitization de `Condition.Field` — risque d'injection pour les adaptateurs qui interpolent le nom de colonne dans le SQL (colonnes non paramétrables) ; responsabilité de l'adaptateur GORM (Story 4.2). [data/filter.go:44-45]
@@ -147,3 +153,10 @@
 
 - [D-4.4-1] Panic dans callback `WithinTransaction` non testé explicitement — GORM garantit rollback on panic via `recover()` interne ; les dev notes exigent un test si on s'appuie sur ce comportement documenté ; à traiter dans une story de test transactionnel avancé. [data/gorm/transaction_manager.go]
 - [D-4.4-2] `go/format` utilisé au lieu de gofumpt dans `renderTransactionalService` — pattern pré-existant dans le query generator (story 4.3) ; aligner le générateur sur gofumpt est une amélioration à traiter dans une story de qualité codegen. [cli/internal/codegen/generator.go]
+
+## Deferred from: code review of 5-1-helix-newtestapp-container-de-test (2026-04-18)
+
+- [D-5.1-1] `Container()` / `Config()` exposent des références vivantes sans synchronisation — verrouiller l'accesseur ne protège pas le caller post-Close ; nécessite une refonte API (ex: retourner des wrappers avec guards) [testutil/app.go:73-79]
+- [D-5.1-2] `t.Fatalf` dans `t.Cleanup` crée un piège silencieux pour les composants `Lifecycle` dont `OnStop` échoue — le test échoue en cleanup avec un message peu actionnable même si le corps du test passait ; comportement intentionnel, à documenter [testutil/app.go:62-66]
+- [D-5.1-3] `GetBean[T]` avec un type `T` interface peut retourner silencieusement une valeur zéro si le resolver retourne un succès avec nil — concerne la correction du resolver ; aucune action possible dans GetBean sans reflection coûteuse [testutil/bean.go:GetBean]
+- [D-5.1-4] `helix.GetBean[T]` : attribution de l'échec pointe vers `testapp.go` et non le site d'appel dans le test — limitation des génériques Go (pas de méthodes génériques) ; correctif nécessite de passer `testing.TB` en paramètre [testapp.go:23-24]

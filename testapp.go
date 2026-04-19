@@ -29,6 +29,11 @@ func TestComponents(components ...any) TestOption {
 	return testutil.WithComponents(components...)
 }
 
+// MockBean replaces components assignable to T with impl in a Helix test app.
+func MockBean[T any](impl T) TestOption {
+	return testutil.MockBean[T](impl)
+}
+
 // TestConfigPaths overrides directories searched for application test config.
 func TestConfigPaths(paths ...string) TestOption {
 	return testutil.WithConfigPaths(paths...)

@@ -45,9 +45,19 @@ func NewApp(t testing.TB, options ...Option) *App {
 		config:    loader,
 	}
 
-	for _, component := range opts.components {
+	components, mocks, err := prepareTestComponents(opts.components, opts.mockBeans)
+	if err != nil {
+		t.Fatalf("testutil: prepare components: %v", err)
+	}
+
+	for _, component := range components {
 		if err := container.Register(component); err != nil {
 			t.Fatalf("testutil: register component %T: %v", component, err)
+		}
+	}
+	for _, mock := range mocks {
+		if err := container.Register(mock.impl); err != nil {
+			t.Fatalf("testutil: register mock bean %s: %v", mock.target, err)
 		}
 	}
 

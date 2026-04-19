@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-18 - story 4-4 review
+last_updated: 2026-04-19 - story 5-2 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-18 - story 4-4 review
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-18 - story 4-4 review
+last_updated: 2026-04-19 - story 5-2 review
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -93,9 +93,9 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 5: Infrastructure de Test
   # ─────────────────────────────────────────────
-  epic-5: backlog
-  5-1-helix-newtestapp-container-de-test: backlog
-  5-2-helix-mockbean-remplacement-automatique-par-mock: backlog
+  epic-5: in-progress
+  5-1-helix-newtestapp-container-de-test: done
+  5-2-helix-mockbean-remplacement-automatique-par-mock: done
   epic-5-retrospective: optional
 
   # ─────────────────────────────────────────────
