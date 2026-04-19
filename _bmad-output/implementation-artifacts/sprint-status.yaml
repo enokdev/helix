@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-19 - story 5-2 done
+last_updated: 2026-04-19 - story 6-1 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-19 - story 5-2 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-19 - story 5-2 review
+last_updated: 2026-04-19 - story 6-1 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -101,8 +101,8 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 6: Observabilité
   # ─────────────────────────────────────────────
-  epic-6: backlog
-  6-1-endpoints-actuator-health-info: backlog
+  epic-6: in-progress
+  6-1-endpoints-actuator-health-info: done
   6-2-metriques-prometheus-actuator-metrics: backlog
   6-3-logging-structure-avec-slog: backlog
   6-4-tracing-opentelemetry-opt-in: backlog

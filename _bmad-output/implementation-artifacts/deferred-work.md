@@ -160,3 +160,11 @@
 - [D-5.1-2] `t.Fatalf` dans `t.Cleanup` crée un piège silencieux pour les composants `Lifecycle` dont `OnStop` échoue — le test échoue en cleanup avec un message peu actionnable même si le corps du test passait ; comportement intentionnel, à documenter [testutil/app.go:62-66]
 - [D-5.1-3] `GetBean[T]` avec un type `T` interface peut retourner silencieusement une valeur zéro si le resolver retourne un succès avec nil — concerne la correction du resolver ; aucune action possible dans GetBean sans reflection coûteuse [testutil/bean.go:GetBean]
 - [D-5.1-4] `helix.GetBean[T]` : attribution de l'échec pointe vers `testapp.go` et non le site d'appel dans le test — limitation des génériques Go (pas de méthodes génériques) ; correctif nécessite de passer `testing.TB` en paramètre [testapp.go:23-24]
+
+## Deferred from: code review of story-6-1 (2026-04-19)
+
+- [observability/actuator.go:29,40] Contexte de requete abandonne dans les handlers health/info : `context.Background()` utilise au lieu du contexte HTTP entrant. Si un indicateur fait de l'I/O, les annulations et timeouts client sont ignores. A adresser quand `web.Context` exposera le contexte de requete.
+- [core/reflect_resolver.go:143] resolveAllAssignable rejette les types struct concrets (Kind != Interface|Ptr), rendant `ResolveAll[SomeStruct]` inutilisable. Ergonomie API a revoir dans une future iteration de core.
+- [core/reflect_resolver.go:150] AssignableTo manque les impls a pointer-receiver pour types enregistres en valeur — composants silencieusement exclus. Lié à la conception generale du registre ReflectResolver.
+- [core/reflect_resolver.go] Race condition potentielle sur `r.singletons` lors de resolutions concurrentes — pre-existante, non liee a cette story.
+- [observability/actuator.go:28-44] Registration en deux etapes sans rollback : si la route info echoue apres health, le serveur est dans un etat inconsistant. HTTPServer n'expose pas de deregistration.
