@@ -2,6 +2,8 @@ package web
 
 import (
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -21,7 +23,15 @@ type structuredHTTPError interface {
 
 func writeSuccessResponse(ctx Context, method string, payload any) error {
 	ctx.Status(successStatus(method))
-	return ctx.JSON(payload)
+	if err := ctx.JSON(payload); err != nil {
+		slog.Default().With("namespace", "web").Error("json serialisation failed",
+			"payload_type", fmt.Sprintf("%T", payload),
+			"method", method,
+			"error", err,
+		)
+		return err
+	}
+	return nil
 }
 
 func writeErrorResponse(ctx Context, err error) error {

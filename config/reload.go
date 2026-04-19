@@ -13,7 +13,11 @@ import (
 
 const reloadIntervalKey = "helix.config.reload-interval"
 
-var knownConfigKeys = []string{reloadIntervalKey}
+var knownConfigKeys = []string{
+	reloadIntervalKey,
+	"helix.logging.level",
+	"helix.logging.levels.web",
+}
 
 // Reloadable is implemented by components that need to react after a
 // successful configuration reload.

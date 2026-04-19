@@ -254,6 +254,82 @@ func TestLoaderAllSettingsReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestLoaderLoadsHelixLoggingLevelFromEnv(t *testing.T) {
+	t.Setenv("HELIX_LOGGING_LEVEL", "debug")
+
+	loader := NewLoader(WithAllowMissingConfig())
+	if err := loader.Load(new(struct{})); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	val, ok := loader.Lookup("helix.logging.level")
+	if !ok {
+		t.Fatal("Lookup(helix.logging.level) not found; HELIX_LOGGING_LEVEL env should be visible")
+	}
+	if val != "debug" {
+		t.Errorf("helix.logging.level = %v, want debug", val)
+	}
+}
+
+func TestLoaderLoadsHelixLoggingLevelsWebFromEnv(t *testing.T) {
+	t.Setenv("HELIX_LOGGING_LEVELS_WEB", "debug")
+
+	loader := NewLoader(WithAllowMissingConfig())
+	if err := loader.Load(new(struct{})); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	val, ok := loader.Lookup("helix.logging.levels.web")
+	if !ok {
+		t.Fatal("Lookup(helix.logging.levels.web) not found; HELIX_LOGGING_LEVELS_WEB env should be visible")
+	}
+	if val != "debug" {
+		t.Errorf("helix.logging.levels.web = %v, want debug", val)
+	}
+}
+
+func TestLoaderLoadsHelixLoggingLevelsFromYAML(t *testing.T) {
+	t.Parallel()
+
+	configDir := writeConfigFile(t, "application.yaml", `
+helix:
+  logging:
+    level: warn
+    levels:
+      web: debug
+`)
+
+	loader := NewLoader(WithConfigPaths(configDir))
+	if err := loader.Load(new(struct{})); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	level, ok := loader.Lookup("helix.logging.level")
+	if !ok {
+		t.Fatal("Lookup(helix.logging.level) not found")
+	}
+	if level != "warn" {
+		t.Errorf("helix.logging.level = %v, want warn", level)
+	}
+
+	all := loader.AllSettings()
+	helixMap, ok := all["helix"].(map[string]any)
+	if !ok {
+		t.Fatal("all[helix] is not a map")
+	}
+	loggingMap, ok := helixMap["logging"].(map[string]any)
+	if !ok {
+		t.Fatal("helix[logging] is not a map")
+	}
+	levelsMap, ok := loggingMap["levels"].(map[string]any)
+	if !ok {
+		t.Fatal("helix.logging[levels] is not a map")
+	}
+	if levelsMap["web"] != "debug" {
+		t.Errorf("helix.logging.levels.web = %v, want debug", levelsMap["web"])
+	}
+}
+
 func writeConfigFile(t *testing.T, name, contents string) string {
 	t.Helper()
 
