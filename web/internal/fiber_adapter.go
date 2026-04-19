@@ -22,6 +22,8 @@ type Context interface {
 	IP() string
 	Body() []byte
 	Status(code int)
+	SetHeader(key, value string)
+	Send(body []byte) error
 	JSON(body any) error
 }
 
@@ -124,6 +126,14 @@ func (c fiberContext) Body() []byte {
 
 func (c fiberContext) Status(code int) {
 	c.ctx.Status(code)
+}
+
+func (c fiberContext) SetHeader(key, value string) {
+	c.ctx.Set(key, value)
+}
+
+func (c fiberContext) Send(body []byte) error {
+	return c.ctx.Send(body)
 }
 
 func (c fiberContext) JSON(body any) error {

@@ -11,5 +11,7 @@ type Context interface {
 	IP() string
 	Body() []byte
 	Status(code int)
+	SetHeader(key, value string)
+	Send(body []byte) error
 	JSON(body any) error
 }

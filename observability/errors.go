@@ -7,3 +7,6 @@ var ErrInvalidHealthIndicator = errors.New("observability: invalid health indica
 
 // ErrInvalidActuator is returned when actuator routes cannot be registered.
 var ErrInvalidActuator = errors.New("observability: invalid actuator")
+
+// ErrInvalidMetrics is returned when metrics routes or observers cannot be configured.
+var ErrInvalidMetrics = errors.New("observability: invalid metrics")

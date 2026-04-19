@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -539,6 +540,169 @@ func (h *InterfaceArgErrorHandler) Handle(_ error) (any, int) {
 func newTestServer(t *testing.T) web.HTTPServer {
 	t.Helper()
 	return web.NewServer()
+}
+
+// ---------- RouteObserver tests ----------
+
+type testObserver struct {
+	calls []web.RouteObservation
+}
+
+func (o *testObserver) Observe(obs web.RouteObservation) {
+	o.calls = append(o.calls, obs)
+}
+
+func TestWithRouteObserver_RecitObservation(t *testing.T) {
+	t.Parallel()
+
+	obs := &testObserver{}
+	server := web.NewServer(web.WithRouteObserver(obs))
+
+	if err := server.RegisterRoute(http.MethodGet, "/ping", func(ctx web.Context) error {
+		ctx.Status(http.StatusOK)
+		return ctx.JSON(map[string]string{"msg": "pong"})
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/ping", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(obs.calls) != 1 {
+		t.Fatalf("observer received %d calls, want 1", len(obs.calls))
+	}
+	got := obs.calls[0]
+	if got.Method != http.MethodGet {
+		t.Errorf("Method = %q, want GET", got.Method)
+	}
+	if got.Route != "/ping" {
+		t.Errorf("Route = %q, want /ping", got.Route)
+	}
+	if got.StatusCode != http.StatusOK {
+		t.Errorf("StatusCode = %d, want 200", got.StatusCode)
+	}
+	if got.Duration <= 0 {
+		t.Error("Duration should be positive")
+	}
+}
+
+func TestWithRouteObserver_CaptureRouteTemplate(t *testing.T) {
+	t.Parallel()
+
+	obs := &testObserver{}
+	server := web.NewServer(web.WithRouteObserver(obs))
+
+	if err := server.RegisterRoute(http.MethodGet, "/users/:id", func(ctx web.Context) error {
+		ctx.Status(http.StatusOK)
+		return ctx.JSON(nil)
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	for _, id := range []string{"1", "2"} {
+		resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/users/"+id, nil))
+		if err != nil {
+			t.Fatalf("ServeHTTP() error = %v", err)
+		}
+		resp.Body.Close()
+	}
+
+	if len(obs.calls) != 2 {
+		t.Fatalf("observer received %d calls, want 2", len(obs.calls))
+	}
+	for i, call := range obs.calls {
+		if call.Route != "/users/:id" {
+			t.Errorf("call[%d].Route = %q, want /users/:id", i, call.Route)
+		}
+	}
+}
+
+func TestWithRouteObserver_CaptureStatusErreurStructuree(t *testing.T) {
+	t.Parallel()
+
+	obs := &testObserver{}
+	server := web.NewServer(web.WithRouteObserver(obs))
+
+	if err := server.RegisterRoute(http.MethodGet, "/err", func(_ web.Context) error {
+		return web.Forbidden("nope")
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/err", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(obs.calls) != 1 {
+		t.Fatalf("observer received %d calls, want 1", len(obs.calls))
+	}
+	if obs.calls[0].StatusCode != http.StatusForbidden {
+		t.Errorf("StatusCode = %d, want 403", obs.calls[0].StatusCode)
+	}
+}
+
+func TestWithRouteObserver_CaptureStatusErreurGenerique(t *testing.T) {
+	t.Parallel()
+
+	obs := &testObserver{}
+	server := web.NewServer(web.WithRouteObserver(obs))
+
+	if err := server.RegisterRoute(http.MethodGet, "/boom", func(_ web.Context) error {
+		return errors.New("database down")
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/boom", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(obs.calls) != 1 {
+		t.Fatalf("observer received %d calls, want 1", len(obs.calls))
+	}
+	if obs.calls[0].StatusCode != http.StatusInternalServerError {
+		t.Errorf("StatusCode = %d, want 500", obs.calls[0].StatusCode)
+	}
+}
+
+// ---------- SetHeader / Send tests ----------
+
+func TestContext_SetHeaderEtSend(t *testing.T) {
+	t.Parallel()
+
+	server := web.NewServer()
+	if err := server.RegisterRoute(http.MethodGet, "/raw", func(ctx web.Context) error {
+		ctx.Status(http.StatusOK)
+		ctx.SetHeader("Content-Type", "text/plain; charset=utf-8")
+		return ctx.Send([]byte("hello helix"))
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/raw", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "text/plain") {
+		t.Errorf("Content-Type = %q, want text/plain...", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "hello helix" {
+		t.Errorf("body = %q, want 'hello helix'", body)
+	}
 }
 
 func moduleRoot(t *testing.T) string {

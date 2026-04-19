@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	fiberinternal "github.com/enokdev/helix/web/internal"
 )
@@ -31,6 +32,7 @@ type server struct {
 	interceptors         map[string]Interceptor
 	interceptorFactories map[string]InterceptorFactory
 	cache                *cacheStore
+	routeObserver        RouteObserver
 }
 
 // NewServer creates an HTTP server backed by an internal Fiber adapter.
@@ -50,6 +52,7 @@ func NewServer(opts ...Option) HTTPServer {
 		interceptors:         make(map[string]Interceptor),
 		interceptorFactories: make(map[string]InterceptorFactory),
 		cache:                newCacheStore(),
+		routeObserver:        options.routeObserver,
 	}
 	s.interceptorFactories["cache"] = cacheInterceptorFactory(s.cache)
 	return s
@@ -78,19 +81,61 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
+	observer := s.routeObserver
+	routePath := path
+
 	err = s.adapter.RegisterRoute(normalizedMethod, path, func(ctx fiberinternal.Context) error {
-		if err := handler(ctx); err != nil {
-			if handled, handleErr := s.writeRegisteredError(ctx, err); handled {
-				return handleErr
+		start := time.Now()
+		observed := &observingContext{Context: ctx}
+
+		handlerErr := handler(observed)
+		if handlerErr != nil {
+			if handled, handleErr := s.writeRegisteredError(observed, handlerErr); handled {
+				handlerErr = handleErr
+			} else {
+				handlerErr = writeErrorResponse(observed, handlerErr)
 			}
-			return writeErrorResponse(ctx, err)
 		}
-		return nil
+
+		if observer != nil {
+			statusCode := observed.statusCode
+			if statusCode == 0 {
+				statusCode = http.StatusOK
+			}
+			observer.Observe(RouteObservation{
+				Method:     ctx.Method(),
+				Route:      routePath,
+				StatusCode: statusCode,
+				Duration:   time.Since(start),
+			})
+		}
+
+		return handlerErr
 	})
 	if err != nil {
 		return fmt.Errorf("web: register route %s %s: %w", normalizedMethod, path, err)
 	}
 	return nil
+}
+
+// observingContext wraps a Context to intercept Status calls and record the
+// final status code set during handler execution.
+type observingContext struct {
+	fiberinternal.Context
+	statusCode int // 0 means no explicit Status call; interpret as 200
+}
+
+func (o *observingContext) Status(code int) {
+	o.statusCode = code
+	o.Context.Status(code)
+}
+
+func (o *observingContext) SetHeader(key, value string) {
+	o.Context.SetHeader(key, value)
+}
+
+func (o *observingContext) Send(body []byte) error {
+	return o.Context.Send(body)
 }
 
 func (s *server) registerErrorHandler(handler any) error {
