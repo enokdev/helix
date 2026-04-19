@@ -168,3 +168,17 @@
 - [core/reflect_resolver.go:150] AssignableTo manque les impls a pointer-receiver pour types enregistres en valeur — composants silencieusement exclus. Lié à la conception generale du registre ReflectResolver.
 - [core/reflect_resolver.go] Race condition potentielle sur `r.singletons` lors de resolutions concurrentes — pre-existante, non liee a cette story.
 - [observability/actuator.go:28-44] Registration en deux etapes sans rollback : si la route info echoue apres health, le serveur est dans un etat inconsistant. HTTPServer n'expose pas de deregistration.
+
+## Deferred from: code review of story-6-2 (2026-04-19)
+
+- **Multi-value headers tronqués dans `servePrometheus`** (`observability/metrics_route.go`): `ctx.SetHeader` mappe sur `Fiber.Set` (remplace) — les headers multi-valeurs perdent toutes les valeurs sauf la dernière. Sans impact immédiat pour promhttp (headers single-value), mais incorrect vis-à-vis du contrat HTTP. Fix futur: ajouter `ctx.AddHeader` dans `web.Context`.
+- **Double-compression avec Fiber Compress middleware** (`observability/metrics_route.go:63-67`): si `Accept-Encoding: gzip` est présent, promhttp compresse le body qui est ensuite re-compressé par le middleware Fiber. Seulement pour les apps utilisant explicitement le middleware Compress. Fix futur: ne pas forwarder `Accept-Encoding` ou détecter le middleware.
+- **Observer capture status erroné quand Fiber fallback override** (`web/server.go`): si un registered error handler écrit une réponse mais retourne lui-même une erreur (`handled=true, err≠nil`), Fiber écrit une deuxième réponse avec un status différent après l'observation. Le métrique `status` peut diverger de ce que le client reçoit réellement. Fix futur: hook de capture de status en sortie de handler Fiber.
+- **`Registry()` singleton + double appel à `NewHTTPMetricsObserver`** (`observability/metrics.go`): un second appel avec le même registre retourne `AlreadyRegisteredError`. Comportement spécifié (retourner les erreurs de `Register`) mais peut surprendre dans un scénario reload. Fix futur: détecter `AlreadyRegisteredError` et retourner l'observer existant via le collector déjà enregistré.
+
+## Deferred from: code review of story-6-3 (2026-04-19)
+
+- **`WithGroup` imbrique `namespace` dans le groupe JSON** (`observability/logging.go:210-213`): `WithGroup` ne trace pas l'état actif du groupe dans le handler; l'injection de `namespace` dans `Handle` atterrit à l'intérieur du groupe au lieu du top-level. Usage rare dans les patterns Helix actuels; correction nécessite un tracking d'état groupe dans `namespaceLevelHandler`.
+- **`knownConfigKeys` couvre seulement `helix.logging.levels.web`** (`config/reload.go:19`): les ENV vars pour d'autres namespaces (ex. `HELIX_LOGGING_LEVELS_DATA`) ne sont jamais bindées via `BindEnv`. La spec story-6-3 demande le minimal (web seulement); extension à d'autres namespaces relève d'Epic 7 ou d'une story dédiée.
+- **Valeurs non-string dans namespace levels silencieusement ignorées** (`observability/logging.go:289-292`): si YAML contient `web: 1` (entier), l'assertion `.(string)` échoue silencieusement et le namespace est ignoré. Corriger nécessiterait un changement de signature de `resolveLoggingConfig` ou un log de warning (sans logger disponible à ce stade).
+- **`writeSuccessResponse` fixe le HTTP status avant que `ctx.JSON` réussisse** (`web/response.go:25-26`): `ctx.Status(...)` est appelé avant `ctx.JSON(payload)`; si JSON échoue, le status peut déjà être envoyé au client. Pattern pré-existant, non introduit par story-6-3.
