@@ -16,10 +16,10 @@ type fakeConfig struct {
 	values map[string]any
 }
 
-func (f fakeConfig) Load(any) error           { return nil }
-func (f fakeConfig) ConfigFileUsed() string   { return "" }
+func (f fakeConfig) Load(any) error              { return nil }
+func (f fakeConfig) ConfigFileUsed() string      { return "" }
 func (f fakeConfig) AllSettings() map[string]any { return f.values }
-func (f fakeConfig) ActiveProfiles() []string { return nil }
+func (f fakeConfig) ActiveProfiles() []string    { return nil }
 
 func (f fakeConfig) Lookup(key string) (any, bool) {
 	v, ok := f.values[key]
@@ -58,24 +58,24 @@ func goModWithSQLite() string {
 
 func TestCondition(t *testing.T) {
 	tests := []struct {
-		name    string
-		goMod   string
-		cfg     fakeConfig
-		useCfg  bool
-		want    bool
+		name   string
+		goMod  string
+		cfg    fakeConfig
+		useCfg bool
+		want   bool
 	}{
 		{
-			name:  "sqlite + database.url → active",
-			goMod: goModWithSQLite(),
-			cfg:   fakeConfig{values: map[string]any{"database.url": ":memory:"}},
+			name:   "sqlite + database.url → active",
+			goMod:  goModWithSQLite(),
+			cfg:    fakeConfig{values: map[string]any{"database.url": ":memory:"}},
 			useCfg: true,
-			want:  true,
+			want:   true,
 		},
 		{
 			name:  "override false → inactive",
 			goMod: goModWithSQLite(),
 			cfg: fakeConfig{values: map[string]any{
-				"database.url":               ":memory:",
+				"database.url":                ":memory:",
 				"helix.starters.data.enabled": false,
 			}},
 			useCfg: true,
@@ -88,31 +88,31 @@ func TestCondition(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:  "database.url absent → inactive",
-			goMod: goModWithSQLite(),
-			cfg:   fakeConfig{values: map[string]any{}},
+			name:   "database.url absent → inactive",
+			goMod:  goModWithSQLite(),
+			cfg:    fakeConfig{values: map[string]any{}},
 			useCfg: true,
-			want:  false,
+			want:   false,
 		},
 		{
-			name:  "database.url empty → inactive",
-			goMod: goModWithSQLite(),
-			cfg:   fakeConfig{values: map[string]any{"database.url": ""}},
+			name:   "database.url empty → inactive",
+			goMod:  goModWithSQLite(),
+			cfg:    fakeConfig{values: map[string]any{"database.url": ""}},
 			useCfg: true,
-			want:  false,
+			want:   false,
 		},
 		{
-			name:  "driver absent → inactive",
-			goMod: "module example.com/app\n\nrequire github.com/some/lib v1.0.0\n",
-			cfg:   fakeConfig{values: map[string]any{"database.url": ":memory:"}},
+			name:   "driver absent → inactive",
+			goMod:  "module example.com/app\n\nrequire github.com/some/lib v1.0.0\n",
+			cfg:    fakeConfig{values: map[string]any{"database.url": ":memory:"}},
 			useCfg: true,
-			want:  false,
+			want:   false,
 		},
 		{
 			name:  "non-parsable enabled value → active (not silently disabled)",
 			goMod: goModWithSQLite(),
 			cfg: fakeConfig{values: map[string]any{
-				"database.url":               ":memory:",
+				"database.url":                ":memory:",
 				"helix.starters.data.enabled": "badvalue",
 			}},
 			useCfg: true,
@@ -122,7 +122,7 @@ func TestCondition(t *testing.T) {
 			name:  "override int 0 → inactive",
 			goMod: goModWithSQLite(),
 			cfg: fakeConfig{values: map[string]any{
-				"database.url":               ":memory:",
+				"database.url":                ":memory:",
 				"helix.starters.data.enabled": int(0),
 			}},
 			useCfg: true,
@@ -167,7 +167,7 @@ func TestConditionMissingGoMod(t *testing.T) {
 	}
 }
 
-func TestConfigureNilContainerIsNoOp(t *testing.T) {
+func TestConfigureNilContainerIsNoOp(_ *testing.T) {
 	s := New(fakeConfig{values: map[string]any{"database.url": ":memory:"}})
 	s.Configure(nil) // must not panic
 }
@@ -239,7 +239,7 @@ func TestAutoMigrateTrueWithModels(t *testing.T) {
 	}
 
 	cfg := fakeConfig{values: map[string]any{
-		"database.url":                   ":memory:",
+		"database.url":                     ":memory:",
 		"helix.starters.data.auto-migrate": true,
 	}}
 	container := newTestContainer()
@@ -256,7 +256,7 @@ func TestAutoMigrateFalseSkipsMigration(t *testing.T) {
 	chdirWithGoMod(t, goModWithSQLite())
 
 	cfg := fakeConfig{values: map[string]any{
-		"database.url":                   ":memory:",
+		"database.url":                     ":memory:",
 		"helix.starters.data.auto-migrate": false,
 	}}
 	container := newTestContainer()
@@ -272,7 +272,7 @@ func TestAutoMigrateTrueNoModelsIsNoOp(t *testing.T) {
 	chdirWithGoMod(t, goModWithSQLite())
 
 	cfg := fakeConfig{values: map[string]any{
-		"database.url":                   ":memory:",
+		"database.url":                     ":memory:",
 		"helix.starters.data.auto-migrate": true,
 	}}
 	container := newTestContainer()
@@ -288,7 +288,7 @@ func TestPoolConfig(t *testing.T) {
 	chdirWithGoMod(t, goModWithSQLite())
 
 	cfg := fakeConfig{values: map[string]any{
-		"database.url":          ":memory:",
+		"database.url":           ":memory:",
 		"database.pool.max-open": 10,
 		"database.pool.max-idle": 5,
 	}}
@@ -305,7 +305,7 @@ func TestPoolNegativeValueCausesStartError(t *testing.T) {
 	chdirWithGoMod(t, goModWithSQLite())
 
 	cfg := fakeConfig{values: map[string]any{
-		"database.url":          ":memory:",
+		"database.url":           ":memory:",
 		"database.pool.max-open": -1,
 	}}
 	container := newTestContainer()
@@ -320,7 +320,7 @@ func TestPoolNonParsableValueCausesStartError(t *testing.T) {
 	chdirWithGoMod(t, goModWithSQLite())
 
 	cfg := fakeConfig{values: map[string]any{
-		"database.url":          ":memory:",
+		"database.url":           ":memory:",
 		"database.pool.max-open": "bad",
 	}}
 	container := newTestContainer()
