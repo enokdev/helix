@@ -1,4 +1,11 @@
 
+## Deferred from: code review of 7-2-starter-web-auto-activation-fiber (2026-04-19)
+
+- [D-7.2-1] `Condition()` lit `go.mod` depuis le CWD — en production sans go.mod adjacent, le starter ne s'active jamais ; décision documentée dans les Dev Notes avec justification explicite. À reconsidérer si un mécanisme de détection compile-time (build tag ou interface check) devient disponible. [starter/web/starter.go:35]
+- [D-7.2-2] Aucune validation de plage du port (`"0"`, `"99999"`, chaîne non numérique) — `formatPort` retourne la valeur as-is pour les strings ; l'erreur remonte uniquement au moment du `server.Start()`. Ajouter une validation `strconv.Atoi` + range check dans `formatPort` si les UX-errors au démarrage deviennent prioritaires. [starter/web/starter.go:58-64]
+- [D-7.2-3] Mutation globale du CWD dans les tests (`os.Chdir`) — risque de race si `t.Parallel()` est ajouté à l'avenir. Mitigation actuelle : aucun `t.Parallel()` dans ce package. À traiter si la suite de tests est parallélisée. [starter/web/starter_test.go]
+- [D-7.2-4] Pas de test end-to-end `helix.Run()` avec `WebStarter` intégré — couvre AC 1 mais nécessite un serveur Fiber actif en test ; hors périmètre story 7.2 (intégration auto-discovery dans Run réservée story future). [helix.go]
+
 ## Deferred from: code review of 5-2-helix-mockbean-remplacement-automatique-par-mock (2026-04-19)
 
 - [D-5.2-1] Composant multi-interfaces filtré entièrement par `MockBean[A]` → interface B non couverte devient unresolvable avec message sans contexte mock. Limitation architecturale du filtrage par assignabilité ; à adresser si des composants multi-interfaces deviennent courants dans les tests. [testutil/mock.go:71-82]
@@ -188,3 +195,21 @@
 
 - **Span status/error non enregistré sur échec handler** (`web/internal/fiber_adapter.go`, `tracingMiddleware`): `c.Next()` retourne une erreur mais ni `span.RecordError(err)` ni `span.SetStatus(codes.Error, ...)` ne sont appelés. Tous les spans apparaissent OK dans les backends de tracing même en cas d'échec. Hors périmètre story 6.4 (Span attributes HTTP sémantiques exclus).
 - **`WithInsecure()` hardcodé pour OTLP/Jaeger** (`observability/tracing.go`, `buildExporter`): les exporters `otlp` et `jaeger` passent `otlptracehttp.WithInsecure()` inconditionnellement. Aucune option TLS disponible. Hors périmètre story 6.4 (Support TLS OTLP exclu explicitement).
+
+## Deferred from: code review of 7-1-interface-starter-mecanisme-de-condition (2026-04-19)
+
+- **F3** — Fragilité iota `Order` : tout ajout d'une constante `Order` entre deux existantes réordonne silencieusement toutes les valeurs suivantes. Envisager des valeurs explicites (`OrderConfig = 0`, `OrderWeb = 10`, etc.) pour les futures stories 7.x.
+- **F6** — Pas de déduplication des `Entry.Name` dans `Configure` : deux entrées avec le même nom passent la validation et peuvent enregistrer deux fois les mêmes composants dans le container. Ajouter un check d'unicité des noms lors d'une future itération.
+- **F7** — Shared mutable `Starter` state dans copie peu profonde de `[]Entry` : si deux appelants partagent la même slice `[]Entry`, les mutations d'état interne d'un `Starter` pendant `Configure` sont visibles de l'autre côté. Documenter l'invariant d'ownership ou copier en profondeur.
+- **F8** — Typed-nil `TracerProvider` dans l'adaptateur interne (`fiberinternal.WithTracerProvider`) : le guard `!= nil` de l'adaptateur interne ne détecte pas les typed-nils. Actuellement protégé par `isNilValue` du côté public. À surveiller si l'API interne est un jour exposée.
+- **F11** — Span status jamais `codes.Error` lors d'une erreur dans un handler HTTP : les spans se terminent avec status `UNSET` même si le handler retourne une erreur. `span.SetStatus(codes.Error, ...)` et `span.RecordError(err)` doivent être ajoutés dans `tracingMiddleware` (story 6.4 / future).
+- **F12** — Contexte tracing inaccessible aux handlers pour child spans : `c.SetUserContext(ctx)` est appelé dans `tracingMiddleware` mais `fiberContext` n'expose aucune méthode pour récupérer ce contexte. Les handlers ne peuvent pas créer des child spans rattachés à la trace parente (story 6.4 / future).
+- **F13** — Panics dans `Condition()`/`Configure()` non récupérées : une panic dans un starter utilisateur crashe le process entier sans retourner d'erreur. Acceptable selon la convention Go mais à documenter dans le contrat de l'interface `Starter`.
+- **F15** — Clés `helix.starters.observability.tracing.*` bindées en ENV inconditionnellement dans `config/reload.go` : les variables d'environnement correspondantes influencent le graph de config même si aucun starter observability n'est actif. Lier ces clés conditionnellement lors de l'activation du starter (story 7.4).
+
+## Deferred from: code review of 7-3-starter-data-auto-activation-db (2026-04-20)
+
+- **`os.ReadFile("go.mod")` CWD-sensitive** (`starter/data/starter.go:50`): pattern pré-existant depuis story 7.2, documenté dans ce fichier. Un binaire dont le CWD n'est pas la racine du module désactivera silencieusement le starter. Envisager un walk-up vers la racine du module dans une future itération.
+- **`MaxIdleConns > MaxOpenConns` silently truncated** (`data/gorm/connection.go:54-65`): `database/sql` cap les idle conns au niveau de max-open sans log ni erreur si `MaxIdleConns > MaxOpenConns`. Ajouter une validation explicite dans `ConfigurePool` pour une meilleure expérience développeur.
+- **`intValue` uint64 overflow sur 32-bit** (`starter/data/starter.go`, `intValue`): `case uint64: return int(v), true` sans bounds check. Irrelevant en pratique sur les plateformes 64-bit supportées; à adresser si le support 32-bit est requis.
+- **Nil cfg dans `Configure` enregistre lifecycle avec nil db** (`starter/data/starter.go:80`): quand `s.cfg == nil`, un `databaseLifecycle{}` vide est enregistré; `OnStart()` appelle `l.db.Ping()` sur nil, retournant "nil database" sans contexte. `Condition()` empêche ce cas en usage normal.
