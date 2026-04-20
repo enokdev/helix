@@ -139,6 +139,26 @@ func (r *ReflectResolver) resolveByType(requestedType reflect.Type) (reflect.Val
 	return r.resolveByTypeWithState(requestedType, state)
 }
 
+func (r *ReflectResolver) resolveAllAssignable(targetType reflect.Type) ([]reflect.Value, error) {
+	if targetType == nil || (targetType.Kind() != reflect.Interface && targetType.Kind() != reflect.Ptr) {
+		return nil, ErrUnresolvable
+	}
+
+	values := make([]reflect.Value, 0)
+	for _, registrationType := range r.registrationOrder {
+		if !registrationType.AssignableTo(targetType) {
+			continue
+		}
+		registration := r.registrations[registrationType]
+		value, err := r.resolveRegistration(registrationType, registration, newResolutionState())
+		if err != nil {
+			return nil, fmt.Errorf("core: resolve assignable %s: %w", registrationType, err)
+		}
+		values = append(values, value)
+	}
+	return values, nil
+}
+
 func (r *ReflectResolver) resolveByTypeWithState(requestedType reflect.Type, state *resolutionState) (reflect.Value, error) {
 	registrationType, registration, err := r.lookupRegistration(requestedType)
 	if err != nil {

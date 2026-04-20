@@ -18,13 +18,15 @@ import (
 
 	"github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/starter"
 )
 
 var markerTypes = map[reflect.Type]struct{}{
-	reflect.TypeOf(Service{}):    {},
-	reflect.TypeOf(Controller{}): {},
-	reflect.TypeOf(Repository{}): {},
-	reflect.TypeOf(Component{}):  {},
+	reflect.TypeOf(Service{}):      {},
+	reflect.TypeOf(Controller{}):   {},
+	reflect.TypeOf(Repository{}):   {},
+	reflect.TypeOf(Component{}):    {},
+	reflect.TypeOf(ErrorHandler{}): {},
 }
 
 // App describes the application bootstrap configuration used by Run.
@@ -35,6 +37,9 @@ type App struct {
 	Scan []string
 	// Components contains already-instantiated components to auto-register.
 	Components []any
+	// Starters lists the auto-configuration modules to activate before
+	// registering application components. Evaluated in canonical order.
+	Starters []starter.Entry
 	// ShutdownTimeout overrides the default lifecycle shutdown budget.
 	ShutdownTimeout time.Duration
 	// Logger overrides the logger used by lifecycle shutdown.
@@ -45,7 +50,7 @@ type App struct {
 
 // ConfigReloadable is implemented by components that react after a successful
 // configuration reload.
-type ConfigReloadable = config.ConfigReloadable
+type ConfigReloadable = config.Reloadable
 
 // Service marks a struct as a Helix service component.
 type Service struct{}
@@ -59,6 +64,9 @@ type Repository struct{}
 // Component marks a struct as a generic Helix component.
 type Component struct{}
 
+// ErrorHandler marks a struct as a centralized HTTP error handler component.
+type ErrorHandler struct{}
+
 // Run builds the default reflection-based container, registers application
 // components, starts lifecycle hooks, waits for shutdown, and stops cleanly.
 func Run(app App) error {
@@ -67,6 +75,17 @@ func Run(app App) error {
 	}
 
 	container := newDefaultContainer(app)
+
+	if len(app.Starters) > 0 {
+		logger := app.Logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		if err := starter.Configure(container, app.Starters, starter.WithLogger(logger)); err != nil {
+			return fmt.Errorf("helix: configure starters: %w", err)
+		}
+	}
+
 	if err := registerAppComponents(container, app.Components); err != nil {
 		return err
 	}

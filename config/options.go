@@ -34,3 +34,11 @@ func WithEnvPrefix(prefix string) Option {
 		l.envPrefix = prefix
 	}
 }
+
+// WithAllowMissingConfig lets Load continue when application.yaml is absent.
+// Profile files, defaults, and environment variables can still provide values.
+func WithAllowMissingConfig() Option {
+	return func(l *loader) {
+		l.allowMissing = true
+	}
+}

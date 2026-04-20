@@ -176,6 +176,40 @@ func TestLoaderMissingProfileIsSkipped(t *testing.T) {
 	}
 }
 
+func TestLoaderAllowMissingConfigLoadsProfilesDefaultsAndEnv(t *testing.T) {
+	configDir := writeConfigFile(t, "application-test.yaml", `
+server:
+  port: 8081
+app:
+  name: test
+`)
+	t.Setenv("SERVER_PORT", "9090")
+
+	loader := NewLoader(
+		WithConfigPaths(configDir),
+		WithAllowMissingConfig(),
+		WithProfiles("test"),
+		WithDefaults(map[string]any{"app.mode": "default-mode"}),
+	)
+
+	var cfg loaderTestConfig
+	if err := loader.Load(&cfg); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Port != 9090 {
+		t.Fatalf("cfg.Server.Port = %d, want ENV override 9090", cfg.Server.Port)
+	}
+	if cfg.App.Name != "test" {
+		t.Fatalf("cfg.App.Name = %q, want test", cfg.App.Name)
+	}
+	if cfg.App.Mode != "default-mode" {
+		t.Fatalf("cfg.App.Mode = %q, want default-mode", cfg.App.Mode)
+	}
+	if loader.ConfigFileUsed() != "" {
+		t.Fatalf("ConfigFileUsed() = %q, want empty without application.yaml", loader.ConfigFileUsed())
+	}
+}
+
 func TestLoaderAllSettingsDeepCopy(t *testing.T) {
 	t.Parallel()
 
@@ -217,6 +251,82 @@ func TestLoaderAllSettingsReturnsCopy(t *testing.T) {
 	fresh := loader.AllSettings()
 	if fmt.Sprint(fresh["server"]) == "mutated" {
 		t.Fatal("AllSettings() should return a defensive copy")
+	}
+}
+
+func TestLoaderLoadsHelixLoggingLevelFromEnv(t *testing.T) {
+	t.Setenv("HELIX_LOGGING_LEVEL", "debug")
+
+	loader := NewLoader(WithAllowMissingConfig())
+	if err := loader.Load(new(struct{})); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	val, ok := loader.Lookup("helix.logging.level")
+	if !ok {
+		t.Fatal("Lookup(helix.logging.level) not found; HELIX_LOGGING_LEVEL env should be visible")
+	}
+	if val != "debug" {
+		t.Errorf("helix.logging.level = %v, want debug", val)
+	}
+}
+
+func TestLoaderLoadsHelixLoggingLevelsWebFromEnv(t *testing.T) {
+	t.Setenv("HELIX_LOGGING_LEVELS_WEB", "debug")
+
+	loader := NewLoader(WithAllowMissingConfig())
+	if err := loader.Load(new(struct{})); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	val, ok := loader.Lookup("helix.logging.levels.web")
+	if !ok {
+		t.Fatal("Lookup(helix.logging.levels.web) not found; HELIX_LOGGING_LEVELS_WEB env should be visible")
+	}
+	if val != "debug" {
+		t.Errorf("helix.logging.levels.web = %v, want debug", val)
+	}
+}
+
+func TestLoaderLoadsHelixLoggingLevelsFromYAML(t *testing.T) {
+	t.Parallel()
+
+	configDir := writeConfigFile(t, "application.yaml", `
+helix:
+  logging:
+    level: warn
+    levels:
+      web: debug
+`)
+
+	loader := NewLoader(WithConfigPaths(configDir))
+	if err := loader.Load(new(struct{})); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	level, ok := loader.Lookup("helix.logging.level")
+	if !ok {
+		t.Fatal("Lookup(helix.logging.level) not found")
+	}
+	if level != "warn" {
+		t.Errorf("helix.logging.level = %v, want warn", level)
+	}
+
+	all := loader.AllSettings()
+	helixMap, ok := all["helix"].(map[string]any)
+	if !ok {
+		t.Fatal("all[helix] is not a map")
+	}
+	loggingMap, ok := helixMap["logging"].(map[string]any)
+	if !ok {
+		t.Fatal("helix[logging] is not a map")
+	}
+	levelsMap, ok := loggingMap["levels"].(map[string]any)
+	if !ok {
+		t.Fatal("helix.logging[levels] is not a map")
+	}
+	if levelsMap["web"] != "debug" {
+		t.Errorf("helix.logging.levels.web = %v, want debug", levelsMap["web"])
 	}
 }
 

@@ -32,6 +32,7 @@ type loader struct {
 	defaults       map[string]any
 	profiles       []string
 	profilesSet    bool
+	allowMissing   bool
 	activeProfiles []string
 	envPrefix      string
 	configFileUsed string
@@ -123,10 +124,18 @@ func (l *loader) readIntoNewViper() (loadedConfig, error) {
 		next.SetDefault(key, value)
 	}
 
+	configFileUsed := ""
 	if err := next.ReadInConfig(); err != nil {
-		return loadedConfig{}, wrapReadError("read application.yaml", err)
+		if !l.allowMissing {
+			return loadedConfig{}, wrapReadError("read application.yaml", err)
+		}
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return loadedConfig{}, wrapReadError("read application.yaml", err)
+		}
+	} else {
+		configFileUsed = next.ConfigFileUsed()
 	}
-	configFileUsed := next.ConfigFileUsed()
 
 	activeProfiles := l.resolveProfiles()
 	for _, profile := range activeProfiles {

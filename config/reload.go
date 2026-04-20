@@ -13,11 +13,21 @@ import (
 
 const reloadIntervalKey = "helix.config.reload-interval"
 
-var knownConfigKeys = []string{reloadIntervalKey}
+var knownConfigKeys = []string{
+	reloadIntervalKey,
+	"helix.logging.level",
+	"helix.logging.levels.web",
+	"helix.starters.web.enabled",
+	"helix.starters.observability.tracing.enabled",
+	"helix.starters.observability.tracing.exporter",
+	"helix.starters.observability.tracing.endpoint",
+	"helix.starters.observability.tracing.service-name",
+	"server.port",
+}
 
-// ConfigReloadable is implemented by components that need to react after a
+// Reloadable is implemented by components that need to react after a
 // successful configuration reload.
-type ConfigReloadable interface {
+type Reloadable interface {
 	OnConfigReload()
 }
 
@@ -62,7 +72,7 @@ type reloader struct {
 	mu               sync.RWMutex
 	loader           Loader
 	target           any
-	reloadables      []ConfigReloadable
+	reloadables      []Reloadable
 	interval         time.Duration
 	intervalExplicit bool
 	logger           *slog.Logger
@@ -98,7 +108,7 @@ func NewReloader(loader Loader, target any, opts ...ReloadOption) (Reloader, err
 }
 
 // WithReloadables registers callbacks invoked after each successful reload.
-func WithReloadables(reloadables ...ConfigReloadable) ReloadOption {
+func WithReloadables(reloadables ...Reloadable) ReloadOption {
 	return func(r *reloader) error {
 		if slices.ContainsFunc(reloadables, isNilReloadable) {
 			return fmt.Errorf("config: configure reloadable: %w", ErrInvalidConfig)
@@ -109,7 +119,7 @@ func WithReloadables(reloadables ...ConfigReloadable) ReloadOption {
 }
 
 // isNilReloadable returns true for both untyped nil and typed-nil interface values.
-func isNilReloadable(r ConfigReloadable) bool {
+func isNilReloadable(r Reloadable) bool {
 	if r == nil {
 		return true
 	}

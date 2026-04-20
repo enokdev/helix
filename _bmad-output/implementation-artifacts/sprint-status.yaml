@@ -1,9 +1,10 @@
 # generated: 2026-04-14
-# last_updated: 2026-04-17 — story 3-1 done
+last_updated: 2026-04-19 - story 6-4 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
 # story_location: _bmad-output/implementation-artifacts
+# archive_location: _bmad-output/implementation-artifacts/archives
 
 # STATUS DEFINITIONS:
 # ==================
@@ -33,12 +34,14 @@
 # - Stories can be worked in parallel if team capacity allows
 # - Developer typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-17
+last_updated: 2026-04-19 - story 6-3 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
+archive_location: _bmad-output/implementation-artifacts/archives
 
 development_status:
 
@@ -69,40 +72,40 @@ development_status:
   # ─────────────────────────────────────────────
   epic-3: in-progress
   3-1-abstraction-http-adaptateur-fiber: done
-  3-2-routing-par-convention-de-nommage: backlog
-  3-3-routes-custom-via-directives: backlog
-  3-4-extracteurs-types-validation-automatique: backlog
-  3-5-mapping-automatique-retour-http-status: backlog
-  3-6-error-handler-centralise: backlog
-  3-7-guards-interceptors-declaratifs: backlog
+  3-2-routing-par-convention-de-nommage: done
+  3-3-routes-custom-via-directives: done
+  3-4-extracteurs-types-validation-automatique: done
+  3-5-mapping-automatique-retour-http-status: done
+  3-6-error-handler-centralise: done
+  3-7-guards-interceptors-declaratifs: done
   epic-3-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 4: Data Layer & Repository Pattern
   # ─────────────────────────────────────────────
-  epic-4: backlog
-  4-1-interface-repository-generique: backlog
-  4-2-adaptateur-gorm-implementation-repository: backlog
-  4-3-generation-automatique-de-requetes-query-auto: backlog
-  4-4-transactions-declaratives-helix-transactional: backlog
+  epic-4: in-progress
+  4-1-interface-repository-generique: done
+  4-2-adaptateur-gorm-implementation-repository: done
+  4-3-generation-automatique-de-requetes-query-auto: done
+  4-4-transactions-declaratives-helix-transactional: done
   epic-4-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 5: Infrastructure de Test
   # ─────────────────────────────────────────────
-  epic-5: backlog
-  5-1-helix-newtestapp-container-de-test: backlog
-  5-2-helix-mockbean-remplacement-automatique-par-mock: backlog
+  epic-5: in-progress
+  5-1-helix-newtestapp-container-de-test: done
+  5-2-helix-mockbean-remplacement-automatique-par-mock: done
   epic-5-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 6: Observabilité
   # ─────────────────────────────────────────────
-  epic-6: backlog
-  6-1-endpoints-actuator-health-info: backlog
-  6-2-metriques-prometheus-actuator-metrics: backlog
-  6-3-logging-structure-avec-slog: backlog
-  6-4-tracing-opentelemetry-opt-in: backlog
+  epic-6: in-progress
+  6-1-endpoints-actuator-health-info: done
+  6-2-metriques-prometheus-actuator-metrics: done
+  6-3-logging-structure-avec-slog: done
+  6-4-tracing-opentelemetry-opt-in: done
   epic-6-retrospective: optional
 
   # ─────────────────────────────────────────────
