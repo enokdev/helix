@@ -131,7 +131,7 @@ func TestConditionNilConfig(t *testing.T) {
 
 // ─── Configure nil-safe ───────────────────────────────────────────────────────
 
-func TestConfigureNilContainerIsNoop(t *testing.T) {
+func TestConfigureNilContainerIsNoop(_ *testing.T) {
 	// Must not panic.
 	New(nil).Configure(nil)
 }

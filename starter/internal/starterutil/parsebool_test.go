@@ -8,9 +8,9 @@ import (
 
 func TestParseBool(t *testing.T) {
 	tests := []struct {
-		name      string
-		value     any
-		wantVal   bool
+		name       string
+		value      any
+		wantVal    bool
 		wantParsed bool
 	}{
 		{"bool true", true, true, true},

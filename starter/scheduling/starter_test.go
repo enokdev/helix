@@ -111,7 +111,7 @@ func TestConditionOverrideTrueWhenCronAbsent(t *testing.T) {
 
 // ─── Configure tests ──────────────────────────────────────────────────────────
 
-func TestConfigureNilContainerIsNoop(t *testing.T) {
+func TestConfigureNilContainerIsNoop(_ *testing.T) {
 	New(nil).Configure(nil)
 }
 
