@@ -9,7 +9,7 @@ import (
 // Configurer is the interface that global security configuration components implement.
 // Embed helix.SecurityConfigurer in your struct to auto-register it.
 type Configurer interface {
-	Configure(hs *HttpSecurity)
+	Configure(hs *HTTPSecurity)
 }
 
 type pathRule struct {
@@ -17,23 +17,23 @@ type pathRule struct {
 	guard   web.Guard
 }
 
-// HttpSecurity accumulates security rules based on path patterns.
+// HTTPSecurity accumulates security rules based on path patterns.
 // Created by the framework during startup and passed to Configurer.Configure().
-type HttpSecurity struct {
+type HTTPSecurity struct {
 	jwtSvc JWTServicer
 	rules  []pathRule
 }
 
-// NewHttpSecurity creates an HttpSecurity builder.
-func NewHttpSecurity(svc JWTServicer) *HttpSecurity {
-	return &HttpSecurity{
+// NewHTTPSecurity creates an HTTPSecurity builder.
+func NewHTTPSecurity(svc JWTServicer) *HTTPSecurity {
+	return &HTTPSecurity{
 		jwtSvc: svc,
 	}
 }
 
 // Route returns a RouteSecurityBuilder scoped to the given path pattern.
 // Wildcards: ** (all segments) and * (one segment).
-func (hs *HttpSecurity) Route(pattern string) *RouteSecurityBuilder {
+func (hs *HTTPSecurity) Route(pattern string) *RouteSecurityBuilder {
 	return &RouteSecurityBuilder{
 		hs:      hs,
 		pattern: pattern,
@@ -41,7 +41,7 @@ func (hs *HttpSecurity) Route(pattern string) *RouteSecurityBuilder {
 }
 
 // Build constructs the global guard that applies rules in definition order.
-func (hs *HttpSecurity) Build() web.Guard {
+func (hs *HTTPSecurity) Build() web.Guard {
 	rules := make([]pathRule, len(hs.rules))
 	copy(rules, hs.rules)
 	return web.GuardFunc(func(ctx web.Context) error {
@@ -57,15 +57,15 @@ func (hs *HttpSecurity) Build() web.Guard {
 
 // RouteSecurityBuilder is an intermediate builder for a specific path pattern.
 type RouteSecurityBuilder struct {
-	hs      *HttpSecurity
+	hs      *HTTPSecurity
 	pattern string
 }
 
 // PermitAll allows all requests for this pattern without authentication.
-func (b *RouteSecurityBuilder) PermitAll() *HttpSecurity {
+func (b *RouteSecurityBuilder) PermitAll() *HTTPSecurity {
 	b.hs.rules = append(b.hs.rules, pathRule{
 		pattern: b.pattern,
-		guard: web.GuardFunc(func(ctx web.Context) error {
+		guard: web.GuardFunc(func(_ web.Context) error {
 			return nil
 		}),
 	})
@@ -73,10 +73,10 @@ func (b *RouteSecurityBuilder) PermitAll() *HttpSecurity {
 }
 
 // Authenticated requires a valid JWT token.
-func (b *RouteSecurityBuilder) Authenticated() *HttpSecurity {
+func (b *RouteSecurityBuilder) Authenticated() *HTTPSecurity {
 	var guard web.Guard
 	if b.hs.jwtSvc == nil {
-		guard = web.GuardFunc(func(ctx web.Context) error {
+		guard = web.GuardFunc(func(_ web.Context) error {
 			return web.Unauthorized("authentication required but no JWT service is configured")
 		})
 	} else {
@@ -92,10 +92,10 @@ func (b *RouteSecurityBuilder) Authenticated() *HttpSecurity {
 // HasRole requires the user to have at least one of the specified roles.
 // If no roles are provided, all requests are denied with 401.
 // For unauthenticated requests (no JWT claims), returns 401 instead of 403.
-func (b *RouteSecurityBuilder) HasRole(roles ...string) *HttpSecurity {
+func (b *RouteSecurityBuilder) HasRole(roles ...string) *HTTPSecurity {
 	var guard web.Guard
 	if len(roles) == 0 {
-		guard = web.GuardFunc(func(ctx web.Context) error {
+		guard = web.GuardFunc(func(_ web.Context) error {
 			return web.Unauthorized("security: HasRole requires at least one role")
 		})
 	} else {

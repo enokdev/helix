@@ -24,9 +24,9 @@ import (
 )
 
 var markerTypes = map[reflect.Type]struct{}{
-	reflect.TypeOf(Service{}):      {},
-	reflect.TypeOf(Controller{}):   {},
-	reflect.TypeOf(Repository{}):   {},
+	reflect.TypeOf(Service{}):            {},
+	reflect.TypeOf(Controller{}):         {},
+	reflect.TypeOf(Repository{}):         {},
 	reflect.TypeOf(Component{}):          {},
 	reflect.TypeOf(ErrorHandler{}):       {},
 	reflect.TypeOf(SecurityConfigurer{}): {},
@@ -241,7 +241,7 @@ func awaitSignal() error {
 }
 
 type securityConfigurer interface {
-	Configure(hs *security.HttpSecurity)
+	Configure(hs *security.HTTPSecurity)
 }
 
 func applySecurityConfigurer(app App, container *core.Container) error {
@@ -267,7 +267,7 @@ func applySecurityConfigurer(app App, container *core.Container) error {
 		jwtSvc = jSvc
 	}
 
-	httpSec := security.NewHttpSecurity(jwtSvc)
+	httpSec := security.NewHTTPSecurity(jwtSvc)
 	configurer.Configure(httpSec)
 
 	if err := web.ApplyGlobalGuard(server, httpSec.Build()); err != nil {

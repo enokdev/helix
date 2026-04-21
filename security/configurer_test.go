@@ -15,23 +15,24 @@ type fakeContext struct {
 	locals map[string]any
 }
 
-func (c *fakeContext) Path() string        { return c.path }
-func (c *fakeContext) OriginalURL() string { return c.path }
-func (c *fakeContext) Method() string      { return "GET" }
-func (c *fakeContext) Param(string) string { return "" }
-func (c *fakeContext) Query(string) string { return "" }
-func (c *fakeContext) IP() string          { return "" }
-func (c *fakeContext) Body() []byte        { return nil }
-func (c *fakeContext) Status(int)          {}
+func (c *fakeContext) Path() string             { return c.path }
+func (c *fakeContext) OriginalURL() string      { return c.path }
+func (c *fakeContext) Method() string           { return "GET" }
+func (c *fakeContext) Param(string) string      { return "" }
+func (c *fakeContext) Query(string) string      { return "" }
+func (c *fakeContext) IP() string               { return "" }
+func (c *fakeContext) Body() []byte             { return nil }
+func (c *fakeContext) Status(int)               {}
 func (c *fakeContext) SetHeader(string, string) {}
-func (c *fakeContext) Send([]byte) error   { return nil }
-func (c *fakeContext) JSON(any) error      { return nil }
+func (c *fakeContext) Send([]byte) error        { return nil }
+func (c *fakeContext) JSON(any) error           { return nil }
 func (c *fakeContext) Header(key string) string {
 	if key == "Authorization" {
 		return c.header
 	}
 	return ""
 }
+
 func (c *fakeContext) Locals(key string, value ...any) any {
 	if len(value) > 0 {
 		c.locals[key] = value[0]
@@ -84,7 +85,7 @@ func TestMatchesPattern(t *testing.T) {
 	}
 }
 
-func TestHttpSecurity_PermitAll(t *testing.T) {
+func TestHTTPSecurity_PermitAll(t *testing.T) {
 	tests := []struct {
 		name    string
 		path    string
@@ -94,7 +95,7 @@ func TestHttpSecurity_PermitAll(t *testing.T) {
 		{"unmatched path allowed (no rule)", "/api/users", false},
 	}
 
-	hs := NewHttpSecurity(nil)
+	hs := NewHTTPSecurity(nil)
 	hs.Route("/public/**").PermitAll()
 	guard := hs.Build()
 
@@ -108,7 +109,7 @@ func TestHttpSecurity_PermitAll(t *testing.T) {
 	}
 }
 
-func TestHttpSecurity_Authenticated(t *testing.T) {
+func TestHTTPSecurity_Authenticated(t *testing.T) {
 	svc, _ := NewJWTService("secret", time.Hour)
 	token, _ := svc.Generate(map[string]any{"id": "123"})
 
@@ -121,7 +122,7 @@ func TestHttpSecurity_Authenticated(t *testing.T) {
 		{"valid token → pass", "Bearer " + token, false},
 	}
 
-	hs := NewHttpSecurity(svc)
+	hs := NewHTTPSecurity(svc)
 	hs.Route("/api/**").Authenticated()
 	guard := hs.Build()
 
@@ -135,8 +136,8 @@ func TestHttpSecurity_Authenticated(t *testing.T) {
 	}
 }
 
-func TestHttpSecurity_Authenticated_NoJWTService(t *testing.T) {
-	hs := NewHttpSecurity(nil)
+func TestHTTPSecurity_Authenticated_NoJWTService(t *testing.T) {
+	hs := NewHTTPSecurity(nil)
 	hs.Route("/api/**").Authenticated()
 	guard := hs.Build()
 
@@ -146,7 +147,7 @@ func TestHttpSecurity_Authenticated_NoJWTService(t *testing.T) {
 	}
 }
 
-func TestHttpSecurity_HasRole(t *testing.T) {
+func TestHTTPSecurity_HasRole(t *testing.T) {
 	tests := []struct {
 		name    string
 		locals  map[string]any
@@ -174,7 +175,7 @@ func TestHttpSecurity_HasRole(t *testing.T) {
 		},
 	}
 
-	hs := NewHttpSecurity(nil)
+	hs := NewHTTPSecurity(nil)
 	hs.Route("/admin/**").HasRole("ADMIN")
 	guard := hs.Build()
 
@@ -188,8 +189,8 @@ func TestHttpSecurity_HasRole(t *testing.T) {
 	}
 }
 
-func TestHttpSecurity_HasRole_NoRoles(t *testing.T) {
-	hs := NewHttpSecurity(nil)
+func TestHTTPSecurity_HasRole_NoRoles(t *testing.T) {
+	hs := NewHTTPSecurity(nil)
 	hs.Route("/admin/**").HasRole() // zero roles — must not panic
 	guard := hs.Build()
 
@@ -199,7 +200,7 @@ func TestHttpSecurity_HasRole_NoRoles(t *testing.T) {
 	}
 }
 
-func TestHttpSecurity_RulePriority(t *testing.T) {
+func TestHTTPSecurity_RulePriority(t *testing.T) {
 	svc, _ := NewJWTService("secret", time.Hour)
 
 	tests := []struct {
@@ -215,7 +216,7 @@ func TestHttpSecurity_RulePriority(t *testing.T) {
 		{"unmatched path → permit", "/static/logo.png", false},
 	}
 
-	hs := NewHttpSecurity(svc)
+	hs := NewHTTPSecurity(svc)
 	hs.Route("/api/public/**").PermitAll()
 	hs.Route("/api/**").Authenticated()
 	guard := hs.Build()
@@ -230,8 +231,8 @@ func TestHttpSecurity_RulePriority(t *testing.T) {
 	}
 }
 
-func TestHttpSecurity_NoRuleMatches(t *testing.T) {
-	hs := NewHttpSecurity(nil)
+func TestHTTPSecurity_NoRuleMatches(t *testing.T) {
+	hs := NewHTTPSecurity(nil)
 	hs.Route("/api/**").Authenticated()
 	guard := hs.Build()
 
