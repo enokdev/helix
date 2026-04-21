@@ -1,4 +1,8 @@
 
+## Deferred from: code review of story-8-2 (2026-04-21)
+
+- [D-8.2-1] Comparaison des rôles sensible à la casse sans contrat documenté — `role == allowed` est une comparaison exacte. Si le JWT issuer encode les rôles avec une casse différente (ex: "Admin" vs "admin"), les utilisateurs légitimes reçoivent un 403 silencieux. Design choice à documenter ou normaliser lors d'une future itération. [security/rbac.go:50]
+
 ## Deferred from: code review of 7-4-starters-observability-security-scheduling (2026-04-21)
 
 - [D-7.4-1] `go.mod` CWD-dependent dans `scheduling/Condition()` — même pattern pré-existant que D-7.2-1 (web) et D-7.3 (data). Un processus dont le CWD n'est pas la racine du module ne détectera jamais `robfig/cron` ; le starter reste silencieusement inactif. À traiter via un walk-up `go.mod` dans une future itération. [starter/scheduling/starter.go:28]
