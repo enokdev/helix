@@ -215,6 +215,10 @@
 - **F13** — Panics dans `Condition()`/`Configure()` non récupérées : une panic dans un starter utilisateur crashe le process entier sans retourner d'erreur. Acceptable selon la convention Go mais à documenter dans le contrat de l'interface `Starter`.
 - **F15** — Clés `helix.starters.observability.tracing.*` bindées en ENV inconditionnellement dans `config/reload.go` : les variables d'environnement correspondantes influencent le graph de config même si aucun starter observability n'est actif. Lier ces clés conditionnellement lors de l'activation du starter (story 7.4).
 
+## Deferred from: code review of 8-1-jwt-generation-validation-refresh (2026-04-21)
+
+- [D-8.1-1] `Refresh` d'un token sans claims hors `exp` génère un token anonyme silencieux (`security/jwt.go:83`): quand le token ne contient que le claim `exp` (aucun autre claim métier), `Refresh` supprime `exp`, appelle `Generate({})` et produit un nouveau token valide mais sans identité. Aucune erreur n'est retournée. Design gap hors scope story 8.1 — à adresser si `Refresh` doit exiger des claims minimaux (ex: `sub`).
+
 ## Deferred from: code review of 7-3-starter-data-auto-activation-db (2026-04-20)
 
 - **`os.ReadFile("go.mod")` CWD-sensitive** (`starter/data/starter.go:50`): pattern pré-existant depuis story 7.2, documenté dans ce fichier. Un binaire dont le CWD n'est pas la racine du module désactivera silencieusement le starter. Envisager un walk-up vers la racine du module dans une future itération.

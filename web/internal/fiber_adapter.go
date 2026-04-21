@@ -27,6 +27,7 @@ type Context interface {
 	SetHeader(key, value string)
 	Send(body []byte) error
 	JSON(body any) error
+	Locals(key string, value ...any) any
 }
 
 // HandlerFunc handles a request through the internal adapter.
@@ -226,4 +227,11 @@ func (c fiberContext) Send(body []byte) error {
 
 func (c fiberContext) JSON(body any) error {
 	return c.ctx.JSON(body)
+}
+
+func (c fiberContext) Locals(key string, value ...any) any {
+	if len(value) > 0 {
+		return c.ctx.Locals(key, value[0])
+	}
+	return c.ctx.Locals(key)
 }

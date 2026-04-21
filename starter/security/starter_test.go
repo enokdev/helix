@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/enokdev/helix/core"
+	helixsecurity "github.com/enokdev/helix/security"
 )
 
 type fakeConfig struct {
@@ -103,22 +104,50 @@ func TestConfigureNilContainerIsNoop(_ *testing.T) {
 	New(nil).Configure(nil)
 }
 
-func TestConfigureRegistersLifecycle(t *testing.T) {
+func TestConfigureRegistersJWTService(t *testing.T) {
 	container := newTestContainer()
 
+	cfg := fakeConfig{values: map[string]any{
+		jwtSecretKey: "my-secret",
+		jwtExpiryKey: "1h",
+	}}
+	New(cfg).Configure(container)
+
+	var svc *helixsecurity.JWTService
+	if err := container.Resolve(&svc); err != nil {
+		t.Fatalf("Resolve(*JWTService) error = %v", err)
+	}
+	if svc == nil {
+		t.Fatal("JWTService is nil after Configure")
+	}
+}
+
+func TestConfigureRegistersJWTService_DefaultsWithNilConfig(t *testing.T) {
+	container := newTestContainer()
+
+	// Empty secret (nil config) means no JWTService is registered — Configure must not panic.
 	New(nil).Configure(container)
 
-	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
-	if err != nil {
-		t.Fatalf("ResolveAll error = %v", err)
+	var svc *helixsecurity.JWTService
+	if err := container.Resolve(&svc); err == nil {
+		t.Fatal("expected Resolve(*JWTService) to fail when secret is empty")
 	}
-	if len(lifecycles) != 1 {
-		t.Fatalf("lifecycle count = %d, want 1", len(lifecycles))
+}
+
+func TestConfigureRegistersJWTService_InvalidExpiry_UsesDefault(t *testing.T) {
+	container := newTestContainer()
+
+	cfg := fakeConfig{values: map[string]any{
+		jwtSecretKey: "my-secret",
+		jwtExpiryKey: "not-a-duration",
+	}}
+	New(cfg).Configure(container)
+
+	var svc *helixsecurity.JWTService
+	if err := container.Resolve(&svc); err != nil {
+		t.Fatalf("Resolve(*JWTService) error = %v", err)
 	}
-	if err := lifecycles[0].OnStart(); err != nil {
-		t.Fatalf("OnStart() error = %v, want nil", err)
-	}
-	if err := lifecycles[0].OnStop(); err != nil {
-		t.Fatalf("OnStop() error = %v, want nil", err)
+	if svc == nil {
+		t.Fatal("JWTService is nil after Configure with invalid expiry")
 	}
 }

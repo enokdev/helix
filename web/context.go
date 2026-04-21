@@ -14,4 +14,7 @@ type Context interface {
 	SetHeader(key, value string)
 	Send(body []byte) error
 	JSON(body any) error
+	// Locals stores or retrieves a request-scoped value by key.
+	// Call with one value argument to set; call with no value argument to get.
+	Locals(key string, value ...any) any
 }

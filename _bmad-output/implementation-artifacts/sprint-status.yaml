@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-21 - story 7-4 in-progress (post code review)
+last_updated: 2026-04-21 - story 8-1 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-21 - story 7-4 in-progress (post code review)
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-21 - story 7-4 in-progress (post code review)
+last_updated: 2026-04-21 - story 8-1 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -121,8 +121,8 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 8: Sécurité
   # ─────────────────────────────────────────────
-  epic-8: backlog
-  8-1-jwt-generation-validation-refresh: backlog
+  epic-8: in-progress
+  8-1-jwt-generation-validation-refresh: done
   8-2-rbac-guards-de-roles-declaratifs: backlog
   8-3-helix-securityconfigurer-regles-globales: backlog
   epic-8-retrospective: optional
