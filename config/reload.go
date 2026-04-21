@@ -18,11 +18,19 @@ var knownConfigKeys = []string{
 	"helix.logging.level",
 	"helix.logging.levels.web",
 	"helix.starters.web.enabled",
+	"helix.starters.data.enabled",
+	"helix.starters.data.auto-migrate",
+	"helix.starters.observability.enabled",
 	"helix.starters.observability.tracing.enabled",
 	"helix.starters.observability.tracing.exporter",
 	"helix.starters.observability.tracing.endpoint",
 	"helix.starters.observability.tracing.service-name",
+	"helix.starters.security.enabled",
+	"helix.starters.scheduling.enabled",
 	"server.port",
+	"database.url",
+	"database.pool.max-open",
+	"database.pool.max-idle",
 }
 
 // Reloadable is implemented by components that need to react after a

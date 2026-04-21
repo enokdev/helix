@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-19 - story 6-4 done
+last_updated: 2026-04-21 - story 8-1 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-19 - story 6-4 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-19 - story 6-3 done
+last_updated: 2026-04-21 - story 8-1 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -111,18 +111,18 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 7: Auto-Configuration & Starters
   # ─────────────────────────────────────────────
-  epic-7: backlog
-  7-1-interface-starter-mecanisme-de-condition: backlog
-  7-2-starter-web-auto-activation-fiber: backlog
-  7-3-starter-data-auto-activation-db: backlog
-  7-4-starters-observability-security-scheduling: backlog
+  epic-7: in-progress
+  7-1-interface-starter-mecanisme-de-condition: done
+  7-2-starter-web-auto-activation-fiber: done
+  7-3-starter-data-auto-activation-db: done
+  7-4-starters-observability-security-scheduling: done
   epic-7-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 8: Sécurité
   # ─────────────────────────────────────────────
-  epic-8: backlog
-  8-1-jwt-generation-validation-refresh: backlog
+  epic-8: in-progress
+  8-1-jwt-generation-validation-refresh: done
   8-2-rbac-guards-de-roles-declaratifs: backlog
   8-3-helix-securityconfigurer-regles-globales: backlog
   epic-8-retrospective: optional
