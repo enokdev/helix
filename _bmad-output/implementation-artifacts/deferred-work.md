@@ -1,4 +1,12 @@
 
+## Deferred from: code review of 7-4-starters-observability-security-scheduling (2026-04-21)
+
+- [D-7.4-1] `go.mod` CWD-dependent dans `scheduling/Condition()` — même pattern pré-existant que D-7.2-1 (web) et D-7.3 (data). Un processus dont le CWD n'est pas la racine du module ne détectera jamais `robfig/cron` ; le starter reste silencieusement inactif. À traiter via un walk-up `go.mod` dans une future itération. [starter/scheduling/starter.go:28]
+- [D-7.4-2] `_ = container.Register(...)` ignore les erreurs d'enregistrement dans tous les nouveaux starters — pattern pré-existant web/data. Envisager un return d'erreur ou un log sur `Configure()` lors d'une refonte cross-coupante. [starter/*/starter.go]
+- [D-7.4-3] Idempotence de `Configure()` — appels multiples écrasent l'état global slog/OTel et créent des lifecycles dupliqués. Concerne tous les starters. Mitigation actuelle : `helix.Run()` n'appelle `Configure()` qu'une fois. [starter/observability/starter.go:48]
+- [D-7.4-4] Container peut sauter `OnStop` quand `OnStart` retourne une erreur — si ce comportement est présent, le `shutdownFn` OTel serait orphelin. Vérifier la sémantique du container lors de la résolution du lifecycle. [starter/observability/starter.go:70-74]
+- [D-7.4-5] go.mod faux-positif via commentaire/directive replace — `bytes.Contains(data, "robfig/cron")` matche un commentaire contenant la chaîne. Impact pratique marginal. Même pattern que web/data starters. [starter/scheduling/starter.go:29]
+
 ## Deferred from: code review of 7-2-starter-web-auto-activation-fiber (2026-04-19)
 
 - [D-7.2-1] `Condition()` lit `go.mod` depuis le CWD — en production sans go.mod adjacent, le starter ne s'active jamais ; décision documentée dans les Dev Notes avec justification explicite. À reconsidérer si un mécanisme de détection compile-time (build tag ou interface check) devient disponible. [starter/web/starter.go:35]

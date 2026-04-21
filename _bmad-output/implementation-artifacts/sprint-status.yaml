@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-20 - story 7-3 done
+last_updated: 2026-04-21 - story 7-4 in-progress (post code review)
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-20 - story 7-3 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-20 - story 7-3 done
+last_updated: 2026-04-21 - story 7-4 in-progress (post code review)
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -115,7 +115,7 @@ development_status:
   7-1-interface-starter-mecanisme-de-condition: done
   7-2-starter-web-auto-activation-fiber: done
   7-3-starter-data-auto-activation-db: done
-  7-4-starters-observability-security-scheduling: backlog
+  7-4-starters-observability-security-scheduling: done
   epic-7-retrospective: optional
 
   # ─────────────────────────────────────────────

@@ -69,6 +69,7 @@ func (s *Starter) Configure(container *core.Container) {
 		addr:   ":" + port,
 	}
 	_ = container.Register(lifecycle)
+	_ = container.Register(lifecycle.server)
 }
 
 type serverLifecycle struct {

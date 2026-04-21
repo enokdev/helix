@@ -174,6 +174,20 @@ func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 	}
 }
 
+func TestStarterConfigureRegistersHTTPServer(t *testing.T) {
+	container := newTestContainer()
+
+	New(nil).Configure(container)
+
+	var server helixweb.HTTPServer
+	if err := container.Resolve(&server); err != nil {
+		t.Fatalf("Resolve(HTTPServer) error = %v, want nil", err)
+	}
+	if server == nil {
+		t.Fatal("Resolve(HTTPServer) = nil, want non-nil")
+	}
+}
+
 func TestServerLifecycleStartStop(t *testing.T) {
 	server := &fakeHTTPServer{}
 	lifecycle := &serverLifecycle{server: server, addr: ":9090"}
