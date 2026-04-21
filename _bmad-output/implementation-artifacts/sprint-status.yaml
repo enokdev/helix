@@ -37,7 +37,7 @@ last_updated: 2026-04-21 - story 8-1 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-21 - story 8-2 done
+last_updated: 2026-04-21 - story 8-3 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -124,7 +124,7 @@ development_status:
   epic-8: in-progress
   8-1-jwt-generation-validation-refresh: done
   8-2-rbac-guards-de-roles-declaratifs: done
-  8-3-helix-securityconfigurer-regles-globales: backlog
+  8-3-helix-securityconfigurer-regles-globales: done
   epic-8-retrospective: optional
 
   # ─────────────────────────────────────────────

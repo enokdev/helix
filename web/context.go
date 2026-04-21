@@ -4,6 +4,7 @@ package web
 // underlying HTTP framework context.
 type Context interface {
 	Method() string
+	Path() string
 	OriginalURL() string
 	Param(key string) string
 	Query(key string) string

@@ -229,3 +229,11 @@
 - **`MaxIdleConns > MaxOpenConns` silently truncated** (`data/gorm/connection.go:54-65`): `database/sql` cap les idle conns au niveau de max-open sans log ni erreur si `MaxIdleConns > MaxOpenConns`. Ajouter une validation explicite dans `ConfigurePool` pour une meilleure expérience développeur.
 - **`intValue` uint64 overflow sur 32-bit** (`starter/data/starter.go`, `intValue`): `case uint64: return int(v), true` sans bounds check. Irrelevant en pratique sur les plateformes 64-bit supportées; à adresser si le support 32-bit est requis.
 - **Nil cfg dans `Configure` enregistre lifecycle avec nil db** (`starter/data/starter.go:80`): quand `s.cfg == nil`, un `databaseLifecycle{}` vide est enregistré; `OnStart()` appelle `l.db.Ping()` sur nil, retournant "nil database" sans contexte. `Condition()` empêche ce cas en usage normal.
+
+## Deferred from: code review of 8-3-helix-securityconfigurer-regles-globales (2026-04-21)
+
+- **W1 — JWTServicer custom ignoré** : `applySecurityConfigurer` résout `*security.JWTService` (type concret). Toute implémentation custom de `JWTServicer` est invisible. Nécessite une méthode `ResolveByInterface` dans `core.Container`.
+- **W2 — Bypass par chemins URL-encodés** : `matchesPattern` compare des strings brutes sans décodage URL. Si Fiber ne normalise pas les chemins avant de les exposer via `ctx.Path()`, les chemins encodés contournent les règles. À vérifier par test d'intégration.
+- **W3 — Chaîner Authenticated + HasRole sur le même pattern impossible** : la sémantique first-match interdit la composition de guards sur le même pattern. Envisager une méthode `HasRoleAuthenticated()` ou une API de chaînage.
+- **W4 — SecurityConfigurer via container.Register() non détecté** : l'itération sur `app.Components` ne voit pas les composants enregistrés directement dans le container. Fonctionne tel que spécifié pour l'instant.
+- **W5 — `*` matche un segment vide (double-slash)** : `strings.Split(strings.Trim("/api//users", "/"), "/")` produit `["api", "", "users"]`, le segment vide passe le `*`. Normaliser les chemins avant le matching.

@@ -28,6 +28,7 @@ type server struct {
 	errorHandlers        map[string]errorHandlerInvoker
 	errorHandlerOrder    []string
 	guards               map[string]Guard
+	globalGuards         []Guard
 	guardFactories       map[string]GuardFactory
 	interceptors         map[string]Interceptor
 	interceptorFactories map[string]InterceptorFactory
@@ -87,6 +88,13 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 	err = s.adapter.RegisterRoute(normalizedMethod, path, func(ctx fiberinternal.Context) error {
 		start := time.Now()
 		observed := &observingContext{Context: ctx}
+
+		// Run global guards before the handler.
+		for _, g := range s.globalGuards {
+			if guardErr := g.CanActivate(observed); guardErr != nil {
+				return writeErrorResponse(observed, guardErr)
+			}
+		}
 
 		handlerErr := handler(observed)
 		if handlerErr != nil {
@@ -175,6 +183,10 @@ func (s *server) registerGuard(name string, guard Guard) error {
 	}
 	s.guards[name] = guard
 	return nil
+}
+
+func (s *server) addGlobalGuard(guard Guard) {
+	s.globalGuards = append(s.globalGuards, guard)
 }
 
 func (s *server) registerGuardFactory(name string, factory GuardFactory) error {

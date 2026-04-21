@@ -27,6 +27,7 @@ func newMockCtx(authHeader string) *mockCtx {
 }
 
 func (m *mockCtx) Method() string           { return "GET" }
+func (m *mockCtx) Path() string             { return "/" }
 func (m *mockCtx) OriginalURL() string      { return "/" }
 func (m *mockCtx) Param(_ string) string    { return "" }
 func (m *mockCtx) Query(_ string) string    { return "" }

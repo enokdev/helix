@@ -17,6 +17,7 @@ type mockContext struct {
 }
 
 func (m *mockContext) Method() string                { return m.method }
+func (m *mockContext) Path() string                  { return "/" }
 func (m *mockContext) OriginalURL() string           { return "" }
 func (m *mockContext) Param(_ string) string         { return "" }
 func (m *mockContext) Query(_ string) string         { return "" }

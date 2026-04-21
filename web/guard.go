@@ -31,6 +31,10 @@ type guardRegistrar interface {
 	registerGuardFactory(name string, factory GuardFactory) error
 }
 
+type globalGuardRegistrar interface {
+	addGlobalGuard(guard Guard)
+}
+
 type accessError struct {
 	status int
 	detail ErrorDetail
@@ -101,5 +105,15 @@ func RegisterGuardFactory(server HTTPServer, name string, factory GuardFactory) 
 	if err := registrar.registerGuardFactory(name, factory); err != nil {
 		return fmt.Errorf("web: register guard factory %s: %w", name, err)
 	}
+	return nil
+}
+
+// ApplyGlobalGuard registers a global guard that runs before any handler.
+func ApplyGlobalGuard(server HTTPServer, guard Guard) error {
+	registrar, ok := server.(globalGuardRegistrar)
+	if !ok || registrar == nil {
+		return fmt.Errorf("web: apply global guard: %w", ErrInvalidDirective)
+	}
+	registrar.addGlobalGuard(guard)
 	return nil
 }

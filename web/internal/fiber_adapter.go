@@ -17,6 +17,7 @@ const testTimeout = 30_000
 // creating a package cycle.
 type Context interface {
 	Method() string
+	Path() string
 	OriginalURL() string
 	Param(key string) string
 	Query(key string) string
@@ -184,6 +185,10 @@ type fiberContext struct {
 
 func (c fiberContext) Method() string {
 	return c.ctx.Method()
+}
+
+func (c fiberContext) Path() string {
+	return c.ctx.Path()
 }
 
 func (c fiberContext) OriginalURL() string {

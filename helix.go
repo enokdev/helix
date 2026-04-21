@@ -18,15 +18,18 @@ import (
 
 	"github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/security"
 	"github.com/enokdev/helix/starter"
+	"github.com/enokdev/helix/web"
 )
 
 var markerTypes = map[reflect.Type]struct{}{
 	reflect.TypeOf(Service{}):      {},
 	reflect.TypeOf(Controller{}):   {},
 	reflect.TypeOf(Repository{}):   {},
-	reflect.TypeOf(Component{}):    {},
-	reflect.TypeOf(ErrorHandler{}): {},
+	reflect.TypeOf(Component{}):          {},
+	reflect.TypeOf(ErrorHandler{}):       {},
+	reflect.TypeOf(SecurityConfigurer{}): {},
 }
 
 // App describes the application bootstrap configuration used by Run.
@@ -67,6 +70,9 @@ type Component struct{}
 // ErrorHandler marks a struct as a centralized HTTP error handler component.
 type ErrorHandler struct{}
 
+// SecurityConfigurer marks a struct as a global security configuration component.
+type SecurityConfigurer struct{}
+
 // Run builds the default reflection-based container, registers application
 // components, starts lifecycle hooks, waits for shutdown, and stops cleanly.
 func Run(app App) error {
@@ -87,6 +93,10 @@ func Run(app App) error {
 	}
 
 	if err := registerAppComponents(container, app.Components); err != nil {
+		return err
+	}
+
+	if err := applySecurityConfigurer(app, container); err != nil {
 		return err
 	}
 
@@ -227,5 +237,42 @@ func awaitSignal() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
+	return nil
+}
+
+type securityConfigurer interface {
+	Configure(hs *security.HttpSecurity)
+}
+
+func applySecurityConfigurer(app App, container *core.Container) error {
+	var configurer securityConfigurer
+	for _, c := range app.Components {
+		if cfg, ok := c.(securityConfigurer); ok {
+			configurer = cfg
+			break
+		}
+	}
+	if configurer == nil {
+		return nil
+	}
+
+	var server web.HTTPServer
+	if err := container.Resolve(&server); err != nil {
+		return fmt.Errorf("helix: apply security configurer: web server not registered: %w", err)
+	}
+
+	var jwtSvc security.JWTServicer
+	var jSvc *security.JWTService
+	if err := container.Resolve(&jSvc); err == nil {
+		jwtSvc = jSvc
+	}
+
+	httpSec := security.NewHttpSecurity(jwtSvc)
+	configurer.Configure(httpSec)
+
+	if err := web.ApplyGlobalGuard(server, httpSec.Build()); err != nil {
+		return fmt.Errorf("helix: apply security configurer: %w", err)
+	}
+
 	return nil
 }
