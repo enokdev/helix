@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-22 - story 10-4 done
+last_updated: 2026-04-22 - story 10-5 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-22 - story 10-4 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-22 - story 10-4 done
+last_updated: 2026-04-22 - story 10-5 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -143,6 +143,6 @@ development_status:
   10-2-di-codegen-compile-time-helix-generate-wire: done
   10-3-scaffold-projet-modules-helix-new-generate-module: done
   10-4-contextes-de-domaine-ddd-light-helix-generate-context: done
-  10-5-migrations-db-cli-helix-db-migrate: backlog
+  10-5-migrations-db-cli-helix-db-migrate: done
   10-6-helix-run-helix-build: backlog
   epic-10-retrospective: optional

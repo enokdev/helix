@@ -1,4 +1,12 @@
 
+## Deferred from: code review of story-10-5 (2026-04-22)
+
+- [D-10.5-1] DSN passé en argv du subprocess `go run` — expose les credentials en clair dans la table des processus (`ps aux`, `/proc/<pid>/cmdline`). Actuellement sans conséquence (SQLite = chemin de fichier sans credentials) mais constitue un risque dès qu'un driver non-SQLite est ajouté. Atténuation future : passer le DSN via variable d'environnement ou stdin du subprocess. [cli/internal/migrate/migrate.go:runMigration]
+- [D-10.5-2] Migrations concurrentes non sérialisées — deux appels simultanés `helix db migrate up` peuvent tous deux passer le snapshot `appliedMigrations` et exécuter le même SQL. SQLite DDL est transactionnel donc l'état final reste cohérent, mais ce comportement est une hypothèse implicite non documentée et cassera sur toute DB dont DDL n'est pas transactionnel. [cli/internal/migrate/migrate.go:Up]
+- [D-10.5-3] `CGO_ENABLED=0` casse le subprocess silencieusement — `go-sqlite3` nécessite CGo ; si l'environnement désactive CGo, le subprocess échoue avec une erreur de compilation sans contexte actionnable pour l'utilisateur. Mitigation future : pre-flight check `CGO_ENABLED` ou doc explicite. [cli/internal/migrate/migrate.go:runMigration]
+- [D-10.5-4] Imports du projet hôte impossibles dans les fichiers de migration — le runner est un module isolé (`helix-migration-runner`) qui ne connaît pas le module hôte. Un développeur qui ajoute un import de son projet dans sa migration obtient une erreur de compilation cryptique. Mitigation future : documenter la contrainte dans les commentaires du template générée ou proposer un mécanisme `replace` dans le runner go.mod. [cli/internal/migrate/migrate.go:runMigration]
+- [D-10.5-5] Annulation de contexte mid-migration — si le contexte est annulé après k migrations appliquées, la boucle `Up` retourne une erreur générique sans lister les migrations déjà appliquées. L'état DB est cohérent (chaque migration est atomique) mais l'utilisateur n'a pas de visibilité sur ce qui a réussi. [cli/internal/migrate/migrate.go:Up]
+
 ## Deferred from: code review of story-10-1 (2026-04-22)
 
 - [D-10.1-1] Directive `interceptor` gérée par le scanner (`//helix:interceptor`) mais absente du contrat spec des directives de la story 10.1. Probablement prévu pour une story ultérieure (guards/interceptors). À documenter ou retirer si l'interceptor ne fait pas partie du plan Epic 10. [cli/internal/codegen/scanner.go:382]

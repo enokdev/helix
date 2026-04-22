@@ -68,6 +68,114 @@ func TestRunGenerateContextThenWireCreatesWireFile(t *testing.T) {
 	}
 }
 
+func TestRunDBMigrateCreate(t *testing.T) {
+	t.Parallel()
+
+	dir := newCLIGenerateFixture(t)
+
+	if err := run([]string{"db", "migrate", "create", "add_users", "--dir", dir}); err != nil {
+		t.Fatalf("run(db migrate create) error = %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "db", "migrations", "*_add_users.go"))
+	if err != nil {
+		t.Fatalf("glob migration: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("migration matches = %v, want one add_users migration", matches)
+	}
+}
+
+func TestRunDBMigrateUpDownStatus(t *testing.T) {
+	dir := newCLIGenerateFixture(t)
+	dbPath := filepath.Join(dir, "app.db")
+	writeCLIFile(t, filepath.Join(dir, "config"), "application.yaml", "database:\n  url: sqlite://"+dbPath+"\n")
+	writeCLIFile(t, filepath.Join(dir, "db", "migrations"), "20260422143000_create_users.go", `//go:build helixmigration
+
+package main
+
+import (
+	"context"
+	"database/sql"
+)
+
+func Up(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "CREATE TABLE users (id INTEGER PRIMARY KEY)")
+	return err
+}
+
+func Down(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "DROP TABLE users")
+	return err
+}
+`)
+
+	if err := run([]string{"db", "migrate", "status", "--dir", dir}); err != nil {
+		t.Fatalf("run(db migrate status) error = %v", err)
+	}
+	if err := run([]string{"db", "migrate", "up", "--dir", dir}); err != nil {
+		t.Fatalf("run(db migrate up) error = %v", err)
+	}
+	if err := run([]string{"db", "migrate", "down", "--dir", dir}); err != nil {
+		t.Fatalf("run(db migrate down) error = %v", err)
+	}
+}
+
+func TestRunDBMigrateUsesDatabaseURLFlag(t *testing.T) {
+	dir := newCLIGenerateFixture(t)
+	dbPath := filepath.Join(dir, "flag.db")
+	writeCLIFile(t, filepath.Join(dir, "db", "migrations"), "20260422143000_create_users.go", `//go:build helixmigration
+
+package main
+
+import (
+	"context"
+	"database/sql"
+)
+
+func Up(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "CREATE TABLE users (id INTEGER PRIMARY KEY)")
+	return err
+}
+
+func Down(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "DROP TABLE users")
+	return err
+}
+`)
+
+	if err := run([]string{"db", "migrate", "up", "--dir", dir, "--database-url", "sqlite://" + dbPath}); err != nil {
+		t.Fatalf("run(db migrate up --database-url) error = %v", err)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("database stat error = %v", err)
+	}
+}
+
+func TestRunDBMigrateErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing migrate", args: []string{"db"}, want: "expected subcommand migrate"},
+		{name: "missing action", args: []string{"db", "migrate"}, want: "expected subcommand create, up, down, or status"},
+		{name: "missing create name", args: []string{"db", "migrate", "create"}, want: "expected migration name"},
+		{name: "unknown action", args: []string{"db", "migrate", "sideways"}, want: "expected subcommand create, up, down, or status"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := run(tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("run(%v) error = %v, want %q", tt.args, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunGenerateWireCreatesWireFile(t *testing.T) {
 	t.Parallel()
 
