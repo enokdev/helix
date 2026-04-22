@@ -135,7 +135,6 @@ func TestScannerHonorsBuildConstraints(t *testing.T) {
 	assertNoComponent(t, result.Components, "ExcludedComponent")
 }
 
-
 func TestScannerDetectsDirectives(t *testing.T) {
 	dir := t.TempDir()
 	writeScanFixture(t, dir, "directives.go", `package generated
