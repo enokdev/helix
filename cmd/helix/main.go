@@ -21,14 +21,35 @@ func run(args []string) error {
 		return fmt.Errorf("helix: expected subcommand generate")
 	}
 
+	restArgs := args[1:]
+	if len(restArgs) > 0 && restArgs[0] == "wire" {
+		return runGenerateWire(restArgs[1:])
+	}
+	return runGenerate(restArgs)
+}
+
+func runGenerate(args []string) error {
 	flags := flag.NewFlagSet("generate", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "directory tree to scan")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("helix generate: unexpected argument %q", flags.Arg(0))
 	}
 	return cli.Generate(context.Background(), cli.GenerateOptions{Dir: *dir})
+}
+
+func runGenerateWire(args []string) error {
+	flags := flag.NewFlagSet("generate wire", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	dir := flags.String("dir", ".", "directory tree to scan")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("helix generate wire: unexpected argument %q", flags.Arg(0))
+	}
+	return cli.GenerateWire(context.Background(), cli.GenerateWireOptions{Dir: *dir})
 }

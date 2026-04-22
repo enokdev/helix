@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
+	"sync"
 	"syscall"
 	"time"
 
@@ -32,6 +33,21 @@ var markerTypes = map[reflect.Type]struct{}{
 	reflect.TypeOf(SecurityConfigurer{}): {},
 }
 
+// RunMode selects the DI resolver strategy.
+type RunMode string
+
+const (
+	// ModeReflect uses the default reflection-based resolver.
+	ModeReflect RunMode = ""
+	// ModeWire uses compile-time generated DI wiring.
+	ModeWire RunMode = "wire"
+)
+
+var (
+	wireSetupMu sync.Mutex
+	wireSetupFn func(*core.Container) error
+)
+
 // App describes the application bootstrap configuration used by Run.
 type App struct {
 	// Scan lists package or filesystem patterns that should be inspected for
@@ -47,6 +63,8 @@ type App struct {
 	ShutdownTimeout time.Duration
 	// Logger overrides the logger used by lifecycle shutdown.
 	Logger *slog.Logger
+	// Mode selects the resolver strategy. The zero value keeps reflection mode.
+	Mode RunMode
 
 	awaitShutdown func() error
 }
@@ -73,11 +91,20 @@ type ErrorHandler struct{}
 // SecurityConfigurer marks a struct as a global security configuration component.
 type SecurityConfigurer struct{}
 
+// RegisterWireSetup stores the bootstrap function emitted by generated wiring.
+func RegisterWireSetup(fn func(*core.Container) error) {
+	wireSetupMu.Lock()
+	defer wireSetupMu.Unlock()
+	wireSetupFn = fn
+}
+
 // Run builds the default reflection-based container, registers application
 // components, starts lifecycle hooks, waits for shutdown, and stops cleanly.
 func Run(app App) error {
-	if err := validateScan(app); err != nil {
-		return err
+	if app.Mode != ModeWire {
+		if err := validateScan(app); err != nil {
+			return err
+		}
 	}
 
 	container := newDefaultContainer(app)
@@ -92,7 +119,17 @@ func Run(app App) error {
 		}
 	}
 
-	if err := registerAppComponents(container, app.Components); err != nil {
+	if app.Mode == ModeWire {
+		wireSetupMu.Lock()
+		setup := wireSetupFn
+		wireSetupMu.Unlock()
+		if setup == nil {
+			return fmt.Errorf("helix: wire setup not registered: %w", core.ErrUnresolvable)
+		}
+		if err := setup(container); err != nil {
+			return fmt.Errorf("helix: wire setup: %w", err)
+		}
+	} else if err := registerAppComponents(container, app.Components); err != nil {
 		return err
 	}
 
@@ -128,7 +165,11 @@ func Run(app App) error {
 }
 
 func newDefaultContainer(app App) *core.Container {
-	opts := []core.Option{core.WithResolver(core.NewReflectResolver())}
+	var resolver core.Resolver = core.NewReflectResolver()
+	if app.Mode == ModeWire {
+		resolver = core.NewWireResolver()
+	}
+	opts := []core.Option{core.WithResolver(resolver)}
 	if app.ShutdownTimeout > 0 {
 		opts = append(opts, core.WithShutdownTimeout(app.ShutdownTimeout))
 	}
@@ -251,6 +292,9 @@ func applySecurityConfigurer(app App, container *core.Container) error {
 			configurer = cfg
 			break
 		}
+	}
+	if configurer == nil {
+		_ = container.Resolve(&configurer)
 	}
 	if configurer == nil {
 		return nil

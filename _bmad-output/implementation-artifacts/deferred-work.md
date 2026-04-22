@@ -262,3 +262,8 @@
 - **D9** — `TestConfigureRegistersLifecycle` ordre lifecycle incorrect : le test itère start+stop par lifecycle au lieu de start-all puis stop-all-reversed. Masque potentiellement des bugs d'ordre.
 - **D10** — `TestWrapError_NonNilError` format slog fragile : les assertions vérifient des tokens exacts du `TextHandler` Go stdlib, susceptibles de changer en version mineure.
 - **D11** — `job.Name` vide non validé : `WrapSkipIfBusy` et les logs d'erreur affichent `""` sans diagnostic utilisable. Ajouter validation dans `OnStart()` ou `adapterWrapper.Register`.
+
+## Deferred from: code review of story-10-2 (2026-04-22)
+
+- [D-10.2-1] Conflit starters/wire registration : les starters enregistrent des composants dans le container avant wireSetupFn ; en cas de chevauchement de types, la seconde registration écrase silencieusement la première (WireResolver) ou peut échouer. Aucun mécanisme de coordination n'existe. Pré-existant (reflect mode avait le même comportement). À traiter lors d'une story d'orchestration des starters. [helix.go:107-123]
+- [D-10.2-2] WireResolver.lookup hazard défensif sur AssignableTo : si isRegistrableComponent est contourné dans un futur code path et qu'une valeur non-pointeur est stockée, les méthodes définies sur *T ne satisferont pas l'interface et le composant sera silencieusement ignoré. Actuellement impossible car isRegistrableComponent bloque les valeurs non-pointeur. À documenter comme invariant. [core/wire_resolver.go:lookup]

@@ -75,6 +75,73 @@ func TestRunRegistersComponentsResolvesDependenciesAndShutsDown(t *testing.T) {
 	}
 }
 
+func TestRunModeWireUsesRegisteredWireSetup(t *testing.T) {
+	wireSetupMu.Lock()
+	previous := wireSetupFn
+	wireSetupMu.Unlock()
+	t.Cleanup(func() {
+		wireSetupMu.Lock()
+		wireSetupFn = previous
+		wireSetupMu.Unlock()
+	})
+
+	events := make(chan string, 4)
+	service := &runLifecycleService{started: events, stopped: events}
+	RegisterWireSetup(func(container *core.Container) error {
+		dependency := &runDependency{}
+		service.Dependency = dependency
+		if err := container.Register(dependency); err != nil {
+			return err
+		}
+		return container.Register(service)
+	})
+
+	err := Run(App{
+		Mode: ModeWire,
+		awaitShutdown: func() error {
+			if got := <-events; got != "start" {
+				t.Fatalf("first lifecycle event = %q, want start", got)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if service.Dependency == nil {
+		t.Fatal("Run() did not use generated wire setup")
+	}
+	select {
+	case got := <-events:
+		if got != "stop" {
+			t.Fatalf("second lifecycle event = %q, want stop", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for OnStop event")
+	}
+}
+
+func TestRunModeWireRequiresRegisteredWireSetup(t *testing.T) {
+	wireSetupMu.Lock()
+	previous := wireSetupFn
+	wireSetupFn = nil
+	wireSetupMu.Unlock()
+	t.Cleanup(func() {
+		wireSetupMu.Lock()
+		wireSetupFn = previous
+		wireSetupMu.Unlock()
+	})
+
+	err := Run(App{
+		Mode:          ModeWire,
+		awaitShutdown: func() error { return nil },
+	})
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Run() error = %v, want core.ErrUnresolvable", err)
+	}
+}
+
 func TestRunStartFailureDoesNotAwaitShutdown(t *testing.T) {
 	t.Parallel()
 
