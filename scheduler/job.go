@@ -12,4 +12,6 @@ type Job struct {
 	Expr CronExpression
 	// Fn is the function to invoke on schedule.
 	Fn func()
+	// AllowConcurrent opt-in disables the default skip-lock; future: distributed lock.
+	AllowConcurrent bool
 }

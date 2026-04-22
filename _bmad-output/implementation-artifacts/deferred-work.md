@@ -244,3 +244,17 @@
 - **W3 — Chaîner Authenticated + HasRole sur le même pattern impossible** : la sémantique first-match interdit la composition de guards sur le même pattern. Envisager une méthode `HasRoleAuthenticated()` ou une API de chaînage.
 - **W4 — SecurityConfigurer via container.Register() non détecté** : l'itération sur `app.Components` ne voit pas les composants enregistrés directement dans le container. Fonctionne tel que spécifié pour l'instant.
 - **W5 — `*` matche un segment vide (double-slash)** : `strings.Split(strings.Trim("/api//users", "/"), "/")` produit `["api", "", "users"]`, le segment vide passe le `*`. Normaliser les chemins avant le matching.
+
+## Deferred from: code review of 9-2-taches-planifiees-declaratives-helix-scheduled (2026-04-22)
+
+- **D1** — `WrapError`/`WrapSkipIfBusy` ne récupèrent pas les panics de `fn()` : une panique dans un job propagée à la goroutine du scheduler la tue silencieusement. Nécessite une décision de design sur les limites de récupération du framework.
+- **D2** — `container.Register` errors ignorées dans `Configure()` : pattern `_ = container.Register(...)` pré-existant. Si l'enregistrement échoue, le scheduler et le registrar sont absents sans avertissement. Adresser lors d'une refonte de `Configure`.
+- **D3** — `nil sched` théorique dans `newScheduledJobRegistrar` : défensif uniquement, `sched` est toujours le retour de `NewScheduler()` appelé juste au-dessus.
+- **D4** — `AllowConcurrent` non appliqué par le scheduler lui-même : les appelants de `sched.Register()` directs (hors starter) ne bénéficient pas du skip-lock automatique. Décision de design : appliquer le wrapping dans l'adapter cron ou documenter le contrat.
+- **D5** — Échec partiel dans `OnStart()` laisse des jobs orphelins actifs : si le job N échoue à l'enregistrement, les jobs 1..N-1 sont déjà dans le cron en cours d'exécution. Adresser par un pattern all-or-nothing ou rollback dans une future itération.
+- **D6** — Noms de jobs dupliqués silencieusement acceptés : plusieurs providers peuvent enregistrer des jobs de même nom, créant des entrées cron multiples. Ajouter un check d'unicité dans une future itération.
+- **D7** — `WrapError` non appliqué par le registrar : AC4 (log d'erreur) repose sur l'utilisateur appelant `scheduler.WrapError(...)` manuellement dans `ScheduledJobs()`. Documenter l'invariant dans `provider.go` et `job.go`.
+- **D8** — `slog.SetDefault` mutation globale dans les tests : sans `t.Parallel()`, les tests sont séquentiels et sûrs. Risque si `t.Parallel()` ajouté à l'avenir.
+- **D9** — `TestConfigureRegistersLifecycle` ordre lifecycle incorrect : le test itère start+stop par lifecycle au lieu de start-all puis stop-all-reversed. Masque potentiellement des bugs d'ordre.
+- **D10** — `TestWrapError_NonNilError` format slog fragile : les assertions vérifient des tokens exacts du `TextHandler` Go stdlib, susceptibles de changer en version mineure.
+- **D11** — `job.Name` vide non validé : `WrapSkipIfBusy` et les logs d'erreur affichent `""` sans diagnostic utilisable. Ajouter validation dans `OnStart()` ou `adapterWrapper.Register`.
