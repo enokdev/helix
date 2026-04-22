@@ -6,8 +6,10 @@ import (
 	"sync"
 )
 
-var _ Resolver = (*WireResolver)(nil)
-var _ LifecycleResolver = (*WireResolver)(nil)
+var (
+	_ Resolver          = (*WireResolver)(nil)
+	_ LifecycleResolver = (*WireResolver)(nil)
+)
 
 // WireResolver stores pre-wired singleton instances generated at compile time.
 type WireResolver struct {
