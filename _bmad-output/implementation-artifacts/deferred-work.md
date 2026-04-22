@@ -267,3 +267,13 @@
 
 - [D-10.2-1] Conflit starters/wire registration : les starters enregistrent des composants dans le container avant wireSetupFn ; en cas de chevauchement de types, la seconde registration écrase silencieusement la première (WireResolver) ou peut échouer. Aucun mécanisme de coordination n'existe. Pré-existant (reflect mode avait le même comportement). À traiter lors d'une story d'orchestration des starters. [helix.go:107-123]
 - [D-10.2-2] WireResolver.lookup hazard défensif sur AssignableTo : si isRegistrableComponent est contourné dans un futur code path et qu'une valeur non-pointeur est stockée, les méthodes définies sur *T ne satisferont pas l'interface et le composant sera silencieusement ignoré. Actuellement impossible car isRegistrableComponent bloque les valeurs non-pointeur. À documenter comme invariant. [core/wire_resolver.go:lookup]
+
+## Deferred from: code review of story-10-3 (2026-04-22)
+
+- [D-10.3-1] `extractRequireBlocks` off-by-one dans la boucle interne : après un block `require (...)`, le `continue` de la boucle externe déclenche `i++` et saute la ligne suivante. En pratique cette ligne est toujours vide dans un `go.mod` bien formé, donc fonctionnellement inoffensif. À corriger lors d'une refactorisation de la fonction. [cli/internal/scaffold/scaffold.go:277]
+
+## Deferred from: code review of story 10-4 (2026-04-22)
+
+- Flags avant le nom positionnel dans les sous-commandes CLI (`cmd/helix/main.go:55`, `98`, `115`) — pattern pré-existant hérité de l'architecture `flag.NewFlagSet` stdlib ; `helix new app --dir . myapp` échoue avec "unexpected argument" car le nom doit précéder les flags. Pattern identique dans `runGenerateModule` et `runGenerateContext`.
+- `new{{ .TypeName }}Service()` dans `api.go` contourne le DI container — construit un repository à zéro sans connexion injectée ; intentionnel (squelette compilable, `ErrNotImplemented` retourné explicitement), compatible avec la spec qui autorise "retourner une erreur explicite".
+- `cli/module.go`, `cli/new.go` et routage `new`/`module` dans le diff story 10.4 — ces fichiers appartiennent au périmètre story 10.3 mais ont été livrés dans 10.4 ; inclus intentionnellement dans la File List de la story 10.4 pour clore le gap de la story précédente.
