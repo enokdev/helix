@@ -11,6 +11,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"sort"
@@ -51,27 +52,7 @@ func (g *Generator) Generate(ctx context.Context) (Result, error) {
 	}
 
 	var generated int
-	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		if path != root && shouldSkipDir(entry.Name()) {
-			return filepath.SkipDir
-		}
-
-		pkg, err := loadPackage(path)
-		if err != nil {
-			return err
-		}
-		if pkg == nil {
-			return nil
-		}
+	if err := scanPackages(ctx, root, func(pkg *packageModel) error {
 		count, err := generatePackage(pkg)
 		if err != nil {
 			return err
@@ -90,9 +71,11 @@ type packageModel struct {
 	name          string
 	fset          *token.FileSet
 	files         []*ast.File
+	imports       map[string]string
 	structs       map[string]map[string]struct{}
 	existingFuncs map[string]struct{}
 	embeds        map[string][]string // structName → embedded local type names
+	typesInfo     *types.Info
 }
 
 type repositoryModel struct {
@@ -205,6 +188,7 @@ func loadPackage(dir string) (*packageModel, error) {
 		name:          files[0].Name.Name,
 		fset:          fset,
 		files:         files,
+		imports:       make(map[string]string),
 		structs:       make(map[string]map[string]struct{}),
 		existingFuncs: make(map[string]struct{}),
 		embeds:        make(map[string][]string),
@@ -213,6 +197,7 @@ func loadPackage(dir string) (*packageModel, error) {
 		if file.Name.Name != pkg.name {
 			return nil, fmt.Errorf("package name mismatch in %s: %w", fset.Position(file.Package).Filename, errInvalidPackage)
 		}
+		pkg.collectImports(file)
 		for _, decl := range file.Decls {
 			switch node := decl.(type) {
 			case *ast.GenDecl:
@@ -223,6 +208,7 @@ func loadPackage(dir string) (*packageModel, error) {
 		}
 	}
 	pkg.resolveEmbeds()
+	pkg.typeCheck()
 	return pkg, nil
 }
 

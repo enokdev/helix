@@ -1,4 +1,8 @@
 
+## Deferred from: code review of story-10-1 (2026-04-22)
+
+- [D-10.1-1] Directive `interceptor` gérée par le scanner (`//helix:interceptor`) mais absente du contrat spec des directives de la story 10.1. Probablement prévu pour une story ultérieure (guards/interceptors). À documenter ou retirer si l'interceptor ne fait pas partie du plan Epic 10. [cli/internal/codegen/scanner.go:382]
+
 ## Deferred from: code review of story-9-1 (2026-04-21)
 
 - [D-9.1-1] `ErrJobNotFound` est un sentinel mort — rien ne le retourne dans l'implémentation actuelle. Prévu pour story 9.2 lorsque les opérations `Remove`/`FindByName` seront ajoutées. [scheduler/errors.go:9-10]
