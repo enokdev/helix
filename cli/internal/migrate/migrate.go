@@ -19,7 +19,7 @@ import (
 	"unicode"
 
 	helixconfig "github.com/enokdev/helix/config"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // register sqlite3 driver for journal queries
 )
 
 const (
