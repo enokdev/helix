@@ -1,4 +1,11 @@
 
+## Deferred from: code review of story-9-1 (2026-04-21)
+
+- [D-9.1-1] `ErrJobNotFound` est un sentinel mort — rien ne le retourne dans l'implémentation actuelle. Prévu pour story 9.2 lorsque les opérations `Remove`/`FindByName` seront ajoutées. [scheduler/errors.go:9-10]
+- [D-9.1-2] Double `cron.Stop()` si `Stop(ctx)` et `OnStop()` sont appelés en séquence — robfig/cron est idempotent mais le comportement n'est pas documenté dans le code. À clarifier/documenter lors d'une itération future. [internal/cron_adapter.go:35-46]
+- [D-9.1-3] `Condition()` lit `go.mod` via chemin relatif (pré-existant story 7.4, voir D-7.4-1). [starter/scheduling/starter.go:29]
+- [D-9.1-4] `Configure()` ignore l'erreur de `container.Register()` — pattern partagé cross-starters (voir D-7.4-2). [starter/scheduling/starter.go:53]
+
 ## Deferred from: code review of story-8-2 (2026-04-21)
 
 - [D-8.2-1] Comparaison des rôles sensible à la casse sans contrat documenté — `role == allowed` est une comparaison exacte. Si le JWT issuer encode les rôles avec une casse différente (ex: "Admin" vs "admin"), les utilisateurs légitimes reçoivent un 403 silencieux. Design choice à documenter ou normaliser lors d'une future itération. [security/rbac.go:50]

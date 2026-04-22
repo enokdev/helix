@@ -7,6 +7,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/prometheus/client_golang v1.21.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/viper v1.20.1
 	go.opentelemetry.io/otel v1.29.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.29.0
