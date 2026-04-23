@@ -66,7 +66,7 @@ func TestReadmeBadgesUseRealSignals(t *testing.T) {
 func TestReadmeGuideLinksExist(t *testing.T) {
 	readme := readTextFile(t, "README.md")
 	for _, link := range markdownLinks(readme) {
-		if strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") || strings.HasPrefix(link, "#") {
+		if isExternalLink(link) {
 			continue
 		}
 		if _, err := os.Stat(link); err != nil {
@@ -82,6 +82,80 @@ func TestReadmeGuideLinksExist(t *testing.T) {
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected guide placeholder %q: %v", path, err)
+		}
+	}
+}
+
+func TestDIAndConfigGuideDocumentsCoreConcepts(t *testing.T) {
+	const guidePath = "docs/di-and-config.md"
+	if _, err := os.Stat(guidePath); err != nil {
+		t.Skipf("test requires %s — guide not found: %v", guidePath, err)
+	}
+	guide := readTextFile(t, guidePath)
+
+	required := []string{
+		"# DI et configuration",
+		"## Sommaire",
+		"## Modele mental",
+		"## Marqueurs de composants",
+		"`helix.Service`",
+		"`helix.Controller`",
+		"`helix.Repository`",
+		"`helix.Component`",
+		"## Injection de dependances",
+		"`inject:\"true\"`",
+		"`value:\"key\"`",
+		"champs exportes",
+		"core.NewContainer(core.WithResolver(core.NewReflectResolver()))",
+		"core.ErrNotFound",
+		"core.ErrUnresolvable",
+		"CyclicDepError",
+		"## Scopes",
+		"core.ScopeSingleton",
+		"core.ScopePrototype",
+		"core.ComponentRegistration",
+		"Lazy",
+		"## Configuration",
+		"`mapstructure:\"key\"`",
+		"ENV > profil YAML > application.yaml > DEFAULT",
+		"config.NewLoader",
+		"config.WithDefaults",
+		"config.WithProfiles",
+		"config.WithEnvPrefix",
+		"core.WithValueLookup(loader.Lookup)",
+		"SERVER_PORT",
+		"HELIX_SERVER_PORT",
+		"## Profils",
+		"HELIX_PROFILES_ACTIVE",
+		"application-dev.yaml",
+		"## Rechargement dynamique",
+		"config.NewReloader",
+		"OnConfigReload",
+		"SIGHUP",
+		"RLock",
+		"RUnlock",
+		"## Tests",
+		"helix.NewTestApp",
+		"helix.TestConfigDefaults",
+		"## Erreurs frequentes",
+	}
+	for _, want := range required {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("docs/di-and-config.md should contain %q", want)
+		}
+	}
+}
+
+func TestDocumentationLinksExist(t *testing.T) {
+	for _, path := range []string{"README.md", filepath.Join("docs", "di-and-config.md")} {
+		content := readTextFile(t, path)
+		for _, link := range markdownLinks(content) {
+			if isExternalLink(link) {
+				continue
+			}
+			if _, err := os.Stat(link); err != nil {
+				t.Fatalf("%s link %q should point to an existing repository file: %v", path, link, err)
+			}
 		}
 	}
 }
@@ -128,6 +202,8 @@ func readTextFile(t *testing.T, path string) string {
 }
 
 func markdownLinks(markdown string) []string {
+	markdown = stripFencedCode(markdown)
+	markdown = stripInlineCode(markdown)
 	pattern := regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`)
 	matches := pattern.FindAllStringSubmatch(markdown, -1)
 	links := make([]string, 0, len(matches))
@@ -141,4 +217,18 @@ func markdownLinks(markdown string) []string {
 		}
 	}
 	return links
+}
+
+func stripFencedCode(markdown string) string {
+	pattern := regexp.MustCompile("(?s)```.*?```")
+	return pattern.ReplaceAllString(markdown, "")
+}
+
+func stripInlineCode(markdown string) string {
+	pattern := regexp.MustCompile("`[^`]*`")
+	return pattern.ReplaceAllString(markdown, "")
+}
+
+func isExternalLink(link string) bool {
+	return strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") || strings.HasPrefix(link, "#")
 }

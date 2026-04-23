@@ -9,16 +9,21 @@ Helix est un framework backend Go inspire de Spring Boot, concu pour creer des A
 
 ## Sommaire
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Fonctionnalites](#fonctionnalites)
-- [Exemples](#exemples)
-- [Guides](#guides)
-- [Developpement du framework](#developpement-du-framework)
+- [Helix](#helix)
+	- [Sommaire](#sommaire)
+	- [Installation](#installation)
+	- [Quick Start](#quick-start)
+		- [Creer votre premiere application Helix](#creer-votre-premiere-application-helix)
+		- [Explorer l'exemple complet](#explorer-lexemple-complet)
+	- [Fonctionnalites](#fonctionnalites)
+	- [Exemples](#exemples)
+	- [Guides](#guides)
+	- [Developpement du framework](#developpement-du-framework)
+	- [Licence](#licence)
 
 ## Installation
 
-Prerequis :
+Prerequis
 
 - Go 1.21 ou plus recent
 - Un module Go applicatif

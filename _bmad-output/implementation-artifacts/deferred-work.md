@@ -285,3 +285,16 @@
 - Flags avant le nom positionnel dans les sous-commandes CLI (`cmd/helix/main.go:55`, `98`, `115`) — pattern pré-existant hérité de l'architecture `flag.NewFlagSet` stdlib ; `helix new app --dir . myapp` échoue avec "unexpected argument" car le nom doit précéder les flags. Pattern identique dans `runGenerateModule` et `runGenerateContext`.
 - `new{{ .TypeName }}Service()` dans `api.go` contourne le DI container — construit un repository à zéro sans connexion injectée ; intentionnel (squelette compilable, `ErrNotImplemented` retourné explicitement), compatible avec la spec qui autorise "retourner une erreur explicite".
 - `cli/module.go`, `cli/new.go` et routage `new`/`module` dans le diff story 10.4 — ces fichiers appartiennent au périmètre story 10.3 mais ont été livrés dans 10.4 ; inclus intentionnellement dans la File List de la story 10.4 pour clore le gap de la story précédente.
+
+## Deferred from: code review of story 10-6-helix-run-helix-build (2026-04-22)
+
+- `vendor/` et `testdata/` non exclus du watcher fsnotify (`cli/internal/runner/runner.go:891-893`) — hors scope spec ; sur un projet avec vendor, peut consommer beaucoup d'inotify watches.
+- Risque zombie si le process enfant se termine seul (`cli/internal/runner/runner.go:865-874`) — pas de goroutine `Wait` en background ; zombie potentiel entre exit naturel et prochain rechargement.
+- Duplication de `checkContext`, `projectRoot`, `output` entre `builder.go` et `runner.go` — idiome Go acceptable, extraction vers `cli/internal/util` serait un refactor autonome.
+- `go mod tidy` a promu `mattn/go-sqlite3` de indirect à direct dans cette story alors que c'est une dépendance story 10.5 — inoffensif.
+
+## Deferred from: code review of 11-1-readme-enrichi-quick-start (2026-04-23)
+
+- `FindAll` dégradation O(nextID) après suppression (`examples/crud-api/main.go:40-52`) — itère de 1 à nextID au lieu de parcourir la map directement ; acceptable pour un exemple en mémoire, refactor autonome pour un usage production.
+- `coverage.out` repo complet généré dans coverage.yml mais jamais uploadé ni rattaché comme artifact — dead work sur chaque run CI, nettoyable dans une story d'assainissement technique.
+- `serve` dans `examples/crud-api/main_test.go:60-62` définit `Content-Type` après passage du buffer à `http.NewRequest`, s'appuyant sur un comportement non documenté de `bytes.Buffer` — fonctionne aujourd'hui, fragile si l'implémentation stdlib change.

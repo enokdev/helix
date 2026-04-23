@@ -154,6 +154,21 @@ Un développeur peut scaffolder un projet, générer des modules, gérer les mig
 **FRs couverts :** FR3, FR24, FR25, FR26
 **Phase PRD :** Phase 3
 
+### Epic 11: Documentation & Guides Développeur
+Un développeur peut apprendre et maîtriser Helix en moins de 30 minutes grâce à une documentation complète et des guides pratiques.
+**FRs couverts :** NFR6
+**Phase PRD :** Phase 4 (Post-MVP)
+
+### Epic 12: Exemples d'Applications
+Un développeur peut partir d'un exemple concret et fonctionnel pour bootstrap son projet Helix.
+**FRs couverts :** NFR6
+**Phase PRD :** Phase 4 (Post-MVP)
+
+### Epic 13: Assainissement Technique (Dette)
+Le framework est exempt de data races, de bugs de sécurité connus et de limitations majeures documentées dans deferred-work.md.
+**FRs couverts :** NFR1, NFR2, NFR4
+**Phase PRD :** Phase 4 (Post-MVP)
+
 ---
 
 ## Epic 1: Application Bootstrap & DI Container
@@ -896,3 +911,233 @@ Afin d'avoir un workflow de développement fluide sans configurer de Makefile.
 **Then** `helix generate` est exécuté, puis `go build -o bin/app ./cmd/...`
 **And** le binaire produit est statique (CGO_ENABLED=0) par défaut
 **And** `helix build --docker` génère également un `Dockerfile` minimal multi-stage
+
+---
+
+## Epic 11: Documentation & Guides Développeur
+
+Un développeur peut apprendre et maîtriser Helix en moins de 30 minutes grâce à une documentation complète et des guides pratiques.
+
+### Story 11.1: README enrichi — Quick Start < 30 min
+
+En tant que **développeur découvrant Helix**,
+Je veux un README complet avec un exemple fonctionnel dès les premières lignes,
+Afin de comprendre la valeur du framework et démarrer sans consulter d'autre documentation.
+
+**Acceptance Criteria:**
+
+**Given** un développeur qui consulte le README pour la première fois
+**When** il lit la section Quick Start
+**Then** il peut créer une API CRUD complète (users) en suivant les étapes en moins de 30 minutes
+**And** le README présente les fonctionnalités clés avec des snippets de code concis
+**And** les badges CI, couverture et Go Report Card sont affichés et fonctionnels
+**And** la section Installation couvre `go get` et les prérequis Go 1.21+
+**And** des liens vers les guides détaillés dans `docs/` sont présents
+
+### Story 11.2: Guide DI Container & Configuration
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide détaillé sur le container DI et le système de configuration,
+Afin de comprendre les concepts fondamentaux du framework.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/di-and-config.md`
+**When** un développeur le lit
+**Then** le guide explique `helix.Service`, `helix.Controller`, `helix.Repository`, `helix.Component`
+**And** les tags `inject:"true"` et `value:"key"` sont documentés avec des exemples
+**And** les scopes Singleton et Prototype sont expliqués
+**And** la chaîne de priorité config (ENV > profil YAML > application.yaml > DEFAULT) est documentée
+**And** les profils (`HELIX_PROFILES_ACTIVE`) et le rechargement dynamique (SIGHUP) sont couverts
+
+### Story 11.3: Guide Couche HTTP — Routing, Guards & Extracteurs
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide complet sur la couche HTTP déclarative,
+Afin d'exposer une API REST sans boilerplate.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/http-layer.md`
+**When** un développeur le lit
+**Then** les conventions de nommage (Index/Show/Create/Update/Delete) sont documentées avec des exemples
+**And** les directives `//helix:route`, `//helix:guard`, `//helix:interceptor` sont expliquées
+**And** les extracteurs typés (query params, body JSON, validation) sont documentés
+**And** le mapping automatique des types de retour vers HTTP status est expliqué
+**And** l'error handler centralisé (`//helix:handles`) est couvert
+
+### Story 11.4: Guide Data Layer & Repository Pattern
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide sur l'accès aux données avec le pattern Repository,
+Afin de persister mes entités sans écrire de SQL.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/data-layer.md`
+**When** un développeur le lit
+**Then** l'interface `Repository[T, ID]` est documentée avec tous ses méthodes
+**And** l'utilisation de `data/gorm.NewRepository` est expliquée avec des exemples
+**And** le tag `query:"auto"` et les conventions de nommage de méthodes sont documentés
+**And** la directive `//helix:transactional` est expliquée avec un exemple complet
+**And** la pagination via `Paginate(page, size)` est documentée
+
+### Story 11.5: Guide Sécurité, Observabilité & Scheduling
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide sur les modules transversaux (sécurité, observabilité, scheduling),
+Afin de sécuriser et monitorer mon application de production.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/security-observability-scheduling.md`
+**When** un développeur le lit
+**Then** la configuration JWT (`security.jwt.secret`, `security.jwt.expiry`) est documentée
+**And** le RBAC déclaratif (`//helix:guard role:admin`) est expliqué avec des exemples
+**And** `helix.SecurityConfigurer` est documenté avec un exemple de règles globales
+**And** les endpoints `/actuator/health`, `/actuator/metrics`, `/actuator/info` sont décrits
+**And** la directive `//helix:scheduled` avec expressions cron est documentée
+
+---
+
+## Epic 12: Exemples d'Applications
+
+Un développeur peut partir d'un exemple concret et fonctionnel pour bootstrap son projet Helix.
+
+### Story 12.1: Exemple CRUD API — Users (complet et fonctionnel)
+
+En tant que **développeur découvrant Helix**,
+Je veux un exemple d'application CRUD complète avec toutes les couches du framework,
+Afin de voir comment les composants s'assemblent dans un projet réel.
+
+**Acceptance Criteria:**
+
+**Given** le répertoire `examples/crud-api/`
+**When** `go run ./examples/crud-api` est exécuté
+**Then** un serveur HTTP démarre sur le port 8080 sans erreur
+**And** les endpoints `GET/POST/PUT/DELETE /users` sont fonctionnels
+**And** l'exemple utilise `helix.Controller`, `helix.Service`, `helix.Repository`
+**And** la configuration est chargée depuis `examples/crud-api/config/application.yaml`
+**And** le README de l'exemple explique comment le lancer et le tester
+
+### Story 12.2: Exemple avec Authentification JWT & RBAC
+
+En tant que **développeur souhaitant sécuriser son API**,
+Je veux un exemple complet avec authentification JWT et contrôle d'accès par rôle,
+Afin d'avoir un point de départ concret pour la sécurisation de mon API.
+
+**Acceptance Criteria:**
+
+**Given** le répertoire `examples/secured-api/`
+**When** `go run ./examples/secured-api` est exécuté
+**Then** un endpoint `POST /auth/login` retourne un token JWT valide
+**And** les endpoints protégés retournent `401` sans token valide
+**And** les endpoints avec `//helix:guard role:admin` retournent `403` pour les non-admins
+**And** `helix.SecurityConfigurer` est utilisé pour définir les règles globales
+**And** un README explique le flux d'authentification
+
+---
+
+## Epic 13: Assainissement Technique (Dette)
+
+Le framework est exempt de data races, de bugs de sécurité connus et de limitations majeures documentées dans deferred-work.md.
+
+### Story 13.1: Sécurité — DSN credentials & bypass URL
+
+En tant que **opérateur déployant Helix en production**,
+Je veux que les credentials de base de données ne soient pas exposés dans les processus système et que les règles de sécurité ne puissent pas être contournées par des URLs encodées,
+Afin de garantir la sécurité de l'application.
+
+**Acceptance Criteria:**
+
+**Given** la migration `helix db migrate up` est exécutée
+**When** `ps aux` est inspecté pendant l'exécution
+**Then** le DSN de la base de données n'est pas visible dans les arguments du sous-processus
+**And** le DSN est transmis via variable d'environnement au sous-processus `go run`
+**Given** une règle `SecurityConfigurer` bloquant `/api/**`
+**When** une requête arrive sur `/api%2Fusers` (chemin URL-encodé)
+**Then** la règle s'applique correctement et la requête est bloquée
+**And** `matchesPattern` normalise les chemins avant comparaison
+**Refs:** D-10.5-1, W2 [cli/internal/migrate/migrate.go, security/configurer.go]
+
+### Story 13.2: Thread-safety du container DI & resolver
+
+En tant que **développeur Helix**,
+Je veux que le container DI soit sûr en concurrence,
+Afin d'éviter les data races dans les applications qui résolvent des dépendances depuis plusieurs goroutines.
+
+**Acceptance Criteria:**
+
+**Given** un container avec plusieurs composants enregistrés
+**When** `container.Resolve()` est appelé simultanément depuis N goroutines
+**Then** aucune data race n'est détectée par `go test -race`
+**And** les maps `registrations`, `singletons` et `graph.Edges` sont protégées par un mutex
+**And** `Container.Resolve()` est protégé par un `sync.RWMutex` (read-lock pour la résolution, write-lock pour l'enregistrement)
+**Refs:** core/reflect_resolver.go (sync absent), core/container.go, core/wire_resolver.go
+
+### Story 13.3: Robustesse des starters — détection go.mod walk-up
+
+En tant que **développeur utilisant Helix**,
+Je veux que les starters web, data et scheduling s'activent correctement quel que soit le répertoire de travail du processus,
+Afin que mon application fonctionne depuis n'importe quel CWD (déploiement, tests, CI).
+
+**Acceptance Criteria:**
+
+**Given** un binaire Helix démarré depuis `/var/app/` alors que `go.mod` est dans `/var/app/`
+**Then** le starter web détecte bien `gofiber/fiber` dans `go.mod`
+**Given** un binaire démarré depuis `/tmp/` (CWD ≠ racine du module)
+**Then** le starter effectue un walk-up jusqu'à trouver le `go.mod` ou la racine du FS
+**And** si aucun `go.mod` n'est trouvé, le starter logue un warning et reste inactif
+**And** le comportement est identique pour les starters web, data et scheduling
+**Refs:** D-7.2-1, D-7.3, D-7.4-1, D-9.1-3 [starter/web/starter.go, starter/data/starter.go, starter/scheduling/starter.go]
+
+### Story 13.4: Compatibilité binaires déployés — suppression AST runtime
+
+En tant que **développeur déployant Helix en production**,
+Je veux que les directives `//helix:route` et `//helix:handles` fonctionnent sans sources Go sur le serveur,
+Afin que mon application déployée en binaire statique soit pleinement opérationnelle.
+
+**Acceptance Criteria:**
+
+**Given** un binaire compilé avec `go build -trimpath` sans sources Go sur le serveur
+**When** le serveur démarre
+**Then** toutes les routes déclarées via `//helix:route` sont bien enregistrées
+**And** tous les error handlers déclarés via `//helix:handles` sont bien enregistrés
+**And** le mécanisme remplace `parser.ParseFile` par une registration explicite au démarrage (ex: `RegisterRoute(method, path, handler)` généré par `helix generate`)
+**Refs:** D1/D2 [web/router.go:controllerRouteDirectives], [web/server.go:RegisterErrorHandler]
+
+### Story 13.5: Cache interceptor production-grade
+
+En tant que **développeur utilisant `//helix:interceptor cache`**,
+Je veux un interceptor de cache robuste sans stampede ni fuite mémoire,
+Afin de l'utiliser en production sans risque de surcharge ou de consommation mémoire illimitée.
+
+**Acceptance Criteria:**
+
+**Given** N requêtes simultanées sur un cache froid pour la même clé
+**When** le handler est appelé
+**Then** un seul appel au handler est effectué (single-flight pattern)
+**And** les autres requêtes attendent et reçoivent la réponse mise en cache
+**Given** le cache est en production depuis 1h avec des milliers de clés
+**Then** le cache ne dépasse pas la taille maximale configurée (`cache:5m:max=1000`)
+**And** les entrées expirées sont évincées proactivement par un goroutine de sweep
+**Refs:** D-3.7-3, D-3.7-4, D-3.7-5 [web/cache_interceptor.go]
+
+### Story 13.6: Qualité & UX développeur — validation, routing & erreurs
+
+En tant que **développeur utilisant Helix**,
+Je veux des messages d'erreur clairs et une UX de validation améliorée,
+Afin de diagnostiquer rapidement les problèmes dans mon code.
+
+**Acceptance Criteria:**
+
+**Given** un handler avec un body ayant plusieurs champs invalides
+**When** la requête arrive
+**Then** toutes les erreurs de validation sont retournées (pas seulement la première)
+**And** le format `{"errors": [{"field": "email", "msg": "required"}, ...]}` est retourné
+**Given** un `UserHTTPController` enregistré
+**Then** la route générée est `/user-https` → correction : les acronymes terminaux sont gérés correctement
+**And** un préfixe de route override est possible via tag `helix:"route:/v1/users"` sur la struct
+**Given** un `controller.Register` échoue
+**Then** le message d'erreur indique le type du controller et la raison précise (pas juste `ErrInvalidController`)
+**Refs:** D-3.4-4, D-3.2-1/2/3/5/6, D-3.5-1 [web/binding.go, web/router.go]

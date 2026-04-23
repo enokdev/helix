@@ -19,7 +19,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("helix: expected subcommand new, db, or generate")
+		return fmt.Errorf("helix: expected subcommand new, db, generate, run, or build")
 	}
 
 	switch args[0] {
@@ -27,6 +27,10 @@ func run(args []string) error {
 		return runNew(args[1:])
 	case "db":
 		return runDB(args[1:])
+	case "run":
+		return runRun(args[1:])
+	case "build":
+		return runBuild(args[1:])
 	case "generate":
 		restArgs := args[1:]
 		if len(restArgs) > 0 && restArgs[0] == "wire" {
@@ -40,7 +44,7 @@ func run(args []string) error {
 		}
 		return runGenerate(restArgs)
 	default:
-		return fmt.Errorf("helix: expected subcommand new, db, or generate")
+		return fmt.Errorf("helix: expected subcommand new, db, generate, run, or build")
 	}
 }
 
@@ -135,6 +139,46 @@ func runNew(args []string) error {
 		return fmt.Errorf("helix new: expected subcommand app")
 	}
 	return runNewApp(args[1:])
+}
+
+func runRun(args []string) error {
+	opts, err := parseRunOptions(args)
+	if err != nil {
+		return err
+	}
+	return cli.Run(context.Background(), opts)
+}
+
+func parseRunOptions(args []string) (cli.RunOptions, error) {
+	flags := flag.NewFlagSet("run", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	dir := flags.String("dir", ".", "Go module root")
+	if err := flags.Parse(args); err != nil {
+		return cli.RunOptions{}, err
+	}
+	return cli.RunOptions{Dir: *dir, Args: flags.Args()}, nil
+}
+
+func runBuild(args []string) error {
+	opts, err := parseBuildOptions(args)
+	if err != nil {
+		return err
+	}
+	return cli.Build(context.Background(), opts)
+}
+
+func parseBuildOptions(args []string) (cli.BuildOptions, error) {
+	flags := flag.NewFlagSet("build", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	dir := flags.String("dir", ".", "Go module root")
+	docker := flags.Bool("docker", false, "generate a Dockerfile")
+	if err := flags.Parse(args); err != nil {
+		return cli.BuildOptions{}, err
+	}
+	if flags.NArg() != 0 {
+		return cli.BuildOptions{}, fmt.Errorf("helix build: unexpected argument %q", flags.Arg(0))
+	}
+	return cli.BuildOptions{Dir: *dir, Docker: *docker}, nil
 }
 
 func runNewApp(args []string) error {

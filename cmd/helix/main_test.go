@@ -176,6 +176,54 @@ func TestRunDBMigrateErrors(t *testing.T) {
 	}
 }
 
+func TestRunRootCommandErrorsMentionRunAndBuild(t *testing.T) {
+	t.Parallel()
+
+	err := run(nil)
+	if err == nil || !strings.Contains(err.Error(), "expected subcommand new, db, generate, run, or build") {
+		t.Fatalf("run(nil) error = %v", err)
+	}
+}
+
+func TestParseRunOptionsPassesAppArgs(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseRunOptions([]string{"--dir", "/tmp/service", "--", "--port=8080", "--env=dev"})
+	if err != nil {
+		t.Fatalf("parseRunOptions() error = %v", err)
+	}
+	if opts.Dir != "/tmp/service" {
+		t.Fatalf("opts.Dir = %q", opts.Dir)
+	}
+	if got := strings.Join(opts.Args, " "); got != "--port=8080 --env=dev" {
+		t.Fatalf("opts.Args = %q", got)
+	}
+}
+
+func TestParseBuildOptionsRejectsUnexpectedArgs(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseBuildOptions([]string{"--dir", "/tmp/service", "extra"})
+	if err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+		t.Fatalf("parseBuildOptions() error = %v, want unexpected argument", err)
+	}
+}
+
+func TestRunBuildCreatesBinaryAndDockerfile(t *testing.T) {
+	dir := newMinimalBuildFixture(t)
+
+	if err := run([]string{"build", "--dir", dir, "--docker"}); err != nil {
+		t.Fatalf("run(build --docker) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bin", "app")); err != nil {
+		t.Fatalf("bin/app stat error = %v", err)
+	}
+	content := readCLIFile(t, filepath.Join(dir, "Dockerfile"))
+	if !strings.Contains(content, "FROM scratch") {
+		t.Fatalf("Dockerfile missing runtime stage:\n%s", content)
+	}
+}
+
 func TestRunGenerateWireCreatesWireFile(t *testing.T) {
 	t.Parallel()
 
@@ -237,6 +285,26 @@ import "github.com/enokdev/helix"
 
 type Repository struct {
 	helix.Repository
+}
+`)
+	return dir
+}
+
+// newMinimalBuildFixture creates a minimal Go project with a cmd/app/main.go.
+// Note: This fixture is suitable for `helix build` command testing only.
+// It creates a compilable binary but does not include Helix framework code,
+// so tests validate build tools exist, not actual Helix app correctness.
+func newMinimalBuildFixture(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	writeCLIFile(t, dir, "go.mod", "module example.test/clirun\n\ngo 1.21.0\n")
+	writeCLIFile(t, filepath.Join(dir, "cmd", "app"), "main.go", `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("hello")
 }
 `)
 	return dir
