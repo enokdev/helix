@@ -9,8 +9,19 @@ import (
 	"time"
 
 	helix "github.com/enokdev/helix"
+	"github.com/enokdev/helix/config"
+	"github.com/enokdev/helix/core"
 	"github.com/enokdev/helix/web"
 )
+
+type appConfig struct {
+	Server struct {
+		Port int `mapstructure:"port"`
+	} `mapstructure:"server"`
+	App struct {
+		Name string `mapstructure:"name"`
+	} `mapstructure:"app"`
+}
 
 type User struct {
 	ID    int    `json:"id"`
@@ -96,45 +107,45 @@ func (r *UserRepository) Delete(id int) bool {
 type UserService struct {
 	helix.Service
 
-	repo *UserRepository
+	Repo *UserRepository `inject:"true"`
 }
 
 func NewUserService(repo *UserRepository) *UserService {
-	return &UserService{repo: repo}
+	return &UserService{Repo: repo}
 }
 
 func (s *UserService) List() []User {
-	return s.repo.FindAll()
+	return s.Repo.FindAll()
 }
 
 func (s *UserService) Get(id int) (User, bool) {
-	return s.repo.FindByID(id)
+	return s.Repo.FindByID(id)
 }
 
 func (s *UserService) Create(input userInput) User {
-	return s.repo.Save(input)
+	return s.Repo.Save(input)
 }
 
 func (s *UserService) Update(id int, input userInput) (User, bool) {
-	return s.repo.Update(id, input)
+	return s.Repo.Update(id, input)
 }
 
 func (s *UserService) Delete(id int) bool {
-	return s.repo.Delete(id)
+	return s.Repo.Delete(id)
 }
 
 type UserController struct {
 	helix.Controller
 
-	service *UserService
+	Service *UserService `inject:"true"`
 }
 
 func NewUserController(svc *UserService) *UserController {
-	return &UserController{service: svc}
+	return &UserController{Service: svc}
 }
 
 func (c *UserController) Index() []User {
-	return c.service.List()
+	return c.Service.List()
 }
 
 func (c *UserController) Show(ctx web.Context) (User, error) {
@@ -142,15 +153,17 @@ func (c *UserController) Show(ctx web.Context) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
-	user, ok := c.service.Get(id)
+	user, ok := c.Service.Get(id)
 	if !ok {
 		return User{}, notFound()
 	}
 	return user, nil
 }
 
-func (c *UserController) Create(input userInput) User {
-	return c.service.Create(input)
+func (c *UserController) Create(ctx web.Context, input userInput) (User, error) {
+	user := c.Service.Create(input)
+	ctx.Status(http.StatusCreated)
+	return user, nil
 }
 
 func (c *UserController) Update(ctx web.Context, input userInput) (User, error) {
@@ -158,7 +171,7 @@ func (c *UserController) Update(ctx web.Context, input userInput) (User, error) 
 	if err != nil {
 		return User{}, err
 	}
-	user, ok := c.service.Update(id, input)
+	user, ok := c.Service.Update(id, input)
 	if !ok {
 		return User{}, notFound()
 	}
@@ -170,7 +183,7 @@ func (c *UserController) Delete(ctx web.Context) error {
 	if err != nil {
 		return err
 	}
-	if !c.service.Delete(id) {
+	if !c.Service.Delete(id) {
 		return notFound()
 	}
 	ctx.Status(http.StatusNoContent)
@@ -185,10 +198,10 @@ type httpError struct {
 	message string
 }
 
-func (e *httpError) Error() string     { return e.message }
-func (e *httpError) StatusCode() int   { return e.status }
-func (e *httpError) ErrorType() string { return e.errType }
-func (e *httpError) ErrorCode() string { return e.code }
+func (e *httpError) Error() string      { return e.message }
+func (e *httpError) StatusCode() int    { return e.status }
+func (e *httpError) ErrorType() string  { return e.errType }
+func (e *httpError) ErrorCode() string  { return e.code }
 func (e *httpError) ErrorField() string { return "" }
 
 func notFound() error {
@@ -221,10 +234,39 @@ func (s *appServer) OnStop() error {
 	return s.server.Stop(ctx)
 }
 
+func loadConfig() (appConfig, error) {
+	loader := config.NewLoader(
+		config.WithConfigPaths("examples/crud-api/config", "config"),
+		config.WithDefaults(map[string]any{
+			"server.port": 8080,
+			"app.name":    "helix-crud-api",
+		}),
+	)
+
+	var cfg appConfig
+	if err := loader.Load(&cfg); err != nil {
+		return appConfig{}, err
+	}
+	return cfg, nil
+}
+
 func newServer() (web.HTTPServer, error) {
-	repo := NewUserRepository()
-	svc := NewUserService(repo)
-	ctrl := NewUserController(svc)
+	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
+	for _, component := range []any{
+		NewUserRepository(),
+		&UserService{},
+		&UserController{},
+	} {
+		if err := container.Register(component); err != nil {
+			return nil, err
+		}
+	}
+
+	var ctrl *UserController
+	if err := container.Resolve(&ctrl); err != nil {
+		return nil, err
+	}
+
 	server := web.NewServer()
 	if err := web.RegisterController(server, ctrl); err != nil {
 		return nil, err
@@ -233,12 +275,21 @@ func newServer() (web.HTTPServer, error) {
 }
 
 func main() {
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
+		log.Fatalf("invalid server port: %d", cfg.Server.Port)
+	}
+
 	server, err := newServer()
 	if err != nil {
 		log.Fatal(err)
 	}
 	if err := helix.Run(helix.App{
-		Components: []any{&appServer{server: server, addr: ":8080"}},
+		Components: []any{&appServer{server: server, addr: ":" + strconv.Itoa(cfg.Server.Port)}},
 	}); err != nil {
 		log.Fatal(err)
 	}

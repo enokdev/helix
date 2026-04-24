@@ -5,8 +5,63 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
+
+func TestLoadConfigReadsExampleYAML(t *testing.T) {
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+	if cfg.Server.Port != 8080 {
+		t.Fatalf("server.port = %d, want 8080", cfg.Server.Port)
+	}
+	if cfg.App.Name != "helix-crud-api" {
+		t.Fatalf("app.name = %q, want helix-crud-api", cfg.App.Name)
+	}
+}
+
+func TestExampleDocumentationExists(t *testing.T) {
+	path := "README.md"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		path = filepath.Join("examples", "crud-api", "README.md")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("README.md must exist: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"go run ./examples/crud-api",
+		"go test ./examples/crud-api",
+		"POST /users",
+		"GET /users",
+		"GET /users/:id",
+		"PUT /users/:id",
+		"DELETE /users/:id",
+		"config/application.yaml",
+		"UserRepository",
+		"UserService",
+		"UserController",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("README.md missing %q", want)
+		}
+	}
+}
+
+func TestExampleDoesNotImportFiberDirectly(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	fiberImport := strings.Join([]string{"github.com", "gofiber", "fiber", "v2"}, "/")
+	if strings.Contains(string(data), fiberImport) {
+		t.Fatal("example must use Helix web abstractions instead of importing Fiber directly")
+	}
+}
 
 func TestUsersCRUD(t *testing.T) {
 	server, err := newServer()
