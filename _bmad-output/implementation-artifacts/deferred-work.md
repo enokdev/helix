@@ -319,3 +319,11 @@
 - Cache stampede risk: Cold cache key hit by many concurrent requests.
 - Memory leak in cache: No periodic eviction for expired entries.
 - Overlapping error handlers selection: Ambiguity when multiple handlers match an error type.
+
+## Deferred from: code review of story 11.4 (2026-04-24)
+
+- [x] Abstraction transactionnelle poreuse : L'abstraction `data` semble trop liée aux détails internes de l'adaptateur.
+
+## Deferred from: code review of story 12.1 (2026-04-24)
+
+- [x] Faiblesses architecturales et cohérence DI : Des points de vigilance sur la cohérence de l'injection de dépendances et la robustesse des tests dans l'exemple CRUD.

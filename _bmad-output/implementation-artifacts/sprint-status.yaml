@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-24 - story 11.3 ready for review
+last_updated: 2026-04-24 - story 12.2 ready-for-dev
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-24 - story 11.3 ready for review
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-24 - story 11.3 review
+last_updated: 2026-04-24 - story 12.2 ready-for-dev
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -154,16 +154,16 @@ development_status:
   11-1-readme-enrichi-quick-start: done
   11-2-guide-di-container-configuration: done
   11-3-guide-couche-http-routing-guards-extracteurs: done
-  11-4-guide-data-layer-repository-pattern: backlog
-  11-5-guide-securite-observabilite-scheduling: backlog
+  11-4-guide-data-layer-repository-pattern: done
+  11-5-guide-securite-observabilite-scheduling: done
   epic-11-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 12: Exemples d'Applications
   # ─────────────────────────────────────────────
-  epic-12: backlog
-  12-1-exemple-crud-api-users-complet: backlog
-  12-2-exemple-authentification-jwt-rbac: backlog
+  epic-12: in-progress
+  12-1-exemple-crud-api-users-complet: done
+  12-2-exemple-authentification-jwt-rbac: ready-for-dev
   epic-12-retrospective: optional
 
   # ─────────────────────────────────────────────

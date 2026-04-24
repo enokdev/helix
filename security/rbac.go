@@ -105,6 +105,9 @@ func newForbiddenErr() error {
 	return &rbacError{msg: "Insufficient permissions"}
 }
 
-func (e *rbacError) Error() string   { return e.msg }
-func (e *rbacError) StatusCode() int { return http.StatusForbidden }
-func (e *rbacError) Unwrap() error   { return ErrForbidden }
+func (e *rbacError) Error() string      { return e.msg }
+func (e *rbacError) StatusCode() int    { return http.StatusForbidden }
+func (e *rbacError) ErrorType() string  { return "Forbidden" }
+func (e *rbacError) ErrorCode() string  { return "FORBIDDEN" }
+func (e *rbacError) ErrorField() string { return "" }
+func (e *rbacError) Unwrap() error      { return ErrForbidden }

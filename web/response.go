@@ -22,7 +22,18 @@ type structuredHTTPError interface {
 }
 
 func writeSuccessResponse(ctx Context, method string, payload any) error {
-	ctx.Status(successStatus(method))
+	// Check if handler set a custom status via context
+	customStatus := ctx.Locals("_helix_custom_status")
+	if customStatus != nil {
+		if code, ok := customStatus.(int); ok && code > 0 {
+			ctx.Status(code)
+		} else {
+			ctx.Status(successStatus(method))
+		}
+	} else {
+		ctx.Status(successStatus(method))
+	}
+	
 	if err := ctx.JSON(payload); err != nil {
 		slog.Default().With("namespace", "web").Error("json serialisation failed",
 			"payload_type", fmt.Sprintf("%T", payload),
