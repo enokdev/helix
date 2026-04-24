@@ -263,12 +263,96 @@ func TestDataLayerGuideDocumentsCoreConcepts(t *testing.T) {
 	}
 }
 
+func TestSecurityObservabilitySchedulingGuideDocumentsCoreConcepts(t *testing.T) {
+	const guidePath = "docs/security-observability-scheduling.md"
+	if _, err := os.Stat(guidePath); err != nil {
+		t.Skipf("test requires %s — guide not found: %v", guidePath, err)
+	}
+	guide := readTextFile(t, guidePath)
+
+	required := []string{
+		"# Securite, observabilite et scheduling",
+		"## Sommaire",
+		"## Modele mental",
+		"## Configuration JWT",
+		"`security.jwt.secret`",
+		"`security.jwt.expiry`",
+		"`helix.starters.security.enabled`",
+		"`security.NewJWTService`",
+		"`Generate`",
+		"`Validate`",
+		"`Refresh`",
+		"`security.NewJWTGuard`",
+		"`Authorization: Bearer <token>`",
+		"`ctx.Locals(\"jwt_claims\")`",
+		"`security.ClaimsFromContext`",
+		"## Guards et RBAC",
+		"`security.NewRoleGuard`",
+		"`security.NewRoleGuardFactory`",
+		"`//helix:guard role:admin`",
+		"## Security configurer",
+		"`helix.SecurityConfigurer`",
+		"`security.Configurer`",
+		"`security.NewHTTPSecurity`",
+		"`PermitAll`",
+		"`Authenticated`",
+		"`HasRole`",
+		"`*`",
+		"`**`",
+		"## Actuator",
+		"`/actuator/health`",
+		"`/actuator/info`",
+		"`observability.HealthIndicator`",
+		"`observability.HealthCheckerFromContainer`",
+		"`observability.NewInfoProvider`",
+		"`observability.RegisterActuatorRoutes`",
+		"## Metriques Prometheus",
+		"`/actuator/metrics`",
+		"`observability.Registry`",
+		"`observability.NewHTTPMetricsObserver`",
+		"`observability.RegisterMetricsRoute`",
+		"`observability.WithMetricsGuard`",
+		"`helix_http_requests_total`",
+		"`helix_http_request_duration_seconds`",
+		"## Logging structure",
+		"`observability.ConfigureLogging`",
+		"`observability.Logger`",
+		"`helix.logging.level`",
+		"`helix.logging.levels`",
+		"`debug`, `info`, `warn`, `error`",
+		"## Tracing OpenTelemetry",
+		"`observability.ConfigureTracing`",
+		"`helix.starters.observability.tracing.enabled`",
+		"`stdout`, `otlp` et `jaeger`",
+		"`shutdown(ctx)`",
+		"## Scheduling",
+		"`scheduler.NewScheduler`",
+		"`scheduler.Job`",
+		"`scheduler.ScheduledJobProvider`",
+		"`scheduler.WrapError`",
+		"`scheduler.WrapSkipIfBusy`",
+		"`helix.starters.scheduling.enabled`",
+		"`//helix:scheduled`",
+		"`ScheduledJobProvider`",
+		"## Starters",
+		"## Tests",
+		"go test ./security/...",
+		"## Erreurs frequentes",
+	}
+	for _, want := range required {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("docs/security-observability-scheduling.md should contain %q", want)
+		}
+	}
+}
+
 func TestDocumentationLinksExist(t *testing.T) {
 	for _, path := range []string{
 		"README.md",
 		filepath.Join("docs", "di-and-config.md"),
 		filepath.Join("docs", "http-layer.md"),
 		filepath.Join("docs", "data-layer.md"),
+		filepath.Join("docs", "security-observability-scheduling.md"),
 	} {
 		content := readTextFile(t, path)
 		for _, link := range markdownLinks(content) {
