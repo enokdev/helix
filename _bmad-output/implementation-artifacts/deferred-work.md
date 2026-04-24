@@ -298,3 +298,24 @@
 - `FindAll` dégradation O(nextID) après suppression (`examples/crud-api/main.go:40-52`) — itère de 1 à nextID au lieu de parcourir la map directement ; acceptable pour un exemple en mémoire, refactor autonome pour un usage production.
 - `coverage.out` repo complet généré dans coverage.yml mais jamais uploadé ni rattaché comme artifact — dead work sur chaque run CI, nettoyable dans une story d'assainissement technique.
 - `serve` dans `examples/crud-api/main_test.go:60-62` définit `Content-Type` après passage du buffer à `http.NewRequest`, s'appuyant sur un comportement non documenté de `bytes.Buffer` — fonctionne aujourd'hui, fragile si l'implémentation stdlib change.
+
+## Deferred from: code review of 11-3-guide-couche-http-routing-guards-extracteurs (2026-04-23)
+
+- Future date hardcoded in sprint status file (sprint-status.yaml:2, 40) — The last_updated timestamp uses 2026-04-23, a future date inconsistent with typical practice. This suggests a test artifact, configuration error, or manual entry mistake. Dates in tracking files should reflect actual change dates for audit and historical accuracy.
+
+
+## Deferred from: code review of 11-3-guide-couche-http-routing-guards-extracteurs (2026-04-24)
+
+- Complex pluralization logic risks: Automatic pluralization of controller names might fail on irregular plurals.
+- Type safety in Error Handlers: String-based error matching is less type-safe than `errors.As`.
+- Forward compatibility issue in JSON binding: Refusing unknown fields blocks clients sending extra data.
+- Lack of PATCH support convention: No convention for partial updates.
+- Usability: Strict directive syntax (e.g., `// helix:route` is invalid).
+- Binding limitation: Cannot mix query and json in one struct.
+- Runtime AST parsing failure in deployed binaries: Directives might fail if source code is not available at runtime.
+- Validation UX: Only the first validation error is reported.
+- Unsupported types in query params: Risk of silent failures or errors for float/slice types.
+- Concurrency race in guard/interceptor registration: Registration maps are not thread-safe.
+- Cache stampede risk: Cold cache key hit by many concurrent requests.
+- Memory leak in cache: No periodic eviction for expired entries.
+- Overlapping error handlers selection: Ambiguity when multiple handlers match an error type.

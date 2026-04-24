@@ -1,0 +1,555 @@
+diff --git a/_bmad-output/implementation-artifacts/deferred-work.md b/_bmad-output/implementation-artifacts/deferred-work.md
+index ea1adfa..a8d6306 100644
+--- a/_bmad-output/implementation-artifacts/deferred-work.md
++++ b/_bmad-output/implementation-artifacts/deferred-work.md
+@@ -298,3 +298,8 @@
+ - `FindAll` dégradation O(nextID) après suppression (`examples/crud-api/main.go:40-52`) — itère de 1 à nextID au lieu de parcourir la map directement ; acceptable pour un exemple en mémoire, refactor autonome pour un usage production.
+ - `coverage.out` repo complet généré dans coverage.yml mais jamais uploadé ni rattaché comme artifact — dead work sur chaque run CI, nettoyable dans une story d'assainissement technique.
+ - `serve` dans `examples/crud-api/main_test.go:60-62` définit `Content-Type` après passage du buffer à `http.NewRequest`, s'appuyant sur un comportement non documenté de `bytes.Buffer` — fonctionne aujourd'hui, fragile si l'implémentation stdlib change.
++
++## Deferred from: code review of 11-3-guide-couche-http-routing-guards-extracteurs (2026-04-23)
++
++- Future date hardcoded in sprint status file (sprint-status.yaml:2, 40) — The last_updated timestamp uses 2026-04-23, a future date inconsistent with typical practice. This suggests a test artifact, configuration error, or manual entry mistake. Dates in tracking files should reflect actual change dates for audit and historical accuracy.
++
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index 32dd5a2..7dff523 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -1,5 +1,5 @@
+ # generated: 2026-04-14
+-last_updated: 2026-04-23 - story 11.2 reviewed and fixed, status set to done
++last_updated: 2026-04-23 - story 11.3 ready for review
+ # project: helix
+ # project_key: NOKEY
+ # tracking_system: file-system
+@@ -37,7 +37,7 @@ last_updated: 2026-04-23 - story 11.2 reviewed and fixed, status set to done
+ # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
+ 
+ generated: 2026-04-14
+-last_updated: 2026-04-23 - story 11.2 en review
++last_updated: 2026-04-23 - story 11.3 review
+ project_key: NOKEY
+ tracking_system: file-system
+ story_location: _bmad-output/implementation-artifacts
+@@ -153,7 +153,7 @@ development_status:
+   epic-11: in-progress
+   11-1-readme-enrichi-quick-start: done
+   11-2-guide-di-container-configuration: done
+-  11-3-guide-couche-http-routing-guards-extracteurs: backlog
++  11-3-guide-couche-http-routing-guards-extracteurs: review
+   11-4-guide-data-layer-repository-pattern: backlog
+   11-5-guide-securite-observabilite-scheduling: backlog
+   epic-11-retrospective: optional
+diff --git a/docs/http-layer.md b/docs/http-layer.md
+index 3414f01..cb81671 100644
+--- a/docs/http-layer.md
++++ b/docs/http-layer.md
+@@ -1,22 +1,413 @@
+ # Couche HTTP
+ 
+-Ce guide detaille la couche HTTP declarative de Helix.
++Ce guide explique la couche HTTP declarative de Helix : routing par convention, directives, binding des requetes, guards, interceptors, mapping des reponses et error handlers. Il se concentre sur les APIs publiques actuellement disponibles.
+ 
+-## Objectif
++## Sommaire
+ 
+-Comprendre comment exposer une API REST avec les conventions de controller, les directives de routing, les extracteurs types, les guards et les interceptors.
++- [Modele mental](#modele-mental)
++- [Routing par convention](#routing-par-convention)
++- [Routes custom](#routes-custom)
++- [Extracteurs types](#extracteurs-types)
++- [Guards](#guards)
++- [Interceptors](#interceptors)
++- [Mapping des reponses](#mapping-des-reponses)
++- [Error handlers](#error-handlers)
++- [Tests](#tests)
++- [Erreurs frequentes](#erreurs-frequentes)
+ 
+-## Sections prevues
++## Modele mental
+ 
+-- Conventions `Index`, `Show`, `Create`, `Update`, `Delete`
+-- Directive `//helix:route`
+-- Directive `//helix:guard`
+-- Directive `//helix:interceptor`
+-- Binding query params et JSON
+-- Mapping des retours vers les status HTTP
+-- Gestion d'erreurs centralisee
++Helix separe le code applicatif du moteur HTTP sous-jacent :
+ 
+-## References rapides
++- Les controllers applicatifs utilisent `helix.Controller` et, si besoin, `web.Context`.
++- Le serveur est cree par `web.NewServer`.
++- Les routes de controller sont enregistrees avec `web.RegisterController`.
++- Fiber reste encapsule dans `web/internal`; un controller utilisateur ne doit pas importer `gofiber/fiber`.
+ 
+-- Package `web`
+-- Package `starter/web`
++Exemple minimal :
++
++```go
++server := web.NewServer()
++
++controller := &UserController{Service: users}
++if err := web.RegisterController(server, controller); err != nil {
++	return err
++}
++
++if err := server.Start(":8080"); err != nil {
++	return err
++}
++```
++
++`web.Context` donne acces aux informations de requete sans exposer Fiber :
++
++```go
++func (c *UserController) Show(ctx web.Context) (*User, error) {
++	id := ctx.Param("id")
++	return c.Service.Find(id)
++}
++```
++
++Les helpers disponibles incluent `Method`, `Path`, `OriginalURL`, `Param`, `Query`, `Header`, `IP`, `Body`, `Status`, `SetHeader`, `Send`, `JSON` et `Locals`.
++
++## Routing par convention
++
++Un controller routable est un pointeur vers une struct :
++
++- dont le nom finit par `Controller`;
++- qui embed `helix.Controller`;
++- dont les methodes publiques suivent les conventions REST ou portent une directive `//helix:route`.
++
++```go
++type UserController struct {
++	helix.Controller
++	Service *UserService
++}
++```
++
++`web.RegisterController` derive le prefixe a partir du nom du controller :
++
++- `UserController` devient `/users`;
++- `BlogPostController` devient `/blog-posts`;
++- les routes sont au pluriel, en kebab-case;
++- le parametre de ressource est `:id`.
++
++Conventions reconnues :
++
++| Methode controller | Route |
++| --- | --- |
++| `Index` | `GET /users` |
++| `Show` | `GET /users/:id` |
++| `Create` | `POST /users` |
++| `Update` | `PUT /users/:id` |
++| `Delete` | `DELETE /users/:id` |
++
++Exemple :
++
++```go
++func (c *UserController) Index() ([]User, error) {
++	return c.Service.List()
++}
++
++func (c *UserController) Show(ctx web.Context) (*User, error) {
++	return c.Service.Find(ctx.Param("id"))
++}
++
++func (c *UserController) Create(input CreateUserInput) (*User, error) {
++	return c.Service.Create(input)
++}
++```
++
++Une methode qui ne correspond pas a une convention et qui n'a pas de directive `//helix:route` n'est pas exposee comme route. Les routes statiques custom sont enregistrees avant les routes parametrees, ce qui evite que `/users/search` soit capture par `/users/:id`.
++
++## Routes custom
++
++Utilisez `//helix:route` quand la convention ne suffit pas.
++
++```go
++//helix:route GET /users/search
++func (c *UserController) Search(params SearchUsersQuery) ([]User, error) {
++	return c.Service.Search(params)
++}
++```
++
++Le format est strict :
++
++- deux slashes, sans espace : `//helix:route GET /users/search`;
++- exactement une methode HTTP et un chemin;
++- le chemin commence par `/`;
++- plusieurs directives `//helix:route` peuvent etre placees sur la meme methode.
++
++Exemple avec deux routes :
++
++```go
++//helix:route GET /users/search
++//helix:route POST /users/search
++func (c *UserController) Search(params SearchUsersQuery) ([]User, error) {
++	return c.Service.Search(params)
++}
++```
++
++Ces formes sont invalides et retournent une erreur de directive :
++
++```go
++// helix:route GET /users/search
++//+helix:route GET /users/search
++//helix:route GET
++```
++
++Les directives `//helix:guard` et `//helix:interceptor` peuvent etre combinees avec une route conventionnelle ou custom.
++
++## Extracteurs types
++
++Une methode de controller peut recevoir :
++
++- aucun parametre;
++- `web.Context` seul;
++- une struct bindee depuis la query string;
++- une struct bindee depuis le body JSON;
++- `web.Context` en premier parametre, puis une seule struct bindee.
++
++Exemples valides :
++
++```go
++func (c *UserController) Index() ([]User, error)
++func (c *UserController) Show(ctx web.Context) (*User, error)
++func (c *UserController) Search(params SearchUsersQuery) ([]User, error)
++func (c *UserController) Create(ctx web.Context, input CreateUserInput) (*User, error)
++```
++
++Une methode ne peut pas recevoir plusieurs structs bindees. Si `web.Context` est present, il doit etre le premier parametre.
++
++### Query params
++
++Une struct avec tags `query` est bindee depuis la query string.
++
++```go
++type SearchUsersQuery struct {
++	Page     int    `query:"page" default:"1" validate:"min=1"`
++	PageSize int    `query:"page_size" default:"20" max:"100" validate:"min=1"`
++	Email    string `query:"email" validate:"required,email"`
++}
++```
++
++Comportement utile :
++
++- `query:"page"` indique le nom externe du parametre.
++- `default:"1"` est applique si le parametre est absent ou vide.
++- `max:"100"` limite une valeur numerique.
++- `validate:"required,email"` est evalue par `go-playground/validator/v10`.
++- Les champs non exportes sont ignores.
++
++Si un parametre ne peut pas etre converti, Helix retourne une erreur structuree `web.RequestError` avec un code comme `INVALID_QUERY_PARAM`. Si la validation echoue, le code est `VALIDATION_FAILED`.
++
++### Body JSON
++
++Une struct avec tags `json` est bindee depuis le body JSON.
++
++```go
++type CreateUserInput struct {
++	Name  string `json:"name" validate:"required"`
++	Email string `json:"email" validate:"required,email"`
++}
++```
++
++Le body JSON doit etre non vide. Helix refuse les champs inconnus et refuse un body contenant plusieurs valeurs JSON. La validation `validate` est executee apres le parsing.
++
++Dans cet exemple, `json:"email"` nomme le champ JSON externe et `validate:"required,email"` impose une valeur presente au format email.
++
++Ne melangez pas `query` et `json` dans la meme struct de binding : Helix rejette cette signature comme ambigue.
++
++## Guards
++
++Un guard decide si une requete peut continuer vers le handler. Une directive de route reference un guard nomme :
++
++```go
++//helix:guard authenticated
++func (c *UserController) Index() ([]User, error) {
++	return c.Service.List()
++}
++```
++
++La forme exacte `//helix:guard authenticated` reference un guard sans argument. La forme exacte `//helix:guard role:admin` reference une factory de guard avec l'argument `admin`.
++
++Enregistrez le guard sur le serveur avant `web.RegisterController` :
++
++```go
++if err := web.RegisterGuard(server, "authenticated", web.GuardFunc(func(ctx web.Context) error {
++	if ctx.Header("Authorization") == "" {
++		return web.Unauthorized("missing authorization header")
++	}
++	return nil
++})); err != nil {
++	return err
++}
++```
++
++Pour une directive avec argument, utilisez `web.RegisterGuardFactory` :
++
++```go
++if err := web.RegisterGuardFactory(server, "role", func(role string) (web.Guard, error) {
++	return web.GuardFunc(func(ctx web.Context) error {
++		if ctx.Locals("role") != role {
++			return web.Forbidden("insufficient role")
++		}
++		return nil
++	}), nil
++}); err != nil {
++	return err
++}
++```
++
++APIs a retenir : `web.RegisterGuard`, `web.RegisterGuardFactory`, `web.ApplyGlobalGuard`, `web.Unauthorized` et `web.Forbidden`.
++
++Puis :
++
++```go
++//helix:guard role:admin
++func (c *UserController) Delete(ctx web.Context) error {
++	return c.Service.Delete(ctx.Param("id"))
++}
++```
++
++`web.ApplyGlobalGuard` ajoute un guard execute avant toutes les routes du serveur. Les guards globaux passent avant les guards declares sur une route. Les guards de route s'executent dans l'ordre des directives.
++
++Utilisez `web.Unauthorized` pour produire une reponse `401` structuree et `web.Forbidden` pour une reponse `403` structuree.
++
++Une directive guard doit avoir un seul argument. Les noms de directive sont en minuscules, peuvent contenir des chiffres apres le premier caractere, et peuvent utiliser des tirets internes. Les formes invalides, les guards non enregistres et les directives sur methodes non routables retournent `web.ErrInvalidDirective`.
++
++## Interceptors
++
++Un interceptor entoure l'appel au handler. Il peut enrichir la requete, mesurer une duree, ajouter des headers ou court-circuiter la reponse.
++
++```go
++if err := web.RegisterInterceptor(server, "trace", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
++	ctx.SetHeader("X-Trace", "enabled")
++	return next(ctx)
++})); err != nil {
++	return err
++}
++```
++
++APIs a retenir : `web.RegisterInterceptor` et `web.RegisterInterceptorFactory`.
++
++Puis :
++
++```go
++//helix:interceptor trace
++func (c *UserController) Index() ([]User, error) {
++	return c.Service.List()
++}
++```
++
++Pour une directive avec argument, utilisez `web.RegisterInterceptorFactory`.
++
++Helix fournit deja un interceptor cache sous le nom `cache` :
++
++```go
++//helix:interceptor cache:5m
++func (c *UserController) Index() ([]User, error) {
++	return c.Service.List()
++}
++```
++
++La forme exacte `//helix:interceptor cache:5m` active l'interceptor integre avec une duree de cache de cinq minutes.
++
++N'enregistrez pas un autre interceptor sous le nom `cache` : le serveur le reserve deja. Les interceptors de route s'empilent dans l'ordre des directives autour du handler. Les guards s'executent avant les interceptors.
++
++## Mapping des reponses
++
++Les handlers peuvent retourner un payload, une erreur, les deux, ou rien selon la signature supportee par `web.RegisterController`.
++
++Succes :
++
++- une route `POST` ecrit `201 Created`;
++- les autres methodes ecrivent `200 OK`;
++- le body JSON est direct, sans wrapper `data`.
++
++Exemple de reponse :
++
++```json
++{
++  "id": "42",
++  "email": "alice@example.com"
++}
++```
++
++Erreur :
++
++```json
++{
++  "error": {
++    "type": "ValidationError",
++    "message": "email is required",
++    "field": "email",
++    "code": "VALIDATION_FAILED"
++  }
++}
++```
++
++`web.RequestError` couvre les erreurs de binding et validation. Les erreurs de guard produites par `web.Unauthorized` et `web.Forbidden` utilisent la meme enveloppe. Une erreur generique non structuree retourne un `InternalServerError` avec le message public `internal server error`.
++
++Pour une erreur applicative personnalisee, utilisez soit un type qui expose les informations HTTP structurees attendues par Helix, soit un error handler centralise.
++
++## Error handlers
++
++Un error handler centralise transforme un type d'erreur applicatif en reponse HTTP.
++
++```go
++type APIErrorHandler struct {
++	helix.ErrorHandler
++}
++
++//helix:handles ValidationError
++func (h *APIErrorHandler) Validation(ctx web.Context, err error) error {
++	ctx.Status(400)
++	return ctx.JSON(web.ErrorResponse{
++		Error: web.ErrorDetail{
++			Type:    "ValidationError",
++			Message: err.Error(),
++			Code:    "VALIDATION_FAILED",
++		},
++	})
++}
++```
++
++Enregistrez le handler avant de servir les requetes :
++
++```go
++if err := web.RegisterErrorHandler(server, &APIErrorHandler{}); err != nil {
++	return err
++}
++```
++
++L'API publique a utiliser est `web.RegisterErrorHandler`.
++
++Contraintes :
++
++- la struct doit etre un pointeur non nil;
++- son nom doit finir par `ErrorHandler`;
++- elle doit embed `helix.ErrorHandler`;
++- chaque methode geree porte une seule directive `//helix:handles ValidationError`;
++- le type dans la directive doit etre un identifiant Go valide, par exemple `ValidationError` ou `NotFoundError`.
++
++`//helix:handles` n'est pas une directive de route. Elle est traitee par le registre d'error handlers.
++
++## Tests
++
++`web.HTTPServer` expose `ServeHTTP`, pratique pour tester sans ouvrir de port reseau.
++
++```go
++server := web.NewServer()
++if err := web.RegisterController(server, &UserController{Service: users}); err != nil {
++	t.Fatal(err)
++}
++
++req := httptest.NewRequest(http.MethodGet, "/users", nil)
++res, err := server.ServeHTTP(req)
++if err != nil {
++	t.Fatal(err)
++}
++defer res.Body.Close()
++
++if res.StatusCode != http.StatusOK {
++	t.Fatalf("status = %d", res.StatusCode)
++}
++```
++
++Bonnes pratiques :
++
++- gardez les tests de routes table-driven quand plusieurs cas partagent le meme setup;
++- testez les chemins d'erreur de binding, validation, guards et directives invalides;
++- verifiez les codes HTTP et les champs `error.type`, `error.code`, `error.field`;
++- n'importez pas Fiber dans les tests de controller utilisateur.
++
++## Erreurs frequentes
++
++- Importer `gofiber/fiber` dans un controller : utilisez `web.Context`.
++- Oublier `helix.Controller` ou le suffixe `Controller` : `web.RegisterController` rejettera la struct.
++- Ecrire `// helix:route` ou `//+helix:route` : la directive doit commencer par `//helix:route`.
++- Placer `//helix:guard` ou `//helix:interceptor` sur une methode non routable : ajoutez une convention reconnue ou `//helix:route`.
++- Referencer un guard ou interceptor non enregistre avant `web.RegisterController`.
++- Melanger `query` et `json` dans la meme struct de binding.
++- Promettre un `404` automatique pour `nil, nil` : retournez une erreur structuree ou utilisez un error handler.
+diff --git a/documentation_test.go b/documentation_test.go
+index 17eb63f..df7fb33 100644
+--- a/documentation_test.go
++++ b/documentation_test.go
+@@ -146,8 +146,75 @@ func TestDIAndConfigGuideDocumentsCoreConcepts(t *testing.T) {
+ 	}
+ }
+ 
++func TestHTTPLayerGuideDocumentsCoreConcepts(t *testing.T) {
++	const guidePath = "docs/http-layer.md"
++	if _, err := os.Stat(guidePath); err != nil {
++		t.Skipf("test requires %s — guide not found: %v", guidePath, err)
++	}
++	guide := readTextFile(t, guidePath)
++
++	required := []string{
++		"# Couche HTTP",
++		"## Sommaire",
++		"## Modele mental",
++		"## Routing par convention",
++		"`web.NewServer`",
++		"`web.RegisterController`",
++		"`helix.Controller`",
++		"`Index`",
++		"`Show`",
++		"`Create`",
++		"`Update`",
++		"`Delete`",
++		"`GET /users`",
++		"`GET /users/:id`",
++		"`POST /users`",
++		"`PUT /users/:id`",
++		"`DELETE /users/:id`",
++		"## Routes custom",
++		"`//helix:route GET /users/search`",
++		"`// helix:route`",
++		"`//+helix:route`",
++		"## Extracteurs types",
++		"`web.Context`",
++		"`query:\"page\"`",
++		"`json:\"email\"`",
++		"`validate:\"required,email\"`",
++		"`default:\"1\"`",
++		"`max:\"100\"`",
++		"## Guards",
++		"`//helix:guard authenticated`",
++		"`//helix:guard role:admin`",
++		"`web.RegisterGuard`",
++		"`web.RegisterGuardFactory`",
++		"`web.ApplyGlobalGuard`",
++		"`web.Unauthorized`",
++		"`web.Forbidden`",
++		"## Interceptors",
++		"`//helix:interceptor cache:5m`",
++		"`web.RegisterInterceptor`",
++		"`web.RegisterInterceptorFactory`",
++		"## Mapping des reponses",
++		"`201 Created`",
++		"`200 OK`",
++		"`web.RequestError`",
++		"## Error handlers",
++		"`helix.ErrorHandler`",
++		"`web.RegisterErrorHandler`",
++		"`//helix:handles ValidationError`",
++		"## Tests",
++		"`ServeHTTP`",
++		"## Erreurs frequentes",
++	}
++	for _, want := range required {
++		if !strings.Contains(guide, want) {
++			t.Fatalf("docs/http-layer.md should contain %q", want)
++		}
++	}
++}
++
+ func TestDocumentationLinksExist(t *testing.T) {
+-	for _, path := range []string{"README.md", filepath.Join("docs", "di-and-config.md")} {
++	for _, path := range []string{"README.md", filepath.Join("docs", "di-and-config.md"), filepath.Join("docs", "http-layer.md")} {
+ 		content := readTextFile(t, path)
+ 		for _, link := range markdownLinks(content) {
+ 			if isExternalLink(link) {

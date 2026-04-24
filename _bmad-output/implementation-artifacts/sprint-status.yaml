@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-23 - story 11.2 reviewed and fixed, status set to done
+last_updated: 2026-04-24 - story 11.3 ready for review
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-23 - story 11.2 reviewed and fixed, status set to done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-23 - story 11.2 en review
+last_updated: 2026-04-24 - story 11.3 review
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -153,7 +153,7 @@ development_status:
   epic-11: in-progress
   11-1-readme-enrichi-quick-start: done
   11-2-guide-di-container-configuration: done
-  11-3-guide-couche-http-routing-guards-extracteurs: backlog
+  11-3-guide-couche-http-routing-guards-extracteurs: done
   11-4-guide-data-layer-repository-pattern: backlog
   11-5-guide-securite-observabilite-scheduling: backlog
   epic-11-retrospective: optional
