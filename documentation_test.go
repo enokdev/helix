@@ -146,8 +146,63 @@ func TestDIAndConfigGuideDocumentsCoreConcepts(t *testing.T) {
 	}
 }
 
+func TestHTTPLayerGuideDocumentsCoreConcepts(t *testing.T) {
+	const guidePath = "docs/http-layer.md"
+	if _, err := os.Stat(guidePath); err != nil {
+		t.Skipf("test requires %s — guide not found: %v", guidePath, err)
+	}
+	guide := readTextFile(t, guidePath)
+
+	required := []string{
+		"# Couche HTTP",
+		"## Sommaire",
+		"## Modèle mental",
+		"## Routing par convention",
+		"`web.NewServer`",
+		"`web.RegisterController`",
+		"`helix.Controller`",
+		"`Index`",
+		"`Show`",
+		"`Create`",
+		"`Update`",
+		"`Delete`",
+		"func (c *UserController) Update(ctx web.Context, input UpdateUserInput) (*User, error)",
+		"func (c *UserController) Delete(ctx web.Context) error",
+		"`GET /users`",
+		"`GET /users/:id`",
+		"`POST /users`",
+		"`PUT /users/:id`",
+		"`DELETE /users/:id`",
+		"## Routes custom",
+		"`//helix:route GET /users/search`",
+		"## Extracteurs types",
+		"`web.Context`",
+		"`query:\"page\"`",
+		"`json:\"email\"`",
+		"`validate:\"required,email\"`",
+		"## Guards",
+		"`//helix:guard authenticated`",
+		"**Comportement en cas d'échec**",
+		"## Interceptors",
+		"`//helix:interceptor cache:5m`",
+		"## Mapping des réponses",
+		"**Cas (nil, nil)**",
+		"## Error handlers",
+		"`helix.ErrorHandler`",
+		"`//helix:handles ValidationError`",
+		"## Tests",
+		"`ServeHTTP`",
+		"## Erreurs fréquentes",
+	}
+	for _, want := range required {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("docs/http-layer.md should contain %q", want)
+		}
+	}
+}
+
 func TestDocumentationLinksExist(t *testing.T) {
-	for _, path := range []string{"README.md", filepath.Join("docs", "di-and-config.md")} {
+	for _, path := range []string{"README.md", filepath.Join("docs", "di-and-config.md"), filepath.Join("docs", "http-layer.md")} {
 		content := readTextFile(t, path)
 		for _, link := range markdownLinks(content) {
 			if isExternalLink(link) {
