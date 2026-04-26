@@ -9,6 +9,7 @@ import (
 	helixconfig "github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
 	"github.com/enokdev/helix/scheduler"
+	"github.com/enokdev/helix/starter/internal/gomodutil"
 	"github.com/enokdev/helix/starter/internal/starterutil"
 )
 
@@ -26,7 +27,12 @@ func New(cfg helixconfig.Loader) *Starter {
 
 // Condition reports whether the scheduling starter should be activated.
 func (s *Starter) Condition() bool {
-	data, err := os.ReadFile("go.mod")
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		return false
+	}
+
+	data, err := os.ReadFile(goModPath)
 	if err != nil || !bytes.Contains(data, []byte("robfig/cron")) {
 		return false
 	}

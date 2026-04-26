@@ -1,7 +1,6 @@
 
 ## Deferred from: code review of story-10-5 (2026-04-22)
 
-- [D-10.5-1] DSN passé en argv du subprocess `go run` — expose les credentials en clair dans la table des processus (`ps aux`, `/proc/<pid>/cmdline`). Actuellement sans conséquence (SQLite = chemin de fichier sans credentials) mais constitue un risque dès qu'un driver non-SQLite est ajouté. Atténuation future : passer le DSN via variable d'environnement ou stdin du subprocess. [cli/internal/migrate/migrate.go:runMigration]
 - [D-10.5-2] Migrations concurrentes non sérialisées — deux appels simultanés `helix db migrate up` peuvent tous deux passer le snapshot `appliedMigrations` et exécuter le même SQL. SQLite DDL est transactionnel donc l'état final reste cohérent, mais ce comportement est une hypothèse implicite non documentée et cassera sur toute DB dont DDL n'est pas transactionnel. [cli/internal/migrate/migrate.go:Up]
 - [D-10.5-3] `CGO_ENABLED=0` casse le subprocess silencieusement — `go-sqlite3` nécessite CGo ; si l'environnement désactive CGo, le subprocess échoue avec une erreur de compilation sans contexte actionnable pour l'utilisateur. Mitigation future : pre-flight check `CGO_ENABLED` ou doc explicite. [cli/internal/migrate/migrate.go:runMigration]
 - [D-10.5-4] Imports du projet hôte impossibles dans les fichiers de migration — le runner est un module isolé (`helix-migration-runner`) qui ne connaît pas le module hôte. Un développeur qui ajoute un import de son projet dans sa migration obtient une erreur de compilation cryptique. Mitigation future : documenter la contrainte dans les commentaires du template générée ou proposer un mécanisme `replace` dans le runner go.mod. [cli/internal/migrate/migrate.go:runMigration]
@@ -105,7 +104,6 @@
 
 - Dépendance cyclique → récursion infinie / goroutine stack overflow (`ErrCyclicDep` jamais retourné) — detectable via visited-set ; implémentation Story 1.4. [core/reflect_resolver.go]
 - `ScopePrototype` retourne toujours le même pointeur enregistré (pas de `reflect.New`) — comportement silencieusement incorrect ; implémentation Story 1.5. [core/reflect_resolver.go:100]
-- Aucune synchronisation (mutex absent) — data race sur les maps `registrations`, `singletons`, `graph.Edges` en accès concurrent — à traiter quand les exigences de concurrence seront définies. [core/reflect_resolver.go]
 - `float32`/`float64`/`uint*` non supportés dans `convertScalarValue` depuis des sources string — au-delà du minimum spécifié (int, string, bool) ; à étendre lors d'une story config/value. [core/reflect_resolver.go:233]
 - Champs de structs embarquées (anonymous) non injectés par `injectFields` — fonctionnalité non requise dans la spec 1.3. [core/reflect_resolver.go:121]
 - Le graphe de dépendances est alimenté mais jamais consulté pour la détection de cycles — normal pour 1.3, consultable dès Story 1.4. [core/reflect_resolver.go]
@@ -122,7 +120,6 @@
 
 - `DependencyGraph.Edges` nil map — un consumer qui écrit dans la map retournée par `Graph()` panique ; surfacera lors de l'implémentation de `Graph()` en Story 1.3. [core/resolver.go]
 - `CyclicDepError` avec `Path` nil ou vide — `Error()` retourne un message tronqué `"helix: cyclic dependency: "` ; à corriger quand `CyclicDepError` sera effectivement émise (Story 1.4+). [core/errors.go]
-- Absence de synchronisation sur `Container` — data race potentielle sur `c.resolver` en accès concurrent ; à traiter quand les exigences de concurrence seront définies. [core/container.go]
 
 ## Deferred from: code review of 1-7-point-dentree-helix-run-marqueurs-de-composants (2026-04-16)
 
@@ -204,7 +201,6 @@
 - [observability/actuator.go:29,40] Contexte de requete abandonne dans les handlers health/info : `context.Background()` utilise au lieu du contexte HTTP entrant. Si un indicateur fait de l'I/O, les annulations et timeouts client sont ignores. A adresser quand `web.Context` exposera le contexte de requete.
 - [core/reflect_resolver.go:143] resolveAllAssignable rejette les types struct concrets (Kind != Interface|Ptr), rendant `ResolveAll[SomeStruct]` inutilisable. Ergonomie API a revoir dans une future iteration de core.
 - [core/reflect_resolver.go:150] AssignableTo manque les impls a pointer-receiver pour types enregistres en valeur — composants silencieusement exclus. Lié à la conception generale du registre ReflectResolver.
-- [core/reflect_resolver.go] Race condition potentielle sur `r.singletons` lors de resolutions concurrentes — pre-existante, non liee a cette story.
 - [observability/actuator.go:28-44] Registration en deux etapes sans rollback : si la route info echoue apres health, le serveur est dans un etat inconsistant. HTTPServer n'expose pas de deregistration.
 
 ## Deferred from: code review of story-6-2 (2026-04-19)
@@ -252,7 +248,6 @@
 ## Deferred from: code review of 8-3-helix-securityconfigurer-regles-globales (2026-04-21)
 
 - **W1 — JWTServicer custom ignoré** : `applySecurityConfigurer` résout `*security.JWTService` (type concret). Toute implémentation custom de `JWTServicer` est invisible. Nécessite une méthode `ResolveByInterface` dans `core.Container`.
-- **W2 — Bypass par chemins URL-encodés** : `matchesPattern` compare des strings brutes sans décodage URL. Si Fiber ne normalise pas les chemins avant de les exposer via `ctx.Path()`, les chemins encodés contournent les règles. À vérifier par test d'intégration.
 - **W3 — Chaîner Authenticated + HasRole sur le même pattern impossible** : la sémantique first-match interdit la composition de guards sur le même pattern. Envisager une méthode `HasRoleAuthenticated()` ou une API de chaînage.
 - **W4 — SecurityConfigurer via container.Register() non détecté** : l'itération sur `app.Components` ne voit pas les composants enregistrés directement dans le container. Fonctionne tel que spécifié pour l'instant.
 - **W5 — `*` matche un segment vide (double-slash)** : `strings.Split(strings.Trim("/api//users", "/"), "/")` produit `["api", "", "users"]`, le segment vide passe le `*`. Normaliser les chemins avant le matching.

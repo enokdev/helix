@@ -10,6 +10,7 @@ import (
 	helixconfig "github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
 	datagorm "github.com/enokdev/helix/data/gorm"
+	"github.com/enokdev/helix/starter/internal/gomodutil"
 )
 
 const (
@@ -47,7 +48,12 @@ func New(cfg helixconfig.Loader, opts ...Option) *Starter {
 
 // Condition reports whether the data starter should be activated.
 func (s *Starter) Condition() bool {
-	goMod, err := os.ReadFile("go.mod")
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		return false
+	}
+
+	goMod, err := os.ReadFile(goModPath)
 	if err != nil || !bytes.Contains(goMod, []byte("gorm.io/driver/sqlite")) {
 		return false
 	}

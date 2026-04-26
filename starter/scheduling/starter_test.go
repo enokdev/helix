@@ -128,6 +128,36 @@ func TestConditionMissingGoMod(t *testing.T) {
 	}
 }
 
+func TestConditionWalkUpDetectsGoMod(t *testing.T) {
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte(goModWithCron()), 0644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	subDir := filepath.Join(tmpDir, "subdir", "nested")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.Chdir(subDir); err != nil {
+		t.Fatalf("chdir to subdir: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = os.Chdir(oldDir)
+	})
+
+	if got := New(nil).Condition(); !got {
+		t.Fatal("Condition() = false with go.mod in parent, want true")
+	}
+}
+
 func TestConditionOverrideFalseDisablesWhenCronPresent(t *testing.T) {
 	chdirWithGoMod(t, goModWithCron())
 
