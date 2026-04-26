@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-26 - story 13.3 in-progress
+last_updated: 2026-04-26 - story 13.4 in-progress
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-26 - story 13.3 in-progress
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-26 - story 13.2 done
+last_updated: 2026-04-26 - story 13.4 in-progress
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -172,8 +172,8 @@ development_status:
   epic-13: in-progress
   13-1-securite-dsn-credentials-bypass-url: done
   13-2-thread-safety-container-di-resolver: done
-  13-3-robustesse-starters-detection-gomod-walkup: review
-  13-4-compatibilite-binaires-deployes-suppression-ast-runtime: backlog
+  13-3-robustesse-starters-detection-gomod-walkup: done
+  13-4-compatibilite-binaires-deployes-suppression-ast-runtime: in-progress
   13-5-cache-interceptor-production-grade: backlog
   13-6-qualite-ux-developpeur-validation-routing-erreurs: backlog
   epic-13-retrospective: optional

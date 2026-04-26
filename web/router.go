@@ -5,12 +5,15 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"runtime"
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/enokdev/helix/web/internal"
 )
 
 const controllerMarkerPkgPath = "github.com/enokdev/helix"
@@ -83,9 +86,18 @@ func RegisterController(server HTTPServer, controller any) error {
 		return err
 	}
 
-	directives, err := controllerRouteDirectives(controllerValue.Type(), controllerType.Name())
-	if err != nil {
-		return err
+	// First, try to get directives from the generated registry
+	directives, hasGenerated := tryGetGeneratedRoutes(controllerType.Name())
+	if !hasGenerated {
+		// Fall back to AST parsing if no generated routes are found
+		var err error
+		directives, err = controllerRouteDirectives(controllerValue.Type(), controllerType.Name())
+		if err != nil {
+			return err
+		}
+		if len(directives) > 0 {
+			slog.Debug("using AST-parsed routes (no generated registry found)", "controller", controllerType.Name())
+		}
 	}
 
 	// First pass: validate all handler signatures and route definitions before
@@ -242,6 +254,45 @@ func composeHandler(guards []Guard, interceptors []Interceptor, handler HandlerF
 		}
 		return wrapped(ctx)
 	}
+}
+
+// tryGetGeneratedRoutes checks the registry for pre-generated routes for a controller.
+// If routes are found in the registry, they are returned. Otherwise, returns nil to
+// signal that AST parsing fallback should be used.
+func tryGetGeneratedRoutes(controllerName string) (map[string]methodDirectives, bool) {
+	registry := internal.GlobalRouteRegistry()
+	if !registry.HasGeneratedRoutes(controllerName) {
+		return nil, false
+	}
+
+	routes, ok := registry.GetRoutesForController(controllerName)
+	if !ok || len(routes) == 0 {
+		return nil, false
+	}
+
+	// Convert registry RouteInfo entries into methodDirectives format
+	directives := make(map[string]methodDirectives)
+	for _, route := range routes {
+		methodName := route.HandlerName
+
+		if _, exists := directives[methodName]; !exists {
+			directives[methodName] = methodDirectives{
+				routes:       []routeDirective{},
+				guards:       []namedDirective{},
+				interceptors: []namedDirective{},
+			}
+		}
+
+		existing := directives[methodName]
+		existing.routes = append(existing.routes, routeDirective{
+			method: route.Method,
+			path:   route.Path,
+		})
+		directives[methodName] = existing
+	}
+
+	slog.Debug("using generated routes from registry", "controller", controllerName, "count", len(routes))
+	return directives, true
 }
 
 func controllerRouteDirectives(controllerMethodType reflect.Type, controllerName string) (map[string]methodDirectives, error) {
