@@ -635,3 +635,15 @@ func isNilReflectValue(value reflect.Value) bool {
 		return false
 	}
 }
+
+// GlobalRouteRegistry returns the global route registry for accessing pre-generated routes.
+// This is primarily used for testing and accessing generated route metadata.
+func GlobalRouteRegistry() *internal.RouteRegistry {
+return internal.GlobalRouteRegistry()
+}
+
+// GlobalErrorHandlerRegistry returns the global error handler registry for accessing pre-generated handlers.
+// This is primarily used for testing and accessing generated handler metadata.
+func GlobalErrorHandlerRegistry() *internal.ErrorHandlerRegistry {
+return internal.GlobalErrorHandlerRegistry()
+}
