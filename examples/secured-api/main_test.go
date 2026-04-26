@@ -82,7 +82,7 @@ func TestLoginSuccess(t *testing.T) {
 		t.Fatalf("newJWTService() error = %v", err)
 	}
 
-	server, err := newServer(jwtSvc)
+	server, err := newServer(jwtSvc, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestLoginInvalidCredentials(t *testing.T) {
 		t.Fatalf("newJWTService() error = %v", err)
 	}
 
-	server, err := newServer(jwtSvc)
+	server, err := newServer(jwtSvc, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
@@ -148,7 +148,7 @@ func TestProtectedEndpointWithoutToken(t *testing.T) {
 		t.Fatalf("newJWTService() error = %v", err)
 	}
 
-	server, err := newServer(jwtSvc)
+	server, err := newServer(jwtSvc, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
@@ -158,6 +158,12 @@ func TestProtectedEndpointWithoutToken(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("GET /api/profile without token status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
 	}
+
+	// Test accessing /admin/users without token
+	respAdmin := serve(t, server, http.MethodGet, "/admin/users", nil)
+	if respAdmin.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /admin/users without token status = %d, want %d", respAdmin.StatusCode, http.StatusUnauthorized)
+	}
 }
 
 func TestProtectedEndpointWithValidToken(t *testing.T) {
@@ -166,7 +172,7 @@ func TestProtectedEndpointWithValidToken(t *testing.T) {
 		t.Fatalf("newJWTService() error = %v", err)
 	}
 
-	server, err := newServer(jwtSvc)
+	server, err := newServer(jwtSvc, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
@@ -202,7 +208,7 @@ func TestAdminEndpointWithUserRole(t *testing.T) {
 		t.Fatalf("newJWTService() error = %v", err)
 	}
 
-	server, err := newServer(jwtSvc)
+	server, err := newServer(jwtSvc, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}
@@ -229,7 +235,7 @@ func TestAdminEndpointWithAdminRole(t *testing.T) {
 		t.Fatalf("newJWTService() error = %v", err)
 	}
 
-	server, err := newServer(jwtSvc)
+	server, err := newServer(jwtSvc, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("newServer() error = %v", err)
 	}

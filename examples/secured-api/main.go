@@ -86,10 +86,12 @@ type AuthService struct {
 	JWTSvc   *security.JWTService `inject:"true"`
 	accounts map[string]DemoAccount
 	mu       sync.Mutex
+	expiry   time.Duration
 }
 
-func NewAuthService() *AuthService {
+func NewAuthService(expiry time.Duration) *AuthService {
 	return &AuthService{
+		expiry: expiry,
 		accounts: map[string]DemoAccount{
 			"user": {
 				Username: "user",
@@ -201,7 +203,10 @@ func (c *APIController) Profile(ctx web.Context) (AccountInfo, error) {
 		return AccountInfo{}, internalError("invalid roles in token")
 	}
 
-	role, _ := roles[0].(string)
+	role, ok := roles[0].(string)
+	if !ok {
+		return AccountInfo{}, internalError("invalid role type in token")
+	}
 
 	return AccountInfo{
 		Username: username,
@@ -280,11 +285,11 @@ func loadConfig() (appConfig, error) {
 	return cfg, nil
 }
 
-func newServer(jwtSvc *security.JWTService) (web.HTTPServer, error) {
+func newServer(jwtSvc *security.JWTService, expiry time.Duration) (web.HTTPServer, error) {
 	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
 	for _, component := range []any{
 		jwtSvc,
-		NewAuthService(),
+		NewAuthService(expiry),
 		&AuthController{},
 		&APIController{},
 		&AdminController{},
@@ -357,7 +362,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server, err := newServer(jwtSvc)
+	server, err := newServer(jwtSvc, cfg.Security.JWT.Expiry)
 	if err != nil {
 		log.Fatal(err)
 	}

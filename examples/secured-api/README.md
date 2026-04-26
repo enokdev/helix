@@ -67,7 +67,12 @@ Content-Type: application/json
 **Error Response (401 Unauthorized):**
 ```json
 {
-  "error": "invalid credentials"
+  "error": {
+    "type": "Unauthorized",
+    "code": "UNAUTHORIZED",
+    "message": "no valid token provided",
+    "field": ""
+  }
 }
 ```
 
