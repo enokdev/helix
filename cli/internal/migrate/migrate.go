@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	migrationDir  = "db/migrations"
-	timestampForm = "20060102150405"
+	migrationDir    = "db/migrations"
+	migrationDSNEnv = "HELIX_MIGRATION_DSN"
+	timestampForm   = "20060102150405"
 )
 
 var (
@@ -448,9 +449,9 @@ func runMigration(ctx context.Context, root string, target databaseTarget, actio
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "go", "run", "-tags", "helixmigration", ".", action, target.Driver, target.DSN, m.Version, m.Name)
+	cmd := exec.CommandContext(ctx, "go", "run", "-tags", "helixmigration", ".", action, target.Driver, m.Version, m.Name)
 	cmd.Dir = tempDir
-	cmd.Env = append(filterEnv("GOFLAGS", "GOWORK"), "GOWORK=off", "GOFLAGS=-mod=mod")
+	cmd.Env = append(filterEnv("GOFLAGS", "GOWORK", migrationDSNEnv), "GOWORK=off", "GOFLAGS=-mod=mod", migrationDSNEnv+"="+target.DSN)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("run migration %s from %s: %w\n%s", action, filepath.ToSlash(m.Path), err, strings.TrimSpace(string(output)))
@@ -504,10 +505,14 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 6 {
-		fail(fmt.Errorf("usage: runner <up|down> <driver> <dsn> <version> <name>"))
+	if len(os.Args) != 5 {
+		fail(fmt.Errorf("usage: runner <up|down> <driver> <version> <name>"))
 	}
-	action, driver, dsn, version, name := os.Args[1], os.Args[2], os.Args[3], os.Args[4], os.Args[5]
+	action, driver, version, name := os.Args[1], os.Args[2], os.Args[3], os.Args[4]
+	dsn := os.Getenv("HELIX_MIGRATION_DSN")
+	if dsn == "" {
+		fail(fmt.Errorf("missing migration DSN"))
+	}
 	ctx := context.Background()
 	db, err := sql.Open(driver, dsn)
 	if err != nil {

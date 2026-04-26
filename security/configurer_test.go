@@ -73,6 +73,12 @@ func TestMatchesPattern(t *testing.T) {
 		{"/api/**/health", "/api/v1/v2/health", true},
 		{"/api/**/health", "/api/health", true},
 		{"/api/**/health", "/api/v1/other", false},
+		// URL-encoded paths are normalized before matching security rules.
+		{"/api/**", "/api%2Fusers", true},
+		{"/admin/**", "/adm%69n/secret", true},
+		{"/api/*", "/api%2Fusers", true},
+		{"/api/**", "/public%2Fusers", false},
+		{"/api/**", "/api%2Gusers", false},
 	}
 
 	for _, tc := range tests {
@@ -82,6 +88,17 @@ func TestMatchesPattern(t *testing.T) {
 				t.Errorf("expected %v but got %v", tc.expected, result)
 			}
 		})
+	}
+}
+
+func TestHTTPSecurity_Authenticated_BlocksEncodedPath(t *testing.T) {
+	hs := NewHTTPSecurity(nil)
+	hs.Route("/api/**").Authenticated()
+	guard := hs.Build()
+
+	ctx := &fakeContext{path: "/api%2Fusers", locals: map[string]any{}}
+	if err := guard.CanActivate(ctx); err == nil {
+		t.Fatal("expected encoded /api path to match protected rule and be denied")
 	}
 }
 

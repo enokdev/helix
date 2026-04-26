@@ -201,6 +201,27 @@ func TestStatusRejectsDuplicateMigrationVersions(t *testing.T) {
 	}
 }
 
+func TestRunnerSourceReadsDSNFromEnvironment(t *testing.T) {
+	source := runnerSource()
+
+	for _, forbidden := range []string{
+		"<dsn>",
+		"dsn := os.Args",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("runnerSource() must not read DSN from argv; found %q in:\n%s", forbidden, source)
+		}
+	}
+	for _, want := range []string{
+		`os.Getenv("` + migrationDSNEnv + `")`,
+		"missing migration DSN",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runnerSource() missing %q in:\n%s", want, source)
+		}
+	}
+}
+
 func newProjectFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

@@ -1,6 +1,7 @@
 package security
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/enokdev/helix/web"
@@ -116,6 +117,8 @@ func (b *RouteSecurityBuilder) HasRole(roles ...string) *HTTPSecurity {
 
 // matchesPattern matches a path against a pattern supporting * and **.
 func matchesPattern(pattern, path string) bool {
+	pattern = normalizeSecurityPath(pattern)
+	path = normalizeSecurityPath(path)
 	if pattern == "/" {
 		return path == "/" || path == ""
 	}
@@ -124,6 +127,14 @@ func matchesPattern(pattern, path string) bool {
 	pathSegments := strings.Split(strings.Trim(path, "/"), "/")
 
 	return matchSegments(patternSegments, pathSegments)
+}
+
+func normalizeSecurityPath(value string) string {
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		return value
+	}
+	return decoded
 }
 
 func matchSegments(pattern, path []string) bool {
