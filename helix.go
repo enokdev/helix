@@ -46,6 +46,9 @@ const (
 var (
 	wireSetupMu sync.Mutex
 	wireSetupFn func(*core.Container) error
+
+	webSetupMu sync.Mutex
+	webSetupFn func() error
 )
 
 // App describes the application bootstrap configuration used by Run.
@@ -98,6 +101,13 @@ func RegisterWireSetup(fn func(*core.Container) error) {
 	wireSetupFn = fn
 }
 
+// RegisterWebSetup stores the bootstrap function emitted by generated web route and handler registrations.
+func RegisterWebSetup(fn func() error) {
+	webSetupMu.Lock()
+	defer webSetupMu.Unlock()
+	webSetupFn = fn
+}
+
 // Run builds the default reflection-based container, registers application
 // components, starts lifecycle hooks, waits for shutdown, and stops cleanly.
 func Run(app App) error {
@@ -135,6 +145,16 @@ func Run(app App) error {
 
 	if err := applySecurityConfigurer(app, container); err != nil {
 		return err
+	}
+
+	// Call generated web setup function if registered (registers pre-scanned routes and handlers)
+	webSetupMu.Lock()
+	webSetup := webSetupFn
+	webSetupMu.Unlock()
+	if webSetup != nil {
+		if err := webSetup(); err != nil {
+			return fmt.Errorf("helix: web setup: %w", err)
+		}
 	}
 
 	if err := container.Start(); err != nil {
