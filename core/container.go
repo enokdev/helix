@@ -12,7 +12,8 @@ import (
 // It delegates all registration and resolution to a pluggable Resolver.
 // Use NewContainer with WithResolver to configure a concrete resolver.
 type Container struct {
-	mu              sync.Mutex
+	mu              sync.RWMutex
+	resolverMu      sync.RWMutex
 	resolver        Resolver
 	valueLookup     func(key string) (any, bool)
 	logger          *slog.Logger
@@ -23,6 +24,9 @@ type Container struct {
 // Register adds a component to the container's resolver registry.
 // Returns ErrUnresolvable if no Resolver has been configured or component is nil.
 func (c *Container) Register(component any) error {
+	c.resolverMu.Lock()
+	defer c.resolverMu.Unlock()
+
 	if component == nil {
 		return fmt.Errorf("core: register: %w", ErrUnresolvable)
 	}
@@ -35,6 +39,9 @@ func (c *Container) Register(component any) error {
 // Resolve populates target with the registered component matching its type.
 // Returns ErrUnresolvable if no Resolver has been configured or target is nil.
 func (c *Container) Resolve(target any) error {
+	c.resolverMu.RLock()
+	defer c.resolverMu.RUnlock()
+
 	if target == nil {
 		return fmt.Errorf("core: resolve: %w", ErrUnresolvable)
 	}
@@ -64,7 +71,11 @@ func (c *Container) Start() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.resolver == nil {
+	c.resolverMu.RLock()
+	resolver := c.resolver
+	c.resolverMu.RUnlock()
+
+	if resolver == nil {
 		return fmt.Errorf("core: start: %w", ErrUnresolvable)
 	}
 	if c.lifecycle.hasStarted {

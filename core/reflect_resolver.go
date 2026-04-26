@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"sync"
 )
 
 // Compile-time check that ReflectResolver satisfies the Resolver interface.
@@ -15,6 +16,7 @@ var _ LifecycleResolver = (*ReflectResolver)(nil)
 // ReflectResolver resolves dependencies using Go reflection at runtime.
 // It is the default Helix resolver mode and stores singleton instances by type.
 type ReflectResolver struct {
+	mu                sync.RWMutex
 	registrations     map[reflect.Type]ComponentRegistration
 	registrationOrder []reflect.Type
 	singletons        map[reflect.Type]reflect.Value
@@ -42,6 +44,9 @@ func NewReflectResolver() *ReflectResolver {
 }
 
 func (r *ReflectResolver) setValueLookup(lookup func(key string) (any, bool)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.valueLookup = lookup
 }
 
@@ -51,6 +56,9 @@ func (r *ReflectResolver) Register(component any) error {
 	if err != nil {
 		return fmt.Errorf("core: register %T: %w", component, err)
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	_, exists := r.registrations[componentType]
 	r.registrations[componentType] = registration
@@ -74,6 +82,26 @@ func (r *ReflectResolver) Resolve(target any) error {
 	}
 
 	requestedType := targetValue.Elem().Type()
+
+	// Fast path: RLock for cached singletons.
+	r.mu.RLock()
+	if val, ok := r.singletons[requestedType]; ok {
+		targetValue.Elem().Set(val)
+		r.mu.RUnlock()
+		return nil
+	}
+	r.mu.RUnlock()
+
+	// Slow path: Lock for materialization.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Double check after acquiring write lock.
+	if val, ok := r.singletons[requestedType]; ok {
+		targetValue.Elem().Set(val)
+		return nil
+	}
+
 	resolvedValue, err := r.resolveByType(requestedType)
 	if err != nil {
 		return fmt.Errorf("core: resolve %s: %w", requestedType, err)
@@ -85,6 +113,9 @@ func (r *ReflectResolver) Resolve(target any) error {
 
 // Graph returns a defensive copy of the current dependency graph.
 func (r *ReflectResolver) Graph() DependencyGraph {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	graph := DependencyGraph{
 		Nodes: append([]string(nil), r.graph.Nodes...),
 		Edges: make(map[string][]string, len(r.graph.Edges)),
@@ -99,6 +130,9 @@ func (r *ReflectResolver) Graph() DependencyGraph {
 // Lifecycle, in registration order. Uses reflect.Type as the seen-set key to
 // prevent collisions between types that share a short string representation.
 func (r *ReflectResolver) LifecycleCandidates() ([]LifecycleCandidate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	seen := make(map[reflect.Type]struct{}, len(r.registrationOrder))
 	var candidates []LifecycleCandidate
 
@@ -138,24 +172,32 @@ func (r *ReflectResolver) resolveByType(requestedType reflect.Type) (reflect.Val
 	state := newResolutionState()
 	return r.resolveByTypeWithState(requestedType, state)
 }
-
 func (r *ReflectResolver) resolveAllAssignable(targetType reflect.Type) ([]reflect.Value, error) {
 	if targetType == nil || (targetType.Kind() != reflect.Interface && targetType.Kind() != reflect.Ptr) {
 		return nil, ErrUnresolvable
 	}
 
+	r.mu.RLock()
+	order := append([]reflect.Type(nil), r.registrationOrder...)
+	r.mu.RUnlock()
+
 	values := make([]reflect.Value, 0)
-	for _, registrationType := range r.registrationOrder {
+	for _, registrationType := range order {
 		if !registrationType.AssignableTo(targetType) {
 			continue
 		}
+
+		r.mu.Lock()
 		registration := r.registrations[registrationType]
-		value, err := r.resolveRegistration(registrationType, registration, newResolutionState())
+		val, err := r.resolveRegistration(registrationType, registration, newResolutionState())
+		r.mu.Unlock()
+
 		if err != nil {
-			return nil, fmt.Errorf("core: resolve assignable %s: %w", registrationType, err)
+			return nil, fmt.Errorf("core: resolve all %s: %w", targetType, err)
 		}
-		values = append(values, value)
+		values = append(values, val)
 	}
+
 	return values, nil
 }
 
@@ -233,7 +275,11 @@ func (r *ReflectResolver) injectFields(ownerType reflect.Type, instance reflect.
 				return fmt.Errorf("core: resolve %s field %s: %w", ownerType, fieldType.Name, ErrUnresolvable)
 			}
 
+			// Release lock during external callback to prevent deadlocks.
+			r.mu.Unlock()
 			rawValue, ok := r.valueLookup(valueKey)
+			r.mu.Lock()
+
 			if !ok {
 				return fmt.Errorf("core: resolve %s field %s value %q: %w", ownerType, fieldType.Name, valueKey, ErrNotFound)
 			}

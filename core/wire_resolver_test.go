@@ -113,3 +113,32 @@ func TestWireResolver_Graph(t *testing.T) {
 		}
 	}
 }
+
+func TestWireResolverConcurrentAccessDoesNotRace(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewWireResolver()
+	service := &wireResolverService{Repository: &wireResolverRepository{}}
+	lifecycle := &wireResolverLifecycle{}
+	if err := resolver.Register(service); err != nil {
+		t.Fatalf("Register(service) error = %v", err)
+	}
+	if err := resolver.Register(lifecycle); err != nil {
+		t.Fatalf("Register(lifecycle) error = %v", err)
+	}
+
+	runConcurrently(t, 32, func() {
+		var resolved *wireResolverService
+		if err := resolver.Resolve(&resolved); err != nil {
+			t.Errorf("Resolve() error = %v", err)
+			return
+		}
+		if resolved != service {
+			t.Errorf("resolved instance = %p, want %p", resolved, service)
+		}
+		if _, err := resolver.LifecycleCandidates(); err != nil {
+			t.Errorf("LifecycleCandidates() error = %v", err)
+		}
+		_ = resolver.Graph()
+	})
+}
