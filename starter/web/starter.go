@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ func New(cfg helixconfig.Loader) *Starter {
 func (s *Starter) Condition() bool {
 	goModPath, err := gomodutil.FindGoModPath()
 	if err != nil {
+		slog.Debug("web starter: go.mod not found", "error", err)
 		return false
 	}
 

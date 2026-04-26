@@ -3,6 +3,7 @@ package scheduling
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -29,6 +30,7 @@ func New(cfg helixconfig.Loader) *Starter {
 func (s *Starter) Condition() bool {
 	goModPath, err := gomodutil.FindGoModPath()
 	if err != nil {
+		slog.Debug("scheduling starter: go.mod not found", "error", err)
 		return false
 	}
 

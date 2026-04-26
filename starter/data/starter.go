@@ -3,6 +3,7 @@ package data
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -50,6 +51,7 @@ func New(cfg helixconfig.Loader, opts ...Option) *Starter {
 func (s *Starter) Condition() bool {
 	goModPath, err := gomodutil.FindGoModPath()
 	if err != nil {
+		slog.Debug("data starter: go.mod not found", "error", err)
 		return false
 	}
 
