@@ -143,6 +143,10 @@ func Run(app App) error {
 		return err
 	}
 
+	if err := autoRegisterControllers(container, app.Components); err != nil {
+		return err
+	}
+
 	if err := applySecurityConfigurer(app, container); err != nil {
 		return err
 	}
@@ -294,6 +298,38 @@ func isMarkerType(fieldType reflect.Type) bool {
 	return ok
 }
 
+func hasControllerMarker(component any) bool {
+	if component == nil {
+		return false
+	}
+
+	value := reflect.ValueOf(component)
+	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+		return false
+	}
+
+	componentType := value.Elem().Type()
+	if componentType.Kind() != reflect.Struct {
+		return false
+	}
+
+	controllerType := reflect.TypeOf(Controller{})
+	for i := 0; i < componentType.NumField(); i++ {
+		field := componentType.Field(i)
+		if !field.Anonymous {
+			continue
+		}
+		ft := field.Type
+		if ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+		if ft == controllerType {
+			return true
+		}
+	}
+	return false
+}
+
 func awaitSignal() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -338,5 +374,56 @@ func applySecurityConfigurer(app App, container *core.Container) error {
 		return fmt.Errorf("helix: apply security configurer: %w", err)
 	}
 
+	return nil
+}
+
+// autoRegisterControllers discovers all controller components in the provided
+// list and registers them with the HTTP server. It is called after
+// registerAppComponents so that user-defined controllers are already in the
+// container before registration takes place.
+//
+// If any controller uses a //helix:guard role directive, the "role" guard
+// factory (security.NewRoleGuardFactory) is registered automatically before
+// the controller routes are set up — idempotently, so a pre-registered factory
+// is silently left in place.
+func autoRegisterControllers(container *core.Container, components []any) error {
+	if len(components) == 0 {
+		return nil
+	}
+
+	var server web.HTTPServer
+	if err := container.Resolve(&server); err != nil {
+		// No HTTP server in the container — nothing to register.
+		return nil
+	}
+
+	roleFactoryRegistered := false
+
+	for _, component := range components {
+		reg, isRegistration := component.(core.ComponentRegistration)
+		var target any
+		if isRegistration {
+			target = reg.Component
+		} else {
+			target = component
+		}
+
+		if !hasControllerMarker(target) {
+			continue
+		}
+
+		// Auto-register the "role" guard factory once, before registering the
+		// first controller that might need it. The error is ignored because the
+		// factory may already have been registered manually by the application.
+		if !roleFactoryRegistered {
+			_ = web.RegisterGuardFactory(server, "role", security.NewRoleGuardFactory())
+			roleFactoryRegistered = true
+		}
+
+		controllerName := fmt.Sprintf("%T", target)
+		if err := web.RegisterController(server, target); err != nil {
+			return fmt.Errorf("helix: auto-register controller %s: %w", controllerName, err)
+		}
+	}
 	return nil
 }

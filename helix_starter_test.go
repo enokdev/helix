@@ -21,8 +21,9 @@ type providerStarter struct {
 }
 
 func (p *providerStarter) Condition() bool { return p.active }
-func (p *providerStarter) Configure(c *core.Container) {
+func (p *providerStarter) Configure(c *core.Container) error {
 	_ = c.Register(p.dep)
+	return nil
 }
 
 // --- integration tests -------------------------------------------------------
