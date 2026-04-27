@@ -198,6 +198,10 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 }
 
 func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
+	ct := ctx.Header("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
+	}
 	body := bytes.TrimSpace(ctx.Body())
 	if len(body) == 0 {
 		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body is required")

@@ -182,7 +182,12 @@ func (tc *testContext) OriginalURL() string         { return "/test" }
 func (tc *testContext) Body() []byte                { return tc.body }
 func (tc *testContext) Query(string) string         { return "" }
 func (tc *testContext) Param(string) string         { return "" }
-func (tc *testContext) Header(string) string        { return "" }
+func (tc *testContext) Header(key string) string {
+	if key == "Content-Type" {
+		return "application/json"
+	}
+	return ""
+}
 func (tc *testContext) IP() string                  { return "127.0.0.1" }
 func (tc *testContext) Status(int)                  {}
 func (tc *testContext) SetHeader(string, string)    {}

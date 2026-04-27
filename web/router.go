@@ -737,7 +737,14 @@ func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc
 		if !returnPlan.hasPayload {
 			return nil
 		}
-		return writeSuccessResponse(ctx, httpMethod, results[0].Interface())
+		payload := results[0].Interface()
+		if errVal, ok := payload.(error); ok && errVal != nil {
+			slog.Default().With("namespace", "web").Error("error value in payload slot",
+				"error", errVal,
+			)
+			return writeErrorResponse(ctx, errVal)
+		}
+		return writeSuccessResponse(ctx, httpMethod, payload)
 	}, nil
 }
 

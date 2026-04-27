@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"sort"
@@ -109,7 +110,20 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 			}
 		}
 
-		handlerErr := handler(observed)
+		var handlerErr error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Default().With("namespace", "web").Error("handler panic recovered",
+						"method", normalizedMethod,
+						"path", routePath,
+						"panic", fmt.Sprintf("%v", r),
+					)
+					handlerErr = writeErrorResponse(observed, fmt.Errorf("handler panic"))
+				}
+			}()
+			handlerErr = handler(observed)
+		}()
 		if handlerErr != nil {
 			if handled, handleErr := s.writeRegisteredError(observed, handlerErr); handled {
 				handlerErr = handleErr
