@@ -79,15 +79,15 @@ func TestBindingMultipleValidationErrors(t *testing.T) {
 
 			// Check response body structure
 			respBody := reqErr.ResponseBody()
-			
+
 			if tt.isMultiError {
 				// Multi-field errors use ValidationErrorResponse
 				errResp, ok := respBody.(ValidationErrorResponse)
 				require.True(t, ok, "response body should be ValidationErrorResponse for multi-field errors")
-				
+
 				// Check error count
 				assert.Equal(t, tt.expectedCount, len(errResp.Errors), "should return all validation errors")
-				
+
 				// Check that all expected fields are present
 				errFields := make(map[string]bool)
 				for _, e := range errResp.Errors {
@@ -100,7 +100,7 @@ func TestBindingMultipleValidationErrors(t *testing.T) {
 				// Single error uses ErrorResponse
 				errResp, ok := respBody.(ErrorResponse)
 				require.True(t, ok, "response body should be ErrorResponse for single error")
-				
+
 				// Check that the field matches the expected single error
 				assert.Equal(t, tt.expectedFields[0], errResp.Error.Field)
 			}
@@ -176,25 +176,25 @@ type testContext struct {
 	body []byte
 }
 
-func (tc *testContext) Method() string              { return http.MethodPost }
-func (tc *testContext) Path() string                { return "/test" }
-func (tc *testContext) OriginalURL() string         { return "/test" }
-func (tc *testContext) Body() []byte                { return tc.body }
-func (tc *testContext) Query(string) string         { return "" }
-func (tc *testContext) Param(string) string         { return "" }
+func (tc *testContext) Method() string      { return http.MethodPost }
+func (tc *testContext) Path() string        { return "/test" }
+func (tc *testContext) OriginalURL() string { return "/test" }
+func (tc *testContext) Body() []byte        { return tc.body }
+func (tc *testContext) Query(string) string { return "" }
+func (tc *testContext) Param(string) string { return "" }
 func (tc *testContext) Header(key string) string {
 	if key == "Content-Type" {
 		return "application/json"
 	}
 	return ""
 }
-func (tc *testContext) IP() string                  { return "127.0.0.1" }
-func (tc *testContext) Status(int)                  {}
-func (tc *testContext) SetHeader(string, string)    {}
-func (tc *testContext) Send([]byte) error           { return nil }
-func (tc *testContext) JSON(any) error              { return nil }
-func (tc *testContext) Context() context.Context    { return context.Background() }
-func (tc *testContext) Locals(string, ...any) any   { return nil }
+func (tc *testContext) IP() string                { return "127.0.0.1" }
+func (tc *testContext) Status(int)                {}
+func (tc *testContext) SetHeader(string, string)  {}
+func (tc *testContext) Send([]byte) error         { return nil }
+func (tc *testContext) JSON(any) error            { return nil }
+func (tc *testContext) Context() context.Context  { return context.Background() }
+func (tc *testContext) Locals(string, ...any) any { return nil }
 
 // ─── Tests Story 14.2 ───────────────────────────────────────────────────────
 

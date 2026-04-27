@@ -105,4 +105,3 @@ func (m *mockHTTPServer) ServeHTTP(_ *http.Request) (*http.Response, error) {
 	// Stub for testing
 	return nil, nil
 }
-

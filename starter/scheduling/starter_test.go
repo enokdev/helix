@@ -136,12 +136,12 @@ func TestConditionWalkUpDetectsGoMod(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	goModPath := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte(goModWithCron()), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModWithCron()), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
 	subDir := filepath.Join(tmpDir, "subdir", "nested")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -186,7 +186,9 @@ func TestConfigureNilContainerIsNoop(_ *testing.T) {
 func TestConfigureRegistersLifecycle(t *testing.T) {
 	container := newTestContainer()
 
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
 	if err != nil {
@@ -221,7 +223,9 @@ func TestStarter_Configure_RegistersScheduledJobProvider(t *testing.T) {
 		t.Fatalf("Register provider error = %v", err)
 	}
 
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("Start() error = %v, want nil", err)
@@ -250,7 +254,9 @@ func TestStarter_Configure_RegistersScheduledJobProvider(t *testing.T) {
 
 func TestStarter_Configure_NoProviders_NoError(t *testing.T) {
 	container := newTestContainer()
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("Start() error = %v, want nil", err)

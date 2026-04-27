@@ -61,10 +61,10 @@ func TestPascalWordsAcronymHandling(t *testing.T) {
 // TestControllerRoutePrefixAcronyms validates route prefix generation with acronyms
 func TestControllerRoutePrefixAcronyms(t *testing.T) {
 	tests := []struct {
-		name              string
-		controllerName    string
-		expectedRoute     string
-		shouldError       bool
+		name           string
+		controllerName string
+		expectedRoute  string
+		shouldError    bool
 	}{
 		{
 			name:           "simple controller",
@@ -96,7 +96,7 @@ func TestControllerRoutePrefixAcronyms(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := controllerRoutePrefix(tt.controllerName)
-			
+
 			if tt.shouldError {
 				assert.Error(t, err)
 			} else {

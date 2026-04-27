@@ -200,7 +200,6 @@ func (s failingHTTPServer) IsGeneratedOnly() bool {
 	return false
 }
 
-
 func (s failingHTTPServer) ServeHTTP(*http.Request) (*http.Response, error) {
 	return nil, nil
 }

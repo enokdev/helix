@@ -142,7 +142,9 @@ func TestConfigureNilContainerIsNoop(_ *testing.T) {
 func TestConfigureWithoutServerRegistersFailingLifecycle(t *testing.T) {
 	container := newTestContainer()
 
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
 	if err != nil {
@@ -162,7 +164,9 @@ func TestConfigureWithoutServerRegistersFailingLifecycle(t *testing.T) {
 func TestConfigureWithServerRegistersLifecycle(t *testing.T) {
 	container := containerWithServer()
 
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
 	if err != nil {

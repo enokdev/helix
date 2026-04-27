@@ -178,7 +178,8 @@ func TestNegativePaths(t *testing.T) {
 
 func serve(t *testing.T, server interface {
 	ServeHTTP(*http.Request) (*http.Response, error)
-}, method, path string, body *bytes.Buffer) *http.Response {
+}, method, path string, body *bytes.Buffer,
+) *http.Response {
 	t.Helper()
 	if body == nil {
 		body = &bytes.Buffer{}

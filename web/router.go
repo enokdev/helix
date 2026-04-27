@@ -86,7 +86,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// If no override, use convention-based prefix
 	if prefix == "" {
 		prefix, err = controllerRoutePrefix(controllerType.Name())
@@ -572,7 +572,7 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 			if !ok {
 				return "", nil // No override tag
 			}
-			
+
 			// Parse helix tag - expecting format like: helix:"route:/path"
 			// Split by semicolon to allow future extensibility without hard failure
 			parts := strings.Split(tagValue, ";")
@@ -592,7 +592,7 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 					return route, nil
 				}
 			}
-			
+
 			return "", nil
 		}
 	}

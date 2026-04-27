@@ -157,12 +157,12 @@ func TestStarterConditionWalkUpDetectsGoMod(t *testing.T) {
 	tmpDir := t.TempDir()
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	goModContent := goModWithFiber()
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
 	subDir := filepath.Join(tmpDir, "subdir", "nested")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -184,7 +184,9 @@ func TestStarterConditionWalkUpDetectsGoMod(t *testing.T) {
 func TestStarterConfigureRegistersLifecycleWithDefaultPort(t *testing.T) {
 	container := newTestContainer()
 
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	lifecycle := singleLifecycle(t, container)
 	serverLifecycle, ok := lifecycle.(*serverLifecycle)
@@ -200,7 +202,9 @@ func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 	container := newTestContainer()
 	cfg := fakeConfig{values: map[string]any{"server.port": 9090}}
 
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	lifecycle := singleLifecycle(t, container)
 	serverLifecycle, ok := lifecycle.(*serverLifecycle)
@@ -215,7 +219,9 @@ func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 func TestStarterConfigureRegistersHTTPServer(t *testing.T) {
 	container := newTestContainer()
 
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	var server helixweb.HTTPServer
 	if err := container.Resolve(&server); err != nil {
@@ -330,9 +336,9 @@ func TestWebStarter_IntegratedLifecycle(t *testing.T) {
 
 func TestStarterConfigure_ShutdownTimeoutFromConfig(t *testing.T) {
 	tests := []struct {
-		name            string
-		configValues    map[string]any
-		wantTimeout     time.Duration
+		name         string
+		configValues map[string]any
+		wantTimeout  time.Duration
 	}{
 		{
 			name:         "uses default when key absent",

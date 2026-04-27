@@ -179,12 +179,12 @@ func TestConditionWalkUpDetectsGoMod(t *testing.T) {
 
 require gorm.io/driver/sqlite v1.5.4
 `
-	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
 	subDir := filepath.Join(tmpDir, "subdir", "nested")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -213,7 +213,9 @@ func TestConfigureRegistersLifecycle(t *testing.T) {
 	cfg := fakeConfig{values: map[string]any{"database.url": ":memory:"}}
 	container := newTestContainer()
 
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
 	if err != nil {
@@ -230,7 +232,9 @@ func TestConfigureRegistersDBComponents(t *testing.T) {
 	cfg := fakeConfig{values: map[string]any{"database.url": ":memory:"}}
 	container := newTestContainer()
 
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("container.Start() error = %v", err)
@@ -279,7 +283,9 @@ func TestAutoMigrateTrueWithModels(t *testing.T) {
 	}}
 	container := newTestContainer()
 
-	if err := New(cfg, WithAutoMigrateModels(&testEntity{})).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg, WithAutoMigrateModels(&testEntity{})).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("container.Start() with auto-migrate error = %v", err)
@@ -295,7 +301,9 @@ func TestAutoMigrateFalseSkipsMigration(t *testing.T) {
 		"helix.starters.data.auto-migrate": false,
 	}}
 	container := newTestContainer()
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("container.Start() auto-migrate false error = %v", err)
@@ -330,7 +338,9 @@ func TestPoolConfig(t *testing.T) {
 		"database.pool.max-idle": 5,
 	}}
 	container := newTestContainer()
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("container.Start() with pool config error = %v", err)
@@ -346,7 +356,9 @@ func TestPoolNegativeValueCausesStartError(t *testing.T) {
 		"database.pool.max-open": -1,
 	}}
 	container := newTestContainer()
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err == nil {
 		t.Fatal("container.Start() with negative pool value expected error, got nil")
@@ -361,7 +373,9 @@ func TestPoolNonParsableValueCausesStartError(t *testing.T) {
 		"database.pool.max-open": "bad",
 	}}
 	container := newTestContainer()
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	if err := container.Start(); err == nil {
 		t.Fatal("container.Start() with non-parsable pool value expected error, got nil")

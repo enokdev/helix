@@ -8,8 +8,8 @@ import (
 
 // RouteInfo contains metadata about a generated route registration.
 type RouteInfo struct {
-	Method       string   // HTTP method (GET, POST, etc.)
-	Path         string   // URL path
+	Method       string // HTTP method (GET, POST, etc.)
+	Path         string // URL path
 	Handler      interface{}
 	Controller   string   // Name of the controller type
 	HandlerName  string   // Name of the handler method
@@ -168,12 +168,12 @@ func (r *ErrorHandlerRegistry) HasGeneratedErrorHandlers() bool {
 func (r *ErrorHandlerRegistry) GetErrorHandlersForHandler(handlerName string) ([]ErrorHandlerInfo, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	handlers, ok := r.handlers[handlerName]
 	if !ok || len(handlers) == 0 {
 		return nil, false
 	}
-	
+
 	// Return a copy to prevent external mutation
 	result := make([]ErrorHandlerInfo, len(handlers))
 	copy(result, handlers)

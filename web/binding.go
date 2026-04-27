@@ -290,7 +290,7 @@ func validationRequestError(err error) error {
 			}
 			return newMultiFieldValidationError(fieldErrors)
 		}
-		
+
 		// Single validation error - use old format for backward compatibility
 		ve := validationErrors[0]
 		return newRequestError(http.StatusBadRequest, codeValidationFailed, ve.Field(),

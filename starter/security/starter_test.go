@@ -119,7 +119,9 @@ func TestConfigureRegistersJWTService(t *testing.T) {
 		jwtSecretKey: "my-secret",
 		jwtExpiryKey: "1h",
 	}}
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	var svc *helixsecurity.JWTService
 	if err := container.Resolve(&svc); err != nil {
@@ -134,7 +136,9 @@ func TestConfigureRegistersJWTService_DefaultsWithNilConfig(t *testing.T) {
 	container := newTestContainer()
 
 	// Empty secret (nil config) means no JWTService is registered — Configure must not panic.
-	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(nil).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	var svc *helixsecurity.JWTService
 	if err := container.Resolve(&svc); err == nil {
@@ -149,7 +153,9 @@ func TestConfigureRegistersJWTService_InvalidExpiry_UsesDefault(t *testing.T) {
 		jwtSecretKey: "my-secret",
 		jwtExpiryKey: "not-a-duration",
 	}}
-	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
+	if err := New(cfg).Configure(container); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
 
 	var svc *helixsecurity.JWTService
 	if err := container.Resolve(&svc); err != nil {
@@ -164,10 +170,10 @@ func TestConfigureRegistersJWTService_InvalidExpiry_UsesDefault(t *testing.T) {
 
 func TestSecurityStarter_ConditionFromContainer(t *testing.T) {
 	tests := []struct {
-		name      string
-		cfg       fakeConfig
-		setupFn   func(c *core.Container)
-		want      bool
+		name    string
+		cfg     fakeConfig
+		setupFn func(c *core.Container)
+		want    bool
 	}{
 		{
 			name:    "enabled: false overrides marker",
@@ -182,8 +188,8 @@ func TestSecurityStarter_ConditionFromContainer(t *testing.T) {
 			want:    true,
 		},
 		{
-			name: "security.* key present without marker",
-			cfg:  fakeConfig{values: map[string]any{"security": map[string]any{"jwt": map[string]any{}}}},
+			name:    "security.* key present without marker",
+			cfg:     fakeConfig{values: map[string]any{"security": map[string]any{"jwt": map[string]any{}}}},
 			setupFn: func(_ *core.Container) {},
 			want:    true,
 		},

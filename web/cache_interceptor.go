@@ -374,9 +374,11 @@ func (r *responseRecorder) OriginalURL() string { return r.BaseContext.OriginalU
 func (r *responseRecorder) Param(key string) string {
 	return r.BaseContext.Param(key)
 }
+
 func (r *responseRecorder) Query(key string) string {
 	return r.BaseContext.Query(key)
 }
+
 func (r *responseRecorder) Header(key string) string {
 	return r.BaseContext.Header(key)
 }
@@ -386,12 +388,15 @@ func (r *responseRecorder) Status(code int) {
 	r.status = code
 	r.BaseContext.Status(code)
 }
+
 func (r *responseRecorder) SetHeader(key, value string) {
 	r.BaseContext.SetHeader(key, value)
 }
+
 func (r *responseRecorder) Send(body []byte) error {
 	return r.BaseContext.Send(body)
 }
+
 func (r *responseRecorder) JSON(body any) error {
 	if r.status == 0 {
 		r.status = http.StatusOK
@@ -404,9 +409,11 @@ func (r *responseRecorder) JSON(body any) error {
 	r.wroteJSON = true
 	return r.BaseContext.JSON(body)
 }
+
 func (r *responseRecorder) Context() context.Context {
 	return r.BaseContext.Context()
 }
+
 func (r *responseRecorder) Locals(key string, value ...any) any {
 	return r.BaseContext.Locals(key, value...)
 }

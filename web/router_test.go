@@ -1684,4 +1684,3 @@ func TestRegisterController_RejectsWrongContentType(t *testing.T) {
 		t.Errorf("error.message = %q, want it to contain 'must be application/json'", detail.Message)
 	}
 }
-
