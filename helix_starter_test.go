@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/enokdev/helix/core"
-	helixsecurity "github.com/enokdev/helix/security"
 	"github.com/enokdev/helix/starter"
 )
 
@@ -25,18 +24,11 @@ func (m *markerAwareStarter) Configure(_ *core.Container) error {
 	m.configureCalls++
 	return nil
 }
+
 func (m *markerAwareStarter) ConditionFromContainer(_ *core.Container) bool {
 	m.conditionFromContainerCalls++
 	return m.conditionFromContainerRet
 }
-
-// securityConfigurerComponent is a test component that satisfies both
-// helix.SecurityConfigurer (marker embed) and helixsecurity.Configurer (interface).
-type securityConfigurerComponent struct {
-	SecurityConfigurer
-}
-
-func (s *securityConfigurerComponent) Configure(_ *helixsecurity.HTTPSecurity) {}
 
 // --- helpers -----------------------------------------------------------------
 

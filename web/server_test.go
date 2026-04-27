@@ -723,3 +723,59 @@ func moduleRoot(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// ---- Task 1: Panic Recovery ----
+
+func TestServer_PanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+
+	if err := server.RegisterRoute(http.MethodGet, "/panic", func(_ web.Context) error {
+		panic("unexpected nil pointer")
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+	if err := server.RegisterRoute(http.MethodGet, "/healthy", func(ctx web.Context) error {
+		ctx.Status(http.StatusOK)
+		return ctx.JSON(map[string]string{"status": "ok"})
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/panic", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
+
+	// Server must still be alive after a panic.
+	resp2, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/healthy", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() second request error = %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("second request status = %d, want %d", resp2.StatusCode, http.StatusOK)
+	}
+}
+
+// ---- Task 3: JSON Serialization Failure ----
+
+func TestServer_JSONSerializationFailure(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+
+	if err := web.RegisterController(server, &ChannelPayloadController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/channel-payloads", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
+}

@@ -82,7 +82,7 @@ func buildErrorHandlers(server HTTPServer, handler any) (map[string]errorHandler
 
 	// First, try to get directives from the generated registry
 	directives, hasGenerated := tryGetGeneratedErrorHandlers(handlerType.Name())
-	
+
 	// Check if server enforces generated only mode
 	generatedOnly := false
 	if srv, ok := server.(interface{ IsGeneratedOnly() bool }); ok {

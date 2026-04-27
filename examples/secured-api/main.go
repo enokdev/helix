@@ -143,7 +143,7 @@ func (s *AuthService) GetAllAccounts() []AccountInfo {
 type AuthController struct {
 	helix.Controller
 
-	AuthSvc *AuthService `inject:"true"`
+	AuthSvc *AuthService         `inject:"true"`
 	JWTSvc  *security.JWTService `inject:"true"`
 }
 
@@ -255,10 +255,10 @@ func loadConfig() (appConfig, error) {
 	loader := config.NewLoader(
 		config.WithConfigPaths("examples/secured-api/config", "config"),
 		config.WithDefaults(map[string]any{
-			"server.port":          8081,
-			"app.name":             "helix-secured-api",
-			"security.jwt.secret":  "dev-only-secured-api-secret-change-me",
-			"security.jwt.expiry":  1 * time.Hour,
+			"server.port":         8081,
+			"app.name":            "helix-secured-api",
+			"security.jwt.secret": "dev-only-secured-api-secret-change-me",
+			"security.jwt.expiry": 1 * time.Hour,
 		}),
 	)
 

@@ -192,14 +192,13 @@ func (s failingHTTPServer) Stop(context.Context) error {
 	return nil
 }
 
-func (f failingHTTPServer) RegisterRoute(string, string, web.HandlerFunc) error {
-	return f.err
+func (s failingHTTPServer) RegisterRoute(string, string, web.HandlerFunc) error {
+	return s.err
 }
 
-func (f failingHTTPServer) IsGeneratedOnly() bool {
+func (s failingHTTPServer) IsGeneratedOnly() bool {
 	return false
 }
-
 
 func (s failingHTTPServer) ServeHTTP(*http.Request) (*http.Response, error) {
 	return nil, nil

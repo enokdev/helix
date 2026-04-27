@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -109,7 +111,21 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 			}
 		}
 
-		handlerErr := handler(observed)
+		var handlerErr error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Default().With("namespace", "web").Error("handler panic recovered",
+						"method", normalizedMethod,
+						"path", routePath,
+						"panic", fmt.Sprintf("%v", r),
+						"stack", string(debug.Stack()),
+					)
+					handlerErr = writeErrorResponse(observed, fmt.Errorf("handler panic"))
+				}
+			}()
+			handlerErr = handler(observed)
+		}()
 		if handlerErr != nil {
 			if handled, handleErr := s.writeRegisteredError(observed, handlerErr); handled {
 				handlerErr = handleErr
@@ -152,9 +168,11 @@ func (o *observingContext) OriginalURL() string { return o.BaseContext.OriginalU
 func (o *observingContext) Param(key string) string {
 	return o.BaseContext.Param(key)
 }
+
 func (o *observingContext) Query(key string) string {
 	return o.BaseContext.Query(key)
 }
+
 func (o *observingContext) Header(key string) string {
 	return o.BaseContext.Header(key)
 }
@@ -164,18 +182,23 @@ func (o *observingContext) Status(code int) {
 	o.statusCode = code
 	o.BaseContext.Status(code)
 }
+
 func (o *observingContext) SetHeader(key, value string) {
 	o.BaseContext.SetHeader(key, value)
 }
+
 func (o *observingContext) Send(body []byte) error {
 	return o.BaseContext.Send(body)
 }
+
 func (o *observingContext) JSON(body any) error {
 	return o.BaseContext.JSON(body)
 }
+
 func (o *observingContext) Context() context.Context {
 	return o.BaseContext.Context()
 }
+
 func (o *observingContext) Locals(key string, value ...any) any {
 	return o.BaseContext.Locals(key, value...)
 }

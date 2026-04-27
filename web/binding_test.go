@@ -79,15 +79,15 @@ func TestBindingMultipleValidationErrors(t *testing.T) {
 
 			// Check response body structure
 			respBody := reqErr.ResponseBody()
-			
+
 			if tt.isMultiError {
 				// Multi-field errors use ValidationErrorResponse
 				errResp, ok := respBody.(ValidationErrorResponse)
 				require.True(t, ok, "response body should be ValidationErrorResponse for multi-field errors")
-				
+
 				// Check error count
 				assert.Equal(t, tt.expectedCount, len(errResp.Errors), "should return all validation errors")
-				
+
 				// Check that all expected fields are present
 				errFields := make(map[string]bool)
 				for _, e := range errResp.Errors {
@@ -100,7 +100,7 @@ func TestBindingMultipleValidationErrors(t *testing.T) {
 				// Single error uses ErrorResponse
 				errResp, ok := respBody.(ErrorResponse)
 				require.True(t, ok, "response body should be ErrorResponse for single error")
-				
+
 				// Check that the field matches the expected single error
 				assert.Equal(t, tt.expectedFields[0], errResp.Error.Field)
 			}
@@ -176,17 +176,142 @@ type testContext struct {
 	body []byte
 }
 
-func (tc *testContext) Method() string              { return http.MethodPost }
-func (tc *testContext) Path() string                { return "/test" }
-func (tc *testContext) OriginalURL() string         { return "/test" }
-func (tc *testContext) Body() []byte                { return tc.body }
-func (tc *testContext) Query(string) string         { return "" }
-func (tc *testContext) Param(string) string         { return "" }
-func (tc *testContext) Header(string) string        { return "" }
-func (tc *testContext) IP() string                  { return "127.0.0.1" }
-func (tc *testContext) Status(int)                  {}
-func (tc *testContext) SetHeader(string, string)    {}
-func (tc *testContext) Send([]byte) error           { return nil }
-func (tc *testContext) JSON(any) error              { return nil }
-func (tc *testContext) Context() context.Context    { return context.Background() }
-func (tc *testContext) Locals(string, ...any) any   { return nil }
+func (tc *testContext) Method() string      { return http.MethodPost }
+func (tc *testContext) Path() string        { return "/test" }
+func (tc *testContext) OriginalURL() string { return "/test" }
+func (tc *testContext) Body() []byte        { return tc.body }
+func (tc *testContext) Query(string) string { return "" }
+func (tc *testContext) Param(string) string { return "" }
+func (tc *testContext) Header(key string) string {
+	if key == "Content-Type" {
+		return "application/json"
+	}
+	return ""
+}
+func (tc *testContext) IP() string                { return "127.0.0.1" }
+func (tc *testContext) Status(int)                {}
+func (tc *testContext) SetHeader(string, string)  {}
+func (tc *testContext) Send([]byte) error         { return nil }
+func (tc *testContext) JSON(any) error            { return nil }
+func (tc *testContext) Context() context.Context  { return context.Background() }
+func (tc *testContext) Locals(string, ...any) any { return nil }
+
+// ─── Tests Story 14.2 ───────────────────────────────────────────────────────
+
+// TestBindingEmbeddedStructJSON vérifie que le binding JSON visite les anonymous fields.
+func TestBindingEmbeddedStructJSON(t *testing.T) {
+	type Base struct {
+		BaseField string `json:"base_field"`
+	}
+
+	t.Run("champs JSON uniquement dans la struct embarquée", func(t *testing.T) {
+		type OnlyEmbeddedReq struct {
+			Base
+		}
+		ctx := &testContext{body: []byte(`{"base_field": "val"}`)}
+		plan, err := newBindingPlan(reflect.TypeOf(OnlyEmbeddedReq{}))
+		require.NoError(t, err, "newBindingPlan doit réussir pour un struct avec tous les tags json dans l'embed")
+		assert.Equal(t, bindingKindJSON, plan.kind)
+
+		val, err := plan.bind(ctx)
+		require.NoError(t, err)
+		result := val.Interface().(OnlyEmbeddedReq)
+		assert.Equal(t, "val", result.BaseField)
+	})
+
+	t.Run("champs JSON au niveau top et dans la struct embarquée", func(t *testing.T) {
+		type MixedReq struct {
+			Base
+			Name string `json:"name"`
+		}
+		ctx := &testContext{body: []byte(`{"name": "test", "base_field": "val"}`)}
+		plan, err := newBindingPlan(reflect.TypeOf(MixedReq{}))
+		require.NoError(t, err)
+		assert.Equal(t, bindingKindJSON, plan.kind)
+
+		val, err := plan.bind(ctx)
+		require.NoError(t, err)
+		result := val.Interface().(MixedReq)
+		assert.Equal(t, "test", result.Name)
+		assert.Equal(t, "val", result.BaseField)
+	})
+}
+
+// TestBindingNullBodyRejected vérifie que le body JSON "null" est rejeté avec 400.
+func TestBindingNullBodyRejected(t *testing.T) {
+	type Req struct {
+		Name string `json:"name"`
+	}
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"raw null", "null"},
+		{"null avec espaces", "  null  "},
+		{"null avec newline", "\nnull\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &testContext{body: []byte(tt.body)}
+			plan, err := newBindingPlan(reflect.TypeOf(Req{}))
+			require.NoError(t, err)
+
+			_, err = plan.bind(ctx)
+			require.Error(t, err)
+
+			var reqErr *RequestError
+			require.ErrorAs(t, err, &reqErr)
+			assert.Equal(t, http.StatusBadRequest, reqErr.StatusCode())
+
+			body := reqErr.ResponseBody()
+			errResp, ok := body.(ErrorResponse)
+			require.True(t, ok)
+			assert.Equal(t, codeInvalidJSON, errResp.Error.Code)
+		})
+	}
+}
+
+// TestBindingDisallowUnknownFieldsDefault vérifie que les champs inconnus retournent 400 par défaut.
+func TestBindingDisallowUnknownFieldsDefault(t *testing.T) {
+	type StrictReq struct {
+		Name string `json:"name"`
+	}
+
+	ctx := &testContext{body: []byte(`{"name": "test", "unknown_field": "value"}`)}
+	plan, err := newBindingPlan(reflect.TypeOf(StrictReq{}))
+	require.NoError(t, err)
+	assert.False(t, plan.allowUnknown)
+
+	_, err = plan.bind(ctx)
+	require.Error(t, err)
+
+	var reqErr *RequestError
+	require.ErrorAs(t, err, &reqErr)
+	assert.Equal(t, http.StatusBadRequest, reqErr.StatusCode())
+
+	body := reqErr.ResponseBody()
+	errResp, ok := body.(ErrorResponse)
+	require.True(t, ok)
+	assert.Equal(t, "unknown_field", errResp.Error.Field)
+}
+
+// TestBindingAllowUnknownFieldsOptOut vérifie que helix:"allow-unknown" désactive le rejet des champs inconnus.
+func TestBindingAllowUnknownFieldsOptOut(t *testing.T) {
+	type LenientReq struct {
+		_    struct{} `helix:"allow-unknown"` //nolint:unused
+		Name string   `json:"name"`
+	}
+
+	ctx := &testContext{body: []byte(`{"name": "test", "unknown_field": "value"}`)}
+	plan, err := newBindingPlan(reflect.TypeOf(LenientReq{}))
+	require.NoError(t, err)
+	assert.True(t, plan.allowUnknown)
+
+	val, err := plan.bind(ctx)
+	require.NoError(t, err)
+
+	result := val.Interface().(LenientReq)
+	assert.Equal(t, "test", result.Name)
+}

@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-27 - stories 7.5, 7.6, 7.7, 1.8 done after code review patches
+last_updated: 2026-04-27 - story 14.2 review
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-27 - stories 7.5, 7.6, 7.7, 1.8 done after code review pat
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-27 - stories 7.5, 7.6, 7.7, 1.8 done after code review patches
+last_updated: 2026-04-27 - story 14.1 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -48,7 +48,7 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 1: Application Bootstrap & DI Container
   # ─────────────────────────────────────────────
-  epic-1: in-progress
+  epic-1: done
   1-1-initialisation-du-projet-structure-de-base: done
   1-2-interfaces-publiques-du-conteneur-di: done
   1-3-reflectresolver-enregistrement-resolution-singleton: done
@@ -57,7 +57,7 @@ development_status:
   1-6-hooks-de-cycle-de-vie-graceful-shutdown: done
   1-7-point-dentree-helix-run-marqueurs-de-composants: done
   1-8-helix-run-zero-parametre-bootstrap-complet-automatique: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 2: Configuration Centralisée
@@ -66,7 +66,7 @@ development_status:
   2-1-loader-yaml-chaine-de-priorite: done
   2-2-profils-de-configuration: done
   2-3-rechargement-dynamique-de-la-configuration: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 3: Couche HTTP Déclarative
@@ -79,7 +79,7 @@ development_status:
   3-5-mapping-automatique-retour-http-status: done
   3-6-error-handler-centralise: done
   3-7-guards-interceptors-declaratifs: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 4: Data Layer & Repository Pattern
@@ -89,7 +89,7 @@ development_status:
   4-2-adaptateur-gorm-implementation-repository: done
   4-3-generation-automatique-de-requetes-query-auto: done
   4-4-transactions-declaratives-helix-transactional: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 5: Infrastructure de Test
@@ -97,7 +97,7 @@ development_status:
   epic-5: done
   5-1-helix-newtestapp-container-de-test: done
   5-2-helix-mockbean-remplacement-automatique-par-mock: done
-  epic-5-retrospective: optional
+  epic-5-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 6: Observabilité
@@ -107,12 +107,12 @@ development_status:
   6-2-metriques-prometheus-actuator-metrics: done
   6-3-logging-structure-avec-slog: done
   6-4-tracing-opentelemetry-opt-in: done
-  epic-6-retrospective: optional
+  epic-6-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 7: Auto-Configuration & Starters
   # ─────────────────────────────────────────────
-  epic-7: in-progress
+  epic-7: done
   7-1-interface-starter-mecanisme-de-condition: done
   7-2-starter-web-auto-activation-fiber: done
   7-3-starter-data-auto-activation-db: done
@@ -120,7 +120,7 @@ development_status:
   7-5-auto-registration-des-controleurs-par-le-starter-web: done
   7-6-lifecycle-http-integre-suppression-du-wrapper-appserver: done
   7-7-auto-detection-des-starters-par-markers-de-composants: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 8: Sécurité
@@ -129,7 +129,7 @@ development_status:
   8-1-jwt-generation-validation-refresh: done
   8-2-rbac-guards-de-roles-declaratifs: done
   8-3-helix-securityconfigurer-regles-globales: done
-  epic-8-retrospective: optional
+  epic-8-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 9: Scheduling
@@ -137,7 +137,7 @@ development_status:
   epic-9: done
   9-1-scheduler-interface-adaptateur-robfig-cron: done
   9-2-taches-planifiees-declaratives-helix-scheduled: done
-  epic-9-retrospective: optional
+  epic-9-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 10: CLI & Génération de Code
@@ -149,35 +149,51 @@ development_status:
   10-4-contextes-de-domaine-ddd-light-helix-generate-context: done
   10-5-migrations-db-cli-helix-db-migrate: done
   10-6-helix-run-helix-build: done
-  epic-10-retrospective: optional
+  epic-10-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 11: Documentation & Guides Développeur
   # ─────────────────────────────────────────────
-  epic-11: in-progress
+  epic-11: done
   11-1-readme-enrichi-quick-start: done
   11-2-guide-di-container-configuration: done
   11-3-guide-couche-http-routing-guards-extracteurs: done
   11-4-guide-data-layer-repository-pattern: done
   11-5-guide-securite-observabilite-scheduling: done
-  epic-11-retrospective: optional
+  epic-11-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 12: Exemples d'Applications
   # ─────────────────────────────────────────────
-  epic-12: in-progress
+  epic-12: done
   12-1-exemple-crud-api-users-complet: done
   12-2-exemple-authentification-jwt-rbac: done
-  epic-12-retrospective: optional
+  epic-12-retrospective: done
 
   # ─────────────────────────────────────────────
   # Epic 13: Assainissement Technique (Dette)
   # ─────────────────────────────────────────────
-  epic-13: in-progress
+  epic-13: done
   13-1-securite-dsn-credentials-bypass-url: done
   13-2-thread-safety-container-di-resolver: done
   13-3-robustesse-starters-detection-gomod-walkup: done
   13-4-compatibilite-binaires-deployes-suppression-ast-runtime: done
   13-5-cache-interceptor-production-grade: done
   13-6-qualite-ux-developpeur-validation-routing-erreurs: done
-  epic-13-retrospective: optional
+  epic-13-retrospective: done
+
+  # ─────────────────────────────────────────────
+  # Epic 14: Dette Technique v2
+  # ─────────────────────────────────────────────
+  epic-14: in-progress
+  14-1-panic-recovery-http-robustesse: done
+  14-2-binding-avance-structs-embarquees: review
+  14-3-container-di-scopeprototype-cycles: backlog
+  14-4-securite-rbac-injection-sql: backlog
+  14-5-starters-erreurs-idempotence: backlog
+  14-6-repository-pagination-findall-bornee: backlog
+  14-7-cli-migrations-concurrence-annulation: backlog
+  14-8-lifecycle-goroutine-leaks-onstop: backlog
+  14-9-mockbean-testapp-edge-cases: backlog
+  14-10-guards-context-nettoyage-sentinelles: backlog
+  epic-14-retrospective: optional

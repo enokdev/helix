@@ -271,7 +271,8 @@ func newJWTService() (*security.JWTService, error) {
 
 func serve(t *testing.T, server interface {
 	ServeHTTP(*http.Request) (*http.Response, error)
-}, method, path string, body *bytes.Buffer) *http.Response {
+}, method, path string, body *bytes.Buffer,
+) *http.Response {
 	t.Helper()
 	if body == nil {
 		body = &bytes.Buffer{}
@@ -290,7 +291,8 @@ func serve(t *testing.T, server interface {
 
 func serveWithAuth(t *testing.T, server interface {
 	ServeHTTP(*http.Request) (*http.Response, error)
-}, method, path string, body *bytes.Buffer, token string) *http.Response {
+}, method, path string, body *bytes.Buffer, token string,
+) *http.Response {
 	t.Helper()
 	if body == nil {
 		body = &bytes.Buffer{}

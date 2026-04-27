@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	webStarterEnabledKey    = "helix.starters.web.enabled"
-	serverPortKey           = "server.port"
-	defaultServerPort       = "8080"
-	shutdownTimeoutKey      = "helix.shutdown-timeout"
-	defaultShutdownTimeout  = 30 * time.Second
+	webStarterEnabledKey   = "helix.starters.web.enabled"
+	serverPortKey          = "server.port"
+	defaultServerPort      = "8080"
+	shutdownTimeoutKey     = "helix.shutdown-timeout"
+	defaultShutdownTimeout = 30 * time.Second
 )
 
 // Starter auto-configures the HTTP server when Fiber is available.

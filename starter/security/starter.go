@@ -9,7 +9,6 @@ import (
 	"github.com/enokdev/helix/starter/internal/starterutil"
 )
 
-
 const (
 	secEnabledKey = "helix.starters.security.enabled"
 	jwtSecretKey  = "security.jwt.secret"

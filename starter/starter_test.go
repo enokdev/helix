@@ -35,7 +35,7 @@ type recorderStarter struct {
 	name string
 }
 
-func (r *recorderStarter) Condition() bool                    { return true }
+func (r *recorderStarter) Condition() bool { return true }
 func (r *recorderStarter) Configure(_ *core.Container) error {
 	*r.seq = append(*r.seq, r.name)
 	return nil
@@ -205,11 +205,11 @@ func TestConfigure_EmptyEntries(t *testing.T) {
 
 // markerAwareFakeStarter implements MarkerAwareStarter for tests.
 type markerAwareFakeStarter struct {
-	conditionRet              bool
-	conditionFromContainerRet bool
-	conditionCalls            int
+	conditionRet                bool
+	conditionFromContainerRet   bool
+	conditionCalls              int
 	conditionFromContainerCalls int
-	configureCalls            int
+	configureCalls              int
 }
 
 func (m *markerAwareFakeStarter) Condition() bool {

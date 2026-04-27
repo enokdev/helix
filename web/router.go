@@ -86,7 +86,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// If no override, use convention-based prefix
 	if prefix == "" {
 		prefix, err = controllerRoutePrefix(controllerType.Name())
@@ -572,7 +572,7 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 			if !ok {
 				return "", nil // No override tag
 			}
-			
+
 			// Parse helix tag - expecting format like: helix:"route:/path"
 			// Split by semicolon to allow future extensibility without hard failure
 			parts := strings.Split(tagValue, ";")
@@ -592,7 +592,7 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 					return route, nil
 				}
 			}
-			
+
 			return "", nil
 		}
 	}
@@ -737,7 +737,14 @@ func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc
 		if !returnPlan.hasPayload {
 			return nil
 		}
-		return writeSuccessResponse(ctx, httpMethod, results[0].Interface())
+		payload := results[0].Interface()
+		if errVal, ok := payload.(error); ok && errVal != nil {
+			slog.Default().With("namespace", "web").Error("error value in payload slot",
+				"error", errVal,
+			)
+			return writeErrorResponse(ctx, errVal)
+		}
+		return writeSuccessResponse(ctx, httpMethod, payload)
 	}, nil
 }
 

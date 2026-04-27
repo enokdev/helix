@@ -12,10 +12,10 @@ import (
 // TestErrorMessagesForInvalidController validates that error messages are detailed and helpful
 func TestErrorMessagesForInvalidController(t *testing.T) {
 	tests := []struct {
-		name              string
-		controller        any
-		shouldContain     []string // substring expectations for error message
-		shouldNotContain  []string
+		name             string
+		controller       any
+		shouldContain    []string // substring expectations for error message
+		shouldNotContain []string
 	}{
 		{
 			name:       "no public methods",
@@ -51,12 +51,12 @@ func TestErrorMessagesForInvalidController(t *testing.T) {
 			err := web.RegisterController(newMockHTTPServer(), tt.controller)
 			assert.Error(t, err)
 			errMsg := err.Error()
-			
+
 			for _, substr := range tt.shouldContain {
 				assert.True(t, strings.Contains(errMsg, substr),
 					"error should contain %q, but got: %s", substr, errMsg)
 			}
-			
+
 			for _, substr := range tt.shouldNotContain {
 				assert.False(t, strings.Contains(errMsg, substr),
 					"error should NOT contain %q, but got: %s", substr, errMsg)
@@ -70,12 +70,8 @@ type NoPublicMethodsController struct {
 	helix.Controller
 }
 
-func (c *NoPublicMethodsController) index() {}
-
 // NoMarkerController is missing the helix.Controller embed
-type NoMarkerController struct {
-	called bool
-}
+type NoMarkerController struct{}
 
 func (c *NoMarkerController) Index() {}
 

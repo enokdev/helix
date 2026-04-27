@@ -56,14 +56,14 @@ func TestWebGenerator_GenerateErrorHandlersFile(t *testing.T) {
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {
 			{
-				Controller:  "AppErrorHandler",
-				MethodName:  "HandleValidationError",
-				ErrorType:   "ValidationError",
+				Controller: "AppErrorHandler",
+				MethodName: "HandleValidationError",
+				ErrorType:  "ValidationError",
 			},
 			{
-				Controller:  "AppErrorHandler",
-				MethodName:  "HandleNotFound",
-				ErrorType:   "NotFoundError",
+				Controller: "AppErrorHandler",
+				MethodName: "HandleNotFound",
+				ErrorType:  "NotFoundError",
 			},
 		},
 	}
@@ -88,9 +88,14 @@ func TestWebGenerator_GenerateErrorHandlersFile(t *testing.T) {
 func TestWebGenerator_GenerateWithNoDirectives(t *testing.T) {
 	tempDir := t.TempDir()
 	// Change to temp dir to avoid scanning actual project
-	oldWd, _ := os.Getwd()
-	os.Chdir(tempDir)
-	defer os.Chdir(oldWd)
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd() error = %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("os.Chdir(tempDir) error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
 
 	gen := NewWebGenerator(tempDir)
 
@@ -181,9 +186,9 @@ func TestWebGenerator_GeneratedHandlerFileIsValid(t *testing.T) {
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {
 			{
-				Controller:  "ErrorHandler",
-				MethodName:  "HandleError",
-				ErrorType:   "CustomError",
+				Controller: "ErrorHandler",
+				MethodName: "HandleError",
+				ErrorType:  "CustomError",
 			},
 		},
 	}

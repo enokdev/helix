@@ -1225,3 +1225,198 @@ Afin de diagnostiquer rapidement les problèmes dans mon code.
 **Given** un `controller.Register` échoue
 **Then** le message d'erreur indique le type du controller et la raison précise (pas juste `ErrInvalidController`)
 **Refs:** D-3.4-4, D-3.2-1/2/3/5/6, D-3.5-1 [web/binding.go, web/router.go]
+
+---
+
+## Epic 14: Dette Technique v2
+
+Le framework est robuste face aux edge cases de production : panics, structs embarquées, ScopePrototype correct, RBAC sécurisé, migrations sérialisées et goroutine leaks absents.
+**FRs couverts :** NFR1, NFR2, NFR4 (dette restante post-v1.0)
+**Phase PRD :** Phase 4 (Post-MVP)
+
+### Story 14.1: Panic Recovery & HTTP Robustesse
+
+En tant que **développeur utilisant Helix en production**,
+Je veux que mon serveur HTTP survive aux panics dans les handlers et sérialise correctement toutes les erreurs,
+Afin d'éviter des crashes de serveur et des réponses JSON silencieusement incorrectes.
+
+**Acceptance Criteria:**
+
+**Given** un handler qui panique (`panic("unexpected nil")`)
+**When** une requête arrive sur ce handler
+**Then** le serveur continue de répondre aux autres requêtes (recovery middleware Fiber)
+**And** la réponse est `500 Internal Server Error` avec un body JSON structuré
+**Given** un handler retournant `(error, nil)` via slot `any`
+**Then** l'erreur est loggée et la réponse est `500` (pas `{}` silencieux)
+**Given** une sérialisation JSON du résultat échoue
+**Then** l'erreur est loggée avec le type du handler et la réponse est `500`
+**Given** une requête POST sans `Content-Type: application/json`
+**Then** Helix retourne `400 Bad Request` avec un message explicite avant de tenter le décodage
+**Refs:** D-3.5-2, D-3.5-3, D-3.5-4, D-3.4-2 [web/internal/fiber_adapter.go, web/binding.go]
+
+### Story 14.2: Binding Avancé — Structs Embarquées & Body Null
+
+En tant que **développeur utilisant Helix**,
+Je veux que le binding JSON visite les structs embarquées et gère le body null correctement,
+Afin que mes DTOs complexes soient toujours correctement désérialisés.
+
+**Acceptance Criteria:**
+
+**Given** un handler avec un body struct contenant un champ embarqué (`type Req struct { Base; Name string }`)
+**When** une requête arrive avec `{"name": "test", "base_field": "val"}`
+**Then** les champs de `Base` sont correctement bindés (anonymous fields visités)
+**Given** une requête POST avec body `null`
+**Then** Helix retourne `400 Bad Request` (null ne bypass pas le guard "empty body")
+**Given** une struct bindée avec `DisallowUnknownFields()` actif
+**Then** un champ inconnu retourne `400` avec le nom du champ inconnu dans l'erreur
+**And** un mécanisme opt-out `helix:"allow-unknown"` permet de désactiver ce comportement
+**Refs:** D-3.4-3, D-3.4-5, D-3.4-1 [web/binding.go, web/internal/binding_plan.go]
+
+### Story 14.3: Container DI — ScopePrototype Correct & Cycles
+
+En tant que **développeur utilisant Helix**,
+Je veux que `ScopePrototype` retourne de vraies nouvelles instances et que les cycles DI ne causent pas de stack overflow,
+Afin d'avoir un container DI correct et sûr.
+
+**Acceptance Criteria:**
+
+**Given** un composant enregistré avec `ScopePrototype`
+**When** `container.Resolve()` est appelé deux fois
+**Then** deux pointeurs différents sont retournés (via `reflect.New`, pas le pointeur enregistré)
+**Given** une dépendance cyclique `A → B → A`
+**When** `container.Resolve()` est appelé
+**Then** l'erreur `ErrCyclicDep` est retournée immédiatement (pas de récursion infinie ni stack overflow)
+**Given** `container.Graph()` est appelé sur un container vide
+**Then** `Graph().Edges` est une map initialisée non-nil (pas de panic si le caller écrit dedans)
+**Given** `core.ComponentRegistration{Scope: ScopePrototype, Lazy: true}`
+**Then** `container.Register()` retourne une erreur explicite (combinaison invalide rejetée au register)
+**Refs:** D-1.3-Df3, D-1.3-Df1, D-1.2-D1, D-1.5-Df3 [core/reflect_resolver.go, core/container.go]
+
+### Story 14.4: Sécurité — RBAC Case-Insensitive & Injection SQL
+
+En tant que **développeur sécurisant son API avec Helix**,
+Je veux que les rôles RBAC soient comparés sans sensibilité à la casse et que les filtres repository ne soient pas vulnérables à l'injection,
+Afin d'éviter des bypasses de sécurité silencieux.
+
+**Acceptance Criteria:**
+
+**Given** un utilisateur avec le rôle `ADMIN` (majuscules) et une route `//helix:guard role:admin`
+**When** la requête arrive
+**Then** le guard autorise l'accès (comparaison case-insensitive via `strings.EqualFold`)
+**And** le contrat est documenté dans le godoc de `RoleGuard`
+**Given** un `Condition{Field: "name; DROP TABLE users;--"}` passé à un repository GORM
+**When** `FindWhere(condition)` est exécuté
+**Then** le nom de colonne est validé contre un pattern `^[a-zA-Z_][a-zA-Z0-9_]*$` avant usage
+**And** un nom de colonne invalide retourne une `ErrInvalidCondition` (pas une requête SQL potentiellement dangereuse)
+**Refs:** D-8.2-1, D-4.1-1, D-3.5-6 [security/rbac.go, data/gorm/repository.go]
+
+### Story 14.5: Starters — Erreurs Propagées & Idempotence
+
+En tant que **développeur utilisant Helix**,
+Je veux que les erreurs d'enregistrement DI dans les starters soient propagées et que `Configure()` soit idempotent,
+Afin de détecter les problèmes de configuration au démarrage plutôt qu'en production.
+
+**Acceptance Criteria:**
+
+**Given** un starter dont `container.Register(component)` échoue
+**When** `Configure(container)` est appelé
+**Then** l'erreur est propagée et `helix.Run()` échoue avec un message identifiant le starter et le composant
+**And** ce pattern s'applique à TOUS les starters (web, data, observability, security, scheduling)
+**Given** `Configure(container)` est appelé deux fois sur le même starter
+**Then** aucun lifecycle dupliqué n'est créé (idempotence garantie)
+**Given** `server.port: "99999"` dans la config
+**Then** le starter web rejette le port au démarrage avec `ErrInvalidPort`
+**Refs:** D-7.4-2, D-9.1-4, D-7.4-3, D-7.2-2 [starter/web/starter.go, starter/scheduling/starter.go, starter/observability/starter.go]
+
+### Story 14.6: Repository — Pagination Sécurisée & FindAll Bornée
+
+En tant que **développeur utilisant Helix**,
+Je veux que la pagination rejette les valeurs invalides et que `FindAll()` supporte une borne maximale,
+Afin d'éviter des charges mémoire non bornées en production.
+
+**Acceptance Criteria:**
+
+**Given** `repo.Paginate(-1, 0)` est appelé
+**When** la requête est exécutée
+**Then** une `ErrInvalidPagination` est retournée (page ≥ 1, size ≥ 1)
+**Given** `repo.FindAll()` est appelé sur une table avec 1 million de lignes
+**Then** par défaut, `FindAll()` retourne au maximum 1000 enregistrements avec un warning loggé
+**And** une option `WithoutLimit()` permet de récupérer tous les enregistrements explicitement
+**Given** `OperatorContains` avec `value = "50% off"` (contient `%`)
+**Then** le `%` est échappé avant d'être interpolé dans le LIKE SQL
+**Refs:** D-4.1-3, D-4.1-5, D-4.1-2, D-4.1-7 [data/repository.go, data/gorm/repository.go]
+
+### Story 14.7: CLI Migrations — Concurrence & Annulation
+
+En tant que **développeur utilisant Helix**,
+Je veux que les migrations soient sérialisées et que l'annulation de contexte soit gérée proprement,
+Afin d'éviter les états inconsistants en base lors d'exécutions concurrentes ou d'interruptions.
+
+**Acceptance Criteria:**
+
+**Given** deux processus exécutant `helix db migrate up` simultanément
+**When** les deux atteignent la même migration non appliquée
+**Then** un seul exécute la migration (advisory lock DB ou mécanisme de sérialisation)
+**Given** le contexte est annulé après k migrations appliquées
+**When** la migration k+1 démarre
+**Then** `Up()` retourne immédiatement avec une erreur listant les k migrations déjà appliquées
+**Given** `CGO_ENABLED=0` et un driver SQLite3 requis
+**When** `helix db migrate up` est exécuté
+**Then** le message d'erreur explique que `go-sqlite3` requiert CGo et suggère une alternative
+**Refs:** D-10.5-2, D-10.5-5, D-10.5-3 [cli/internal/migrate/migrate.go]
+
+### Story 14.8: Lifecycle — Goroutine Leaks & OnStop Garanti
+
+En tant que **développeur utilisant Helix**,
+Je veux qu'aucune goroutine ne soit laissée ouverte lors du shutdown et qu'`OnStop` soit toujours appelé même si `OnStart` échoue,
+Afin d'éviter les memory leaks et les ressources non libérées.
+
+**Acceptance Criteria:**
+
+**Given** un composant dont `OnStop()` dépasse le timeout configuré
+**When** le shutdown est déclenché
+**Then** la goroutine de `OnStop()` est annulée via contexte (pas de goroutine leak)
+**Given** un composant dont `OnStart()` retourne une erreur
+**When** `helix.Run()` gère l'erreur
+**Then** `OnStop()` est appelé sur tous les composants déjà démarrés (cleanup garanti)
+**Given** `scheduler.Stop(ctx)` puis `lifecycle.OnStop()` sont appelés en séquence
+**Then** le deuxième `cron.Stop()` est sans effet (idempotence documentée et testée)
+**Refs:** D-1.7-Df4, D-7.4-4, D-9.1-2 [core/lifecycle.go, starter/scheduling/starter.go]
+
+### Story 14.9: MockBean & TestApp — Edge Cases Multi-Interface
+
+En tant que **développeur testant son application Helix**,
+Je veux que `MockBean[T]` gère correctement les composants multi-interfaces,
+Afin que mes tests ne tombent pas en erreur à cause d'ambiguïtés de résolution.
+
+**Acceptance Criteria:**
+
+**Given** un composant `SmtpMailer` implémentant `Mailer` et `HealthIndicator`
+**When** `helix.MockBean[Mailer](mockMailer)` est utilisé dans un test
+**Then** seule l'interface `Mailer` est remplacée — `HealthIndicator` reste résolu normalement
+**Given** un mock implémentant des interfaces supplémentaires au-delà de la cible `T`
+**When** `NewTestApp` démarre le container
+**Then** aucun `ErrUnresolvable` "multiple registrations" n'est retourné
+**Given** un `ComponentRegistration` passé via `TestContainerOptions`
+**Then** `isReplacedComponent` le reconnaît correctement (pas de bypass du remplacement)
+**Refs:** D-5.2-1, D-5.2-2, D-5.2-3 [testutil/testapp.go, core/reflect_resolver.go]
+
+### Story 14.10: Guards, Context & Nettoyage Sentinelles
+
+En tant que **développeur utilisant Helix**,
+Je veux que les guards n'interrompent pas la chaîne d'interceptors et que les sentinelles mortes soient supprimées,
+Afin d'avoir un comportement prédictible et un code base sans code mort.
+
+**Acceptance Criteria:**
+
+**Given** une route avec `//helix:interceptor log` et `//helix:guard authenticated` enchaînés
+**When** une requête non authentifiée arrive
+**Then** l'interceptor `log` est toujours exécuté (avant le guard) pour les requêtes rejetées
+**Given** `web.Context` exposé dans l'API publique
+**When** un développeur appelle `ctx.Method()` et `ctx.OriginalURL()`
+**Then** ces méthodes sont disponibles (ajout non-cassant à l'interface `web.Context`)
+**Given** `ErrJobNotFound` dans le package `scheduler`
+**Then** le sentinel est soit utilisé dans l'implémentation, soit supprimé (zéro code mort)
+**Given** `container.Register(component)` appelé deux fois avec le même type
+**Then** les singletons précédemment résolus qui dépendent de ce type sont invalidés (ou l'erreur est documentée)
+**Refs:** D-3.7-1, D-3.7-2, D-9.1-1, D-1.5-Df4 [web/guard.go, web/context.go, scheduler/scheduler.go]

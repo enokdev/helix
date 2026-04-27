@@ -1579,3 +1579,108 @@ func TestRegisterController_FallsBackToASTWhenNoRegistry(t *testing.T) {
 	}
 }
 
+// ---- Task 2: Error in any slot ----
+
+type ErrorInPayloadSlotController struct {
+	helix.Controller
+}
+
+func (c *ErrorInPayloadSlotController) Index() (any, error) {
+	return fmt.Errorf("something failed internally"), nil
+}
+
+// ---- Task 3: JSON serialization failure (unserializable payload) ----
+
+type ChannelPayloadController struct {
+	helix.Controller
+}
+
+func (c *ChannelPayloadController) Index() (any, error) {
+	return make(chan int), nil
+}
+
+// ---- Task 4: Content-Type validation ----
+
+func TestRegisterController_ErrorInAnySlot(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &ErrorInPayloadSlotController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/error-in-payload-slots", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
+}
+
+func TestRegisterController_AcceptsCaseInsensitiveContentType(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &BodyBindingController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/body-bindings",
+		strings.NewReader(`{"name":"Alice","email":"alice@example.com"}`))
+	req.Header.Set("Content-Type", "APPLICATION/JSON")
+
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+func TestRegisterController_RejectsMissingContentType(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &BodyBindingController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/body-bindings",
+		strings.NewReader(`{"name":"Alice","email":"alice@example.com"}`))
+	// Intentionally NOT setting Content-Type
+
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	detail := assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_JSON", "")
+	if !strings.Contains(detail.Message, "required") {
+		t.Errorf("error.message = %q, want it to contain 'required'", detail.Message)
+	}
+}
+
+func TestRegisterController_RejectsWrongContentType(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &BodyBindingController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/body-bindings",
+		strings.NewReader(`{"name":"Alice","email":"alice@example.com"}`))
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	detail := assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_JSON", "")
+	if !strings.Contains(detail.Message, "must be application/json") {
+		t.Errorf("error.message = %q, want it to contain 'must be application/json'", detail.Message)
+	}
+}

@@ -154,3 +154,5 @@ gh project item-edit \
   --project-id <project-node-id> \
   --single-select-option-id <done-option-id>
 ```
+
+5. Verify that the CI passes , if not, investigate and fix before closing the issue.

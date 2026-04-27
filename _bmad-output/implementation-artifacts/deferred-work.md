@@ -325,3 +325,7 @@
 
 ## Deferred from: code review of story-13.6 (2026-04-27)
 - Proxy Fragility: observingContext uses manual delegation instead of embedding. This is fragile to changes in the fiberinternal.Context interface.
+
+## Deferred from: code review of 14-1-panic-recovery-http-robustesse (2026-04-27)
+- Dépendance globale slog : L'usage de slog.Default() limite l'injectabilité du logging.
+- Allocation mémoire inutile : bytes.TrimSpace(ctx.Body()) alloue une nouvelle slice, doublant l'usage mémoire sur de gros payloads.

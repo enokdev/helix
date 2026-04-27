@@ -36,13 +36,14 @@ type controllerArgumentPlan struct {
 }
 
 type bindingPlan struct {
-	kind   bindingKind
-	target reflect.Type
-	fields []fieldBinding
+	kind         bindingKind
+	target       reflect.Type
+	fields       []fieldBinding
+	allowUnknown bool
 }
 
 type fieldBinding struct {
-	index        int
+	indexPath    []int
 	name         string
 	defaultValue string
 	maxValue     string
@@ -85,48 +86,96 @@ func newControllerArgumentPlan(methodType reflect.Type) (*controllerArgumentPlan
 	return plan, nil
 }
 
+// hasJSONTags rapporte si t ou l'un de ses anonymous fields contient un tag json.
+func hasJSONTags(t reflect.Type) bool {
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue
+		}
+		if externalTagName(f.Tag.Get("json")) != "" {
+			return true
+		}
+		if f.Anonymous && f.Type.Kind() == reflect.Struct {
+			if hasJSONTags(f.Type) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasAllowUnknownTag rapporte si t possède un champ avec le tag helix:"allow-unknown".
+func hasAllowUnknownTag(t reflect.Type) bool {
+	for i := 0; i < t.NumField(); i++ {
+		if t.Field(i).Tag.Get("helix") == "allow-unknown" {
+			return true
+		}
+	}
+	return false
+}
+
+// collectQueryFields parcourt récursivement t (y compris les anonymous fields) et
+// collecte les champs portant un tag query avec leur chemin d'index multi-niveaux.
+func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *[]fieldBinding) error {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+
+		currentPath := make([]int, len(basePath)+1)
+		copy(currentPath, basePath)
+		currentPath[len(basePath)] = i
+
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			if err := collectQueryFields(field.Type, currentPath, hasQuery, fields); err != nil {
+				return err
+			}
+			continue
+		}
+
+		queryName := externalTagName(field.Tag.Get("query"))
+		if queryName == "" {
+			continue
+		}
+
+		*hasQuery = true
+		if !isSupportedQueryField(field.Type) {
+			return fmt.Errorf("web: adapt handler query field %s: %w", field.Name, ErrUnsupportedHandler)
+		}
+		maxVal := field.Tag.Get("max")
+		if maxVal != "" {
+			if !isNumericField(field.Type) {
+				return fmt.Errorf("web: adapt handler query field %s max tag: %w", field.Name, ErrUnsupportedHandler)
+			}
+			if err := validateMaxTagValue(maxVal, field.Type); err != nil {
+				return fmt.Errorf("web: adapt handler query field %s max tag value %q: %w", field.Name, maxVal, ErrUnsupportedHandler)
+			}
+		}
+		*fields = append(*fields, fieldBinding{
+			indexPath:    currentPath,
+			name:         queryName,
+			defaultValue: field.Tag.Get("default"),
+			maxValue:     maxVal,
+		})
+	}
+	return nil
+}
+
 func newBindingPlan(target reflect.Type) (*bindingPlan, error) {
 	if target.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
 	}
 
 	hasQuery := false
-	hasJSON := false
 	fields := make([]fieldBinding, 0, target.NumField())
-
-	for i := 0; i < target.NumField(); i++ {
-		field := target.Field(i)
-		if field.PkgPath != "" {
-			continue
-		}
-
-		queryName := externalTagName(field.Tag.Get("query"))
-		jsonName := externalTagName(field.Tag.Get("json"))
-		if queryName != "" {
-			hasQuery = true
-			if !isSupportedQueryField(field.Type) {
-				return nil, fmt.Errorf("web: adapt handler query field %s: %w", field.Name, ErrUnsupportedHandler)
-			}
-			maxVal := field.Tag.Get("max")
-			if maxVal != "" {
-				if !isNumericField(field.Type) {
-					return nil, fmt.Errorf("web: adapt handler query field %s max tag: %w", field.Name, ErrUnsupportedHandler)
-				}
-				if err := validateMaxTagValue(maxVal, field.Type); err != nil {
-					return nil, fmt.Errorf("web: adapt handler query field %s max tag value %q: %w", field.Name, maxVal, ErrUnsupportedHandler)
-				}
-			}
-			fields = append(fields, fieldBinding{
-				index:        i,
-				name:         queryName,
-				defaultValue: field.Tag.Get("default"),
-				maxValue:     maxVal,
-			})
-		}
-		if jsonName != "" {
-			hasJSON = true
-		}
+	if err := collectQueryFields(target, nil, &hasQuery, &fields); err != nil {
+		return nil, err
 	}
+
+	hasJSON := hasJSONTags(target)
+	allowUnknown := hasAllowUnknownTag(target)
 
 	switch {
 	case hasQuery && hasJSON:
@@ -134,7 +183,7 @@ func newBindingPlan(target reflect.Type) (*bindingPlan, error) {
 	case hasQuery:
 		return &bindingPlan{kind: bindingKindQuery, target: target, fields: fields}, nil
 	case hasJSON:
-		return &bindingPlan{kind: bindingKindJSON, target: target}, nil
+		return &bindingPlan{kind: bindingKindJSON, target: target, allowUnknown: allowUnknown}, nil
 	default:
 		return nil, fmt.Errorf("web: adapt handler untagged struct: %w", ErrUnsupportedHandler)
 	}
@@ -186,7 +235,7 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 			continue
 		}
 
-		target := value.Field(field.index)
+		target := value.FieldByIndex(field.indexPath)
 		if err := setQueryValue(target, raw); err != nil {
 			return newRequestError(http.StatusBadRequest, codeInvalidQueryParam, field.name, fmt.Sprintf("%s has invalid value", field.name))
 		}
@@ -198,13 +247,25 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 }
 
 func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
+	ct := ctx.Header("Content-Type")
+	if ct == "" {
+		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type header is required (application/json)")
+	}
+	if !strings.Contains(strings.ToLower(ct), "application/json") {
+		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
+	}
 	body := bytes.TrimSpace(ctx.Body())
 	if len(body) == 0 {
 		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body is required")
 	}
+	if bytes.Equal(body, []byte("null")) {
+		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body must not be null")
+	}
 
 	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
+	if !p.allowUnknown {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(value.Addr().Interface()); err != nil {
 		field := jsonErrorField(err)
 		return newRequestError(http.StatusBadRequest, codeInvalidJSON, field, "request body is invalid")
@@ -229,7 +290,7 @@ func validationRequestError(err error) error {
 			}
 			return newMultiFieldValidationError(fieldErrors)
 		}
-		
+
 		// Single validation error - use old format for backward compatibility
 		ve := validationErrors[0]
 		return newRequestError(http.StatusBadRequest, codeValidationFailed, ve.Field(),

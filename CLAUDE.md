@@ -108,3 +108,5 @@ When a work item is marked `done` in the internal tracking system, close the cor
    ```bash
    gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
    ```
+
+3. Verify that the CI passes , if not, investigate and fix before closing the issue.

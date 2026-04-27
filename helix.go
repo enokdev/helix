@@ -23,8 +23,8 @@ import (
 	"github.com/enokdev/helix/starter"
 	starterdata "github.com/enokdev/helix/starter/data"
 	starterobs "github.com/enokdev/helix/starter/observability"
-	startersec "github.com/enokdev/helix/starter/security"
 	startersched "github.com/enokdev/helix/starter/scheduling"
+	startersec "github.com/enokdev/helix/starter/security"
 	starterweb "github.com/enokdev/helix/starter/web"
 	"github.com/enokdev/helix/web"
 )
