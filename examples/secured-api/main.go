@@ -1,19 +1,16 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	helix "github.com/enokdev/helix"
 	"github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
 	"github.com/enokdev/helix/security"
+	"github.com/enokdev/helix/starter"
 	webstarter "github.com/enokdev/helix/starter/web"
 	"github.com/enokdev/helix/web"
 )
@@ -338,10 +335,10 @@ func main() {
 	loader := config.NewLoader(
 		config.WithConfigPaths("examples/secured-api/config", "config"),
 		config.WithDefaults(map[string]any{
-			"server.port":          8081,
-			"app.name":             "helix-secured-api",
-			"security.jwt.secret":  "dev-only-secured-api-secret-change-me",
-			"security.jwt.expiry":  1 * time.Hour,
+			"server.port":         8081,
+			"app.name":            "helix-secured-api",
+			"security.jwt.secret": "dev-only-secured-api-secret-change-me",
+			"security.jwt.expiry": 1 * time.Hour,
 		}),
 	)
 
@@ -355,69 +352,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
-
-	// Configure the web starter — registers the HTTP server and its lifecycle.
-	webstarter.New(loader).Configure(container)
-
-	// Register application components.
-	for _, component := range []any{
-		jwtSvc,
-		NewAuthService(cfg.Security.JWT.Expiry),
-		&AuthController{},
-		&APIController{},
-		&AdminController{},
-		&SecurityConfig{},
-	} {
-		if err := container.Register(component); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	// Resolve controllers and security config, then wire routes on the starter-managed server.
-	var authCtrl *AuthController
-	var apiCtrl *APIController
-	var adminCtrl *AdminController
-	var securityCfg *SecurityConfig
-
-	for _, target := range []any{&authCtrl, &apiCtrl, &adminCtrl, &securityCfg} {
-		if err := container.Resolve(target); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	var server web.HTTPServer
-	if err := container.Resolve(&server); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := web.RegisterGuardFactory(server, "role", security.NewRoleGuardFactory()); err != nil {
-		log.Fatal(err)
-	}
-
-	for _, ctrl := range []any{authCtrl, apiCtrl, adminCtrl} {
-		if err := web.RegisterController(server, ctrl); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	httpSecurity := security.NewHTTPSecurity(jwtSvc)
-	securityCfg.Configure(httpSecurity)
-	if err := web.ApplyGlobalGuard(server, httpSecurity.Build()); err != nil {
-		log.Fatal(err)
-	}
-
-	// Start the container — the web starter lifecycle starts the HTTP server.
-	if err := container.Start(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Wait for SIGINT/SIGTERM then shut down gracefully.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-ctx.Done()
-
-	if err := container.Shutdown(); err != nil {
+	if err := helix.Run(helix.App{
+		Starters: []starter.Entry{
+			{Name: "web", Order: starter.OrderWeb, Starter: webstarter.New(loader)},
+		},
+		Components: []any{
+			jwtSvc,
+			NewAuthService(cfg.Security.JWT.Expiry),
+			&AuthController{},
+			&APIController{},
+			&AdminController{},
+			&SecurityConfig{},
+		},
+	}); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -1,18 +1,15 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
 	"sync"
-	"syscall"
 
 	helix "github.com/enokdev/helix"
 	"github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/starter"
 	webstarter "github.com/enokdev/helix/starter/web"
 	"github.com/enokdev/helix/web"
 )
@@ -268,48 +265,16 @@ func main() {
 		}),
 	)
 
-	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
-
-	// Configure the web starter — registers the HTTP server and its lifecycle.
-	webstarter.New(loader).Configure(container)
-
-	// Register application components.
-	for _, component := range []any{
-		NewUserRepository(),
-		&UserService{},
-		&UserController{},
-	} {
-		if err := container.Register(component); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	// Resolve the controller and register its routes on the starter-managed server.
-	var ctrl *UserController
-	if err := container.Resolve(&ctrl); err != nil {
-		log.Fatal(err)
-	}
-
-	var server web.HTTPServer
-	if err := container.Resolve(&server); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := web.RegisterController(server, ctrl); err != nil {
-		log.Fatal(err)
-	}
-
-	// Start the container — the web starter lifecycle starts the HTTP server.
-	if err := container.Start(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Wait for SIGINT/SIGTERM then shut down gracefully.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-ctx.Done()
-
-	if err := container.Shutdown(); err != nil {
+	if err := helix.Run(helix.App{
+		Starters: []starter.Entry{
+			{Name: "web", Order: starter.OrderWeb, Starter: webstarter.New(loader)},
+		},
+		Components: []any{
+			NewUserRepository(),
+			&UserService{},
+			&UserController{},
+		},
+	}); err != nil {
 		log.Fatal(err)
 	}
 }
