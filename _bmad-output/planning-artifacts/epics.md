@@ -1,10 +1,12 @@
 ---
 stepsCompleted: [1, 2, 3, 4]
-status: 'complete'
+status: 'augmented'
 completedAt: '2026-04-14'
+augmentedAt: '2026-04-26'
 inputDocuments:
   - '_bmad-output/product-development/PRD.md'
   - '_bmad-output/planning-artifacts/architecture.md'
+augmentationSource: 'PM session Zero-Config vision (2026-04-26)'
 ---
 
 # Helix - Epic Breakdown
@@ -45,6 +47,10 @@ FR25: Le système doit fournir des commandes CLI pour les migrations DB (`helix 
 FR26: Le système doit fournir un CLI complet (`helix new app`, `helix generate module/context/repository`, `helix run`, `helix build`).
 FR27: Le système doit implémenter l'auto-configuration des starters (web, data, security, config, observability, scheduling) avec détection automatique et override YAML.
 FR28: Le système doit supporter les guards déclaratifs (`//helix:guard`) et interceptors (`//helix:interceptor`) sur les routes.
+FR-ZC1: `helix.Run()` doit fonctionner sans aucun argument — bootstrap complet automatique avec config auto-chargée depuis `config/application.yaml` et starters auto-détectés.
+FR-ZC2: Les contrôleurs avec embed `helix.Controller` doivent être auto-découverts et auto-enregistrés sur le serveur HTTP par le starter web, sans appel manuel à `web.RegisterController()`.
+FR-ZC3: Le lifecycle du serveur HTTP (démarrage/arrêt) doit être géré entièrement par le framework — le pattern `appServer{OnStart/OnStop}` ne doit plus être requis dans le code utilisateur.
+FR-ZC4: Les starters doivent s'activer par présence de markers de composants dans le container (`helix.Controller`, `helix.SecurityConfigurer`, `//helix:scheduled`) en plus de la détection via `go.mod`.
 
 ### NonFunctional Requirements
 
@@ -101,12 +107,16 @@ FR3: Epic 10 — DI codegen compile-time (helix generate wire)
 FR24: Epic 10 — DDD contexts via helix generate context
 FR25: Epic 10 — DB migrations CLI (helix db migrate)
 FR26: Epic 10 — CLI complet (new/generate/run/build)
+FR-ZC1: Epic 1 — helix.Run() zéro-paramètre, bootstrap complet automatique
+FR-ZC2: Epic 7 — Auto-registration des contrôleurs par le starter web
+FR-ZC3: Epic 7 — Lifecycle HTTP intégré, suppression du wrapper appServer
+FR-ZC4: Epic 7 — Auto-détection des starters par markers de composants
 
 ## Epic List
 
 ### Epic 1: Application Bootstrap & DI Container
-Un développeur peut créer une application Helix avec injection de dépendances automatique en une ligne de code.
-**FRs couverts :** FR1, FR2, FR4, FR5, FR17
+Un développeur peut créer une application Helix avec injection de dépendances automatique en une ligne de code — jusqu'à `func main() { helix.Run() }` en zéro-config complet.
+**FRs couverts :** FR1, FR2, FR4, FR5, FR17, FR-ZC1
 **Phase PRD :** Phase 1 (MVP)
 
 ### Epic 2: Configuration Centralisée
@@ -135,8 +145,8 @@ Un développeur peut monitorer son application Helix en production via des endpo
 **Phase PRD :** Phase 2
 
 ### Epic 7: Auto-Configuration & Starters
-Un développeur peut démarrer une application Helix sans aucune configuration explicite — les starters s'activent automatiquement.
-**FRs couverts :** FR27
+Un développeur peut démarrer une application Helix sans aucune configuration explicite — les starters s'activent automatiquement, les contrôleurs sont auto-enregistrés et le lifecycle serveur est géré par le framework.
+**FRs couverts :** FR27, FR-ZC2, FR-ZC3, FR-ZC4
 **Phase PRD :** Phase 2
 
 ### Epic 8: Sécurité
@@ -286,6 +296,25 @@ Afin de me concentrer sur ma logique métier.
 **And** les structs avec embed `helix.Service`, `helix.Controller`, `helix.Repository`, `helix.Component` sont auto-enregistrés
 **And** les dépendances sont résolues avant le premier `OnStart()`
 **And** `helix.Run()` bloque jusqu'à réception de SIGTERM/SIGINT
+**And** l'application démarre en < 100ms (benchmark CI)
+
+### Story 1.8: helix.Run() Zéro-Paramètre — Bootstrap Complet Automatique
+
+En tant que **développeur utilisant Helix**,
+Je veux démarrer mon application avec `helix.Run()` sans aucun argument,
+Afin que mon `main.go` se résume à `func main() { helix.Run() }`.
+
+**Acceptance Criteria:**
+
+**Given** un projet Helix avec des composants annotés et un fichier `config/application.yaml` ou `application.yaml` présent
+**When** `helix.Run()` est appelé sans aucun argument
+**Then** la configuration est chargée automatiquement depuis `config/application.yaml` (ou `application.yaml` en fallback)
+**And** les starters sont auto-détectés : web si `gofiber/fiber` dans `go.mod`, security si clé `security.*` présente dans la config, data si driver DB dans `go.mod` et clé `database.url` présente
+**And** tous les composants avec embed `helix.Controller`, `helix.Service`, `helix.Repository`, `helix.Component`, `helix.SecurityConfigurer` sont découverts et câblés automatiquement
+**And** le serveur HTTP démarre sans aucune ligne de code de bootstrap manuel dans `main.go`
+**And** si aucun fichier de config n'est trouvé, les valeurs par défaut des starters s'appliquent (port 8080, etc.)
+**Given** `helix.Run(App{Starters: ..., Components: ...})` est utilisé par un développeur existant
+**Then** le comportement existant est conservé sans aucune modification requise (rétrocompatibilité totale)
 **And** l'application démarre en < 100ms (benchmark CI)
 
 ---
@@ -712,6 +741,61 @@ Afin d'enrichir mon application sans modifier le code de bootstrap.
 **Given** des composants avec `//helix:scheduled` sont enregistrés
 **Then** le starter scheduling s'active automatiquement et enregistre les jobs cron
 **And** chaque starter peut être forcé à `enabled: false` pour désactiver l'auto-détection
+
+### Story 7.5: Auto-Registration des Contrôleurs par le Starter Web
+
+En tant que **développeur utilisant Helix**,
+Je veux que le starter web découvre et enregistre automatiquement tous mes contrôleurs,
+Afin de ne plus écrire `web.RegisterController(server, ctrl)` pour chaque contrôleur.
+
+**Acceptance Criteria:**
+
+**Given** des structs avec embed `helix.Controller` enregistrées dans le container DI
+**When** le starter web s'active
+**Then** chaque contrôleur est découvert automatiquement depuis le container
+**And** les routes de chaque contrôleur sont enregistrées sur le serveur HTTP sans aucun code utilisateur
+**And** les guard factories requises par les directives `//helix:guard` des contrôleurs sont auto-enregistrées (`role` guard factory activée si `//helix:guard role:*` est détecté)
+**And** l'ordre de registration est déterministe et suit l'ordre d'enregistrement dans le container
+**Given** un projet avec `AuthController`, `APIController` et `AdminController` dans le container
+**Then** les trois contrôleurs et toutes leurs routes sont actifs sans une seule ligne de code de registration manuel
+**And** si un contrôleur est résolu avec une erreur, `helix.Run()` échoue avec un message identifiant le contrôleur concerné
+
+### Story 7.6: Lifecycle HTTP Intégré — Suppression du Wrapper appServer
+
+En tant que **développeur utilisant Helix**,
+Je veux que le serveur HTTP démarre et s'arrête sans que j'aie à créer un wrapper lifecycle,
+Afin de supprimer définitivement le pattern `appServer{OnStart/OnStop}` de mon code.
+
+**Acceptance Criteria:**
+
+**Given** le starter web actif et `server.port` configuré dans `application.yaml` (défaut: 8080)
+**When** `helix.Run()` est appelé
+**Then** le serveur HTTP démarre automatiquement via le lifecycle interne du starter web
+**And** aucune struct `appServer` implémentant `OnStart/OnStop` n'est nécessaire dans le code utilisateur
+**And** l'adresse d'écoute est construite depuis `server.port` sans code utilisateur
+**When** SIGTERM ou SIGINT est reçu
+**Then** le serveur s'arrête proprement via le graceful shutdown du container
+**And** les requêtes en cours sont finalisées avant l'arrêt (timeout `helix.shutdown-timeout`, défaut 30s)
+**And** le pattern `appServer` reste disponible comme option avancée pour les cas nécessitant un contrôle fin du lifecycle (rétrocompatibilité)
+
+### Story 7.7: Auto-Détection des Starters par Markers de Composants
+
+En tant que **développeur utilisant Helix**,
+Je veux que les starters s'activent automatiquement selon les composants présents dans mon code,
+Afin de ne jamais déclarer explicitement `Starters: []starter.Entry{starter.Security()}` dans `main.go`.
+
+**Acceptance Criteria:**
+
+**Given** un composant avec embed `helix.SecurityConfigurer` est dans le container DI
+**When** `helix.Run()` orchestre le démarrage
+**Then** le starter security s'active automatiquement — sans déclaration explicite dans `main.go` ni clé `security.*` dans la config
+**And** le service JWT est créé depuis `security.jwt.secret` et `security.jwt.expiry` dans la config
+**Given** des composants avec directive `//helix:scheduled` sont détectés dans le container
+**Then** le starter scheduling s'active automatiquement
+**Given** `helix.starters.security.enabled: false` est défini explicitement dans la config
+**Then** le starter security NE s'active PAS même si un `SecurityConfigurer` est présent (override explicite prioritaire sur l'auto-détection)
+**And** l'auto-détection par markers est complémentaire à la détection existante via `go.mod` (Stories 7.1–7.4)
+**And** le log de démarrage indique pour chaque starter : la raison d'activation (`go.mod`, `config key`, ou `component marker`)
 
 ---
 

@@ -141,7 +141,17 @@ func (r *ErrorHandlerRegistry) RegisterGeneratedErrorHandlers(handlers ...ErrorH
 	}
 
 	for _, handler := range handlers {
-		r.handlers[handler.Controller] = append(r.handlers[handler.Controller], handler)
+		existing := r.handlers[handler.Controller]
+		isDuplicate := false
+		for _, h := range existing {
+			if h.ErrorType == handler.ErrorType {
+				isDuplicate = true
+				break
+			}
+		}
+		if !isDuplicate {
+			r.handlers[handler.Controller] = append(r.handlers[handler.Controller], handler)
+		}
 	}
 	slog.Debug("registered generated error handlers", "count", len(handlers))
 	return nil

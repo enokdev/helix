@@ -46,9 +46,9 @@ func (s *Starter) Condition() bool {
 }
 
 // Configure registers the observability components into the DI container.
-func (s *Starter) Configure(container *core.Container) {
+func (s *Starter) Configure(container *core.Container) error {
 	if container == nil {
-		return
+		return nil
 	}
 
 	// Configure structured logging (global slog default).
@@ -78,7 +78,7 @@ func (s *Starter) Configure(container *core.Container) {
 			startErr: fmt.Errorf("observability starter: resolve HTTPServer: %w", err),
 			shutdown: shutdownFn,
 		})
-		return
+		return nil
 	}
 
 	// Build health checker from container-registered indicators (empty is fine).
@@ -95,7 +95,7 @@ func (s *Starter) Configure(container *core.Container) {
 				startErr: fmt.Errorf("observability starter: create fallback health checker: %w", err2),
 				shutdown: shutdownFn,
 			})
-			return
+			return nil
 		}
 		checker = empty
 	}
@@ -116,6 +116,7 @@ func (s *Starter) Configure(container *core.Container) {
 	}
 
 	_ = container.Register(&observabilityLifecycle{shutdown: shutdownFn})
+	return nil
 }
 
 // observabilityLifecycle handles the tracing shutdown on container stop.

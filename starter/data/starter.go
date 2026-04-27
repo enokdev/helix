@@ -78,9 +78,9 @@ func (s *Starter) Condition() bool {
 }
 
 // Configure registers DB components and a lifecycle into the container.
-func (s *Starter) Configure(container *core.Container) {
+func (s *Starter) Configure(container *core.Container) error {
 	if container == nil {
-		return
+		return nil
 	}
 
 	lc := &databaseLifecycle{}
@@ -114,6 +114,7 @@ func (s *Starter) Configure(container *core.Container) {
 	}
 
 	_ = container.Register(lc)
+	return nil
 }
 
 type databaseLifecycle struct {

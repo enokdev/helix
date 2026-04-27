@@ -322,3 +322,6 @@
 ## Deferred from: code review of story 12.1 (2026-04-24)
 
 - [x] Faiblesses architecturales et cohérence DI : Des points de vigilance sur la cohérence de l'injection de dépendances et la robustesse des tests dans l'exemple CRUD.
+
+## Deferred from: code review of story-13.6 (2026-04-27)
+- Proxy Fragility: observingContext uses manual delegation instead of embedding. This is fragile to changes in the fiberinternal.Context interface.
