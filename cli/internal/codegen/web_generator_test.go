@@ -56,14 +56,14 @@ func TestWebGenerator_GenerateErrorHandlersFile(t *testing.T) {
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {
 			{
-				Controller:  "AppErrorHandler",
-				MethodName:  "HandleValidationError",
-				ErrorType:   "ValidationError",
+				Controller: "AppErrorHandler",
+				MethodName: "HandleValidationError",
+				ErrorType:  "ValidationError",
 			},
 			{
-				Controller:  "AppErrorHandler",
-				MethodName:  "HandleNotFound",
-				ErrorType:   "NotFoundError",
+				Controller: "AppErrorHandler",
+				MethodName: "HandleNotFound",
+				ErrorType:  "NotFoundError",
 			},
 		},
 	}
@@ -186,9 +186,9 @@ func TestWebGenerator_GeneratedHandlerFileIsValid(t *testing.T) {
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {
 			{
-				Controller:  "ErrorHandler",
-				MethodName:  "HandleError",
-				ErrorType:   "CustomError",
+				Controller: "ErrorHandler",
+				MethodName: "HandleError",
+				ErrorType:  "CustomError",
 			},
 		},
 	}

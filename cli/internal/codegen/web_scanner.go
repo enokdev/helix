@@ -63,7 +63,7 @@ func (ws *WebScanner) ScanControllerDirectives(filename string) ([]RouteDirectiv
 
 		for _, comment := range funcDecl.Doc.List {
 			text := strings.TrimSpace(strings.TrimPrefix(comment.Text, "//"))
-			
+
 			if strings.HasPrefix(text, "helix:route") {
 				method, path, err := parseRouteDirective(comment.Text)
 				if err != nil {
@@ -75,7 +75,7 @@ func (ws *WebScanner) ScanControllerDirectives(filename string) ([]RouteDirectiv
 					Path:           path,
 					MethodName:     funcDecl.Name.Name,
 					ControllerName: controllerName,
-					Guards:         append([]string(nil), guards...), // Copy current guards
+					Guards:         append([]string(nil), guards...),       // Copy current guards
 					Interceptors:   append([]string(nil), interceptors...), // Copy current interceptors
 					LineNum:        ws.fset.Position(comment.Slash).Line,
 				})
