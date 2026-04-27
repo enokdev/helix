@@ -230,7 +230,7 @@ security:
 - **APIController**: Provides authenticated user endpoint `/api/profile`
 - **AdminController**: Provides admin-only endpoint `/admin/users`
 - **SecurityConfig**: Defines global authentication and authorization rules
-- **appServer**: Wraps the HTTP server for Helix lifecycle management
+- **Web starter lifecycle**: The HTTP server start and graceful shutdown are managed automatically by the web starter — no manual wrapper required
 
 ## Testing
 

@@ -17,9 +17,11 @@ import (
 )
 
 const (
-	webStarterEnabledKey = "helix.starters.web.enabled"
-	serverPortKey        = "server.port"
-	defaultServerPort    = "8080"
+	webStarterEnabledKey    = "helix.starters.web.enabled"
+	serverPortKey           = "server.port"
+	defaultServerPort       = "8080"
+	shutdownTimeoutKey      = "helix.shutdown-timeout"
+	defaultShutdownTimeout  = 30 * time.Second
 )
 
 // Starter auto-configures the HTTP server when Fiber is available.
@@ -72,17 +74,28 @@ func (s *Starter) Configure(container *core.Container) {
 		}
 	}
 
+	shutdownTimeout := defaultShutdownTimeout
+	if s.cfg != nil {
+		if value, ok := s.cfg.Lookup(shutdownTimeoutKey); ok {
+			if d := parseDuration(value); d > 0 {
+				shutdownTimeout = d
+			}
+		}
+	}
+
 	lifecycle := &serverLifecycle{
-		server: helixweb.NewServer(),
-		addr:   ":" + port,
+		server:          helixweb.NewServer(),
+		addr:            ":" + port,
+		shutdownTimeout: shutdownTimeout,
 	}
 	_ = container.Register(lifecycle)
 	_ = container.Register(lifecycle.server)
 }
 
 type serverLifecycle struct {
-	server helixweb.HTTPServer
-	addr   string
+	server          helixweb.HTTPServer
+	addr            string
+	shutdownTimeout time.Duration
 }
 
 func (l *serverLifecycle) OnStart() error {
@@ -93,13 +106,37 @@ func (l *serverLifecycle) OnStart() error {
 }
 
 func (l *serverLifecycle) OnStop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := l.shutdownTimeout
+	if timeout <= 0 {
+		timeout = defaultShutdownTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if err := l.server.Stop(ctx); err != nil {
 		return fmt.Errorf("web starter: stop: %w", err)
 	}
 	return nil
+}
+
+func parseDuration(value any) time.Duration {
+	switch v := value.(type) {
+	case time.Duration:
+		return v
+	case string:
+		d, err := time.ParseDuration(strings.TrimSpace(v))
+		if err != nil {
+			return 0
+		}
+		return d
+	case int:
+		return time.Duration(v)
+	case int64:
+		return time.Duration(v)
+	case float64:
+		return time.Duration(v)
+	}
+	return 0
 }
 
 func parseBool(value any) (bool, bool) {

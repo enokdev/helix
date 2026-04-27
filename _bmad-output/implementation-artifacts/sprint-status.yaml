@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-27 - story 13.6 IN-PROGRESS
+last_updated: 2026-04-26 - story 7.6 implemented and moved to review
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-27 - story 13.6 IN-PROGRESS
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-26 - story 13.4 VALIDATED
+last_updated: 2026-04-26 - story 1.8 promoted to ready-for-dev
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -48,7 +48,7 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 1: Application Bootstrap & DI Container
   # ─────────────────────────────────────────────
-  epic-1: done
+  epic-1: in-progress
   1-1-initialisation-du-projet-structure-de-base: done
   1-2-interfaces-publiques-du-conteneur-di: done
   1-3-reflectresolver-enregistrement-resolution-singleton: done
@@ -56,6 +56,7 @@ development_status:
   1-5-scope-prototype-lazy-loading: done
   1-6-hooks-de-cycle-de-vie-graceful-shutdown: done
   1-7-point-dentree-helix-run-marqueurs-de-composants: done
+  1-8-helix-run-zero-parametre-bootstrap-complet-automatique: ready-for-dev
   epic-1-retrospective: optional
 
   # ─────────────────────────────────────────────
@@ -111,11 +112,14 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 7: Auto-Configuration & Starters
   # ─────────────────────────────────────────────
-  epic-7: done
+  epic-7: in-progress
   7-1-interface-starter-mecanisme-de-condition: done
   7-2-starter-web-auto-activation-fiber: done
   7-3-starter-data-auto-activation-db: done
   7-4-starters-observability-security-scheduling: done
+  7-5-auto-registration-des-controleurs-par-le-starter-web: ready-for-dev
+  7-6-lifecycle-http-integre-suppression-du-wrapper-appserver: review
+  7-7-auto-detection-des-starters-par-markers-de-composants: ready-for-dev
   epic-7-retrospective: optional
 
   # ─────────────────────────────────────────────
@@ -175,5 +179,5 @@ development_status:
   13-3-robustesse-starters-detection-gomod-walkup: done
   13-4-compatibilite-binaires-deployes-suppression-ast-runtime: done
   13-5-cache-interceptor-production-grade: done
-  13-6-qualite-ux-developpeur-validation-routing-erreurs: in-progress
+  13-6-qualite-ux-developpeur-validation-routing-erreurs: done
   epic-13-retrospective: optional

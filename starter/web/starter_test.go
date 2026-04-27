@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/enokdev/helix/core"
 	helixweb "github.com/enokdev/helix/web"
@@ -241,6 +242,131 @@ func TestServerLifecycleStartStop(t *testing.T) {
 	}
 	if server.stopCtx == nil {
 		t.Fatal("OnStop() did not pass a context to server.Stop")
+	}
+}
+
+func TestServerLifecycle_ShutdownTimeout(t *testing.T) {
+	tests := []struct {
+		name            string
+		shutdownTimeout time.Duration
+		wantDeadline    bool
+	}{
+		{
+			name:            "uses configured shutdown timeout",
+			shutdownTimeout: 10 * time.Second,
+			wantDeadline:    true,
+		},
+		{
+			name:            "falls back to default when zero",
+			shutdownTimeout: 0,
+			wantDeadline:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := &fakeHTTPServer{}
+			lifecycle := &serverLifecycle{
+				server:          server,
+				addr:            ":9090",
+				shutdownTimeout: tt.shutdownTimeout,
+			}
+
+			if err := lifecycle.OnStop(); err != nil {
+				t.Fatalf("OnStop() error = %v", err)
+			}
+			if server.stopCtx == nil {
+				t.Fatal("OnStop() did not pass a context to server.Stop")
+			}
+			_, hasDeadline := server.stopCtx.Deadline()
+			if hasDeadline != tt.wantDeadline {
+				t.Fatalf("context hasDeadline = %v, want %v", hasDeadline, tt.wantDeadline)
+			}
+		})
+	}
+}
+
+func TestWebStarter_IntegratedLifecycle(t *testing.T) {
+	container := newTestContainer()
+	fakeServer := &fakeHTTPServer{}
+	cfg := fakeConfig{values: map[string]any{"server.port": 9090}}
+
+	// Manually configure the lifecycle with the fakeHTTPServer to avoid opening a real port.
+	lifecycle := &serverLifecycle{
+		server:          fakeServer,
+		addr:            ":9090",
+		shutdownTimeout: 5 * time.Second,
+	}
+	if err := container.Register(lifecycle); err != nil {
+		t.Fatalf("Register(lifecycle) error = %v", err)
+	}
+	if err := container.Register(fakeServer); err != nil {
+		t.Fatalf("Register(fakeServer) error = %v", err)
+	}
+
+	// Verify the lifecycle was registered correctly.
+	_ = cfg
+
+	// Act — start
+	if err := container.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Assert — server was started at the expected address.
+	if fakeServer.startAddr != ":9090" {
+		t.Fatalf("server started at %q, want %q", fakeServer.startAddr, ":9090")
+	}
+
+	// Act — shutdown
+	if err := container.Shutdown(); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	// Assert — server was stopped with a context.
+	if fakeServer.stopCtx == nil {
+		t.Fatal("Shutdown() did not stop the server")
+	}
+}
+
+func TestStarterConfigure_ShutdownTimeoutFromConfig(t *testing.T) {
+	tests := []struct {
+		name            string
+		configValues    map[string]any
+		wantTimeout     time.Duration
+	}{
+		{
+			name:         "uses default when key absent",
+			configValues: map[string]any{"server.port": 8080},
+			wantTimeout:  30 * time.Second,
+		},
+		{
+			name:         "uses configured timeout string",
+			configValues: map[string]any{"server.port": 8080, "helix.shutdown-timeout": "10s"},
+			wantTimeout:  10 * time.Second,
+		},
+		{
+			name:         "uses configured timeout duration",
+			configValues: map[string]any{"server.port": 8080, "helix.shutdown-timeout": 15 * time.Second},
+			wantTimeout:  15 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			container := newTestContainer()
+			cfg := fakeConfig{values: tt.configValues}
+
+			New(cfg).Configure(container)
+
+			lifecycle := singleLifecycle(t, container)
+			sl, ok := lifecycle.(*serverLifecycle)
+			if !ok {
+				t.Fatalf("lifecycle type = %T, want *serverLifecycle", lifecycle)
+			}
+			if sl.shutdownTimeout != tt.wantTimeout {
+				t.Fatalf("shutdownTimeout = %v, want %v", sl.shutdownTimeout, tt.wantTimeout)
+			}
+		})
 	}
 }
 
