@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -96,8 +97,12 @@ func hasJSONTags(t reflect.Type) bool {
 		if externalTagName(f.Tag.Get("json")) != "" {
 			return true
 		}
-		if f.Anonymous && f.Type.Kind() == reflect.Struct {
-			if hasJSONTags(f.Type) {
+		ft := f.Type
+		if ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+		if f.Anonymous && ft.Kind() == reflect.Struct {
+			if hasJSONTags(ft) {
 				return true
 			}
 		}
@@ -105,11 +110,21 @@ func hasJSONTags(t reflect.Type) bool {
 	return false
 }
 
-// hasAllowUnknownTag rapporte si t possède un champ avec le tag helix:"allow-unknown".
+// hasAllowUnknownTag rapporte si t possède un champ avec le tag helix:"allow-unknown" (éventuellement dans un embedded struct).
 func hasAllowUnknownTag(t reflect.Type) bool {
 	for i := 0; i < t.NumField(); i++ {
-		if t.Field(i).Tag.Get("helix") == "allow-unknown" {
+		f := t.Field(i)
+		if f.Tag.Get("helix") == "allow-unknown" {
 			return true
+		}
+		ft := f.Type
+		if ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+		if f.Anonymous && ft.Kind() == reflect.Struct {
+			if hasAllowUnknownTag(ft) {
+				return true
+			}
 		}
 	}
 	return false
@@ -128,8 +143,13 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 		copy(currentPath, basePath)
 		currentPath[len(basePath)] = i
 
-		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			if err := collectQueryFields(field.Type, currentPath, hasQuery, fields); err != nil {
+		ft := field.Type
+		if ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+
+		if field.Anonymous && ft.Kind() == reflect.Struct {
+			if err := collectQueryFields(ft, currentPath, hasQuery, fields); err != nil {
 				return err
 			}
 			continue
@@ -162,6 +182,7 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 	}
 	return nil
 }
+
 
 func newBindingPlan(target reflect.Type) (*bindingPlan, error) {
 	if target.Kind() != reflect.Struct {
@@ -235,7 +256,7 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 			continue
 		}
 
-		target := value.FieldByIndex(field.indexPath)
+		target := fieldByIndexSafe(value, field.indexPath)
 		if err := setQueryValue(target, raw); err != nil {
 			return newRequestError(http.StatusBadRequest, codeInvalidQueryParam, field.name, fmt.Sprintf("%s has invalid value", field.name))
 		}
@@ -246,12 +267,27 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 	return nil
 }
 
+func fieldByIndexSafe(v reflect.Value, index []int) reflect.Value {
+	res := v
+	for _, i := range index {
+		if res.Kind() == reflect.Ptr {
+			if res.IsNil() {
+				res.Set(reflect.New(res.Type().Elem()))
+			}
+			res = res.Elem()
+		}
+		res = res.Field(i)
+	}
+	return res
+}
+
 func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
 	ct := ctx.Header("Content-Type")
 	if ct == "" {
 		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type header is required (application/json)")
 	}
-	if !strings.Contains(strings.ToLower(ct), "application/json") {
+	mediaType, _, err := mime.ParseMediaType(ct)
+	if err != nil || mediaType != "application/json" {
 		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
 	}
 	body := bytes.TrimSpace(ctx.Body())

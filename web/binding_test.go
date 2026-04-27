@@ -315,3 +315,85 @@ func TestBindingAllowUnknownFieldsOptOut(t *testing.T) {
 	result := val.Interface().(LenientReq)
 	assert.Equal(t, "test", result.Name)
 }
+
+// TestBindingEmbeddedPtrStructJSON vérifie que le binding JSON visite les anonymous fields par pointeur.
+func TestBindingEmbeddedPtrStructJSON(t *testing.T) {
+	type Base struct {
+		BaseField string `json:"base_field"`
+	}
+	type Req struct {
+		*Base
+		Name string `json:"name"`
+	}
+
+	ctx := &testContext{body: []byte(`{"name": "test", "base_field": "val"}`)}
+	plan, err := newBindingPlan(reflect.TypeOf(Req{}))
+	require.NoError(t, err)
+	assert.Equal(t, bindingKindJSON, plan.kind)
+
+	val, err := plan.bind(ctx)
+	require.NoError(t, err)
+	result := val.Interface().(Req)
+	assert.Equal(t, "test", result.Name)
+	require.NotNil(t, result.Base)
+	assert.Equal(t, "val", result.BaseField)
+}
+
+// TestBindingRecursiveAllowUnknownFieldsOptOut vérifie que helix:"allow-unknown" est détecté récursivement.
+func TestBindingRecursiveAllowUnknownFieldsOptOut(t *testing.T) {
+	type Options struct {
+		_ struct{} `helix:"allow-unknown"` //nolint:unused
+	}
+	type Req struct {
+		Options
+		Name string `json:"name"`
+	}
+
+	ctx := &testContext{body: []byte(`{"name": "test", "unknown": "val"}`)}
+	plan, err := newBindingPlan(reflect.TypeOf(Req{}))
+	require.NoError(t, err)
+	assert.True(t, plan.allowUnknown)
+
+	_, err = plan.bind(ctx)
+	assert.NoError(t, err)
+}
+
+// TestBindingQueryEmbeddedPtrStruct vérifie que le binding Query visite les anonymous fields par pointeur.
+func TestBindingQueryEmbeddedPtrStruct(t *testing.T) {
+	type Base struct {
+		BaseField string `query:"base_field"`
+	}
+	type Req struct {
+		*Base
+		Name string `query:"name"`
+	}
+
+	ctx := &testContextQuery{query: map[string]string{
+		"name":       "test",
+		"base_field": "val",
+	}}
+	plan, err := newBindingPlan(reflect.TypeOf(Req{}))
+	require.NoError(t, err)
+	assert.Equal(t, bindingKindQuery, plan.kind)
+
+	val, err := plan.bind(ctx)
+	require.NoError(t, err)
+	result := val.Interface().(Req)
+	assert.Equal(t, "test", result.Name)
+	require.NotNil(t, result.Base)
+	assert.Equal(t, "val", result.BaseField)
+}
+
+// testContextQuery est un stub Context pour tester le binding Query.
+type testContextQuery struct {
+	testContext
+	query map[string]string
+}
+
+func (tc *testContextQuery) Query(key string) string { return tc.query[key] }
+func (tc *testContextQuery) Header(key string) string {
+	if key == "Content-Type" {
+		return ""
+	}
+	return ""
+}
