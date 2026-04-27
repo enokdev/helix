@@ -1,0 +1,8 @@
+server:
+  port: 8081
+app:
+  name: helix-secured-api
+security:
+  jwt:
+    secret: "dev-only-secured-api-secret-change-me"
+    expiry: "1h"

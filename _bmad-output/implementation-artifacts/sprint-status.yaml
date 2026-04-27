@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-21 - story 8-1 done
+last_updated: 2026-04-27 - stories 7.5, 7.6, 7.7, 1.8 done after code review patches
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-21 - story 8-1 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-21 - story 8-1 done
+last_updated: 2026-04-27 - stories 7.5, 7.6, 7.7, 1.8 done after code review patches
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -56,12 +56,13 @@ development_status:
   1-5-scope-prototype-lazy-loading: done
   1-6-hooks-de-cycle-de-vie-graceful-shutdown: done
   1-7-point-dentree-helix-run-marqueurs-de-composants: done
+  1-8-helix-run-zero-parametre-bootstrap-complet-automatique: done
   epic-1-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 2: Configuration Centralisée
   # ─────────────────────────────────────────────
-  epic-2: in-progress
+  epic-2: done
   2-1-loader-yaml-chaine-de-priorite: done
   2-2-profils-de-configuration: done
   2-3-rechargement-dynamique-de-la-configuration: done
@@ -70,7 +71,7 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 3: Couche HTTP Déclarative
   # ─────────────────────────────────────────────
-  epic-3: in-progress
+  epic-3: done
   3-1-abstraction-http-adaptateur-fiber: done
   3-2-routing-par-convention-de-nommage: done
   3-3-routes-custom-via-directives: done
@@ -83,7 +84,7 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 4: Data Layer & Repository Pattern
   # ─────────────────────────────────────────────
-  epic-4: in-progress
+  epic-4: done
   4-1-interface-repository-generique: done
   4-2-adaptateur-gorm-implementation-repository: done
   4-3-generation-automatique-de-requetes-query-auto: done
@@ -93,7 +94,7 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 5: Infrastructure de Test
   # ─────────────────────────────────────────────
-  epic-5: in-progress
+  epic-5: done
   5-1-helix-newtestapp-container-de-test: done
   5-2-helix-mockbean-remplacement-automatique-par-mock: done
   epic-5-retrospective: optional
@@ -101,7 +102,7 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 6: Observabilité
   # ─────────────────────────────────────────────
-  epic-6: in-progress
+  epic-6: done
   6-1-endpoints-actuator-health-info: done
   6-2-metriques-prometheus-actuator-metrics: done
   6-3-logging-structure-avec-slog: done
@@ -116,33 +117,67 @@ development_status:
   7-2-starter-web-auto-activation-fiber: done
   7-3-starter-data-auto-activation-db: done
   7-4-starters-observability-security-scheduling: done
+  7-5-auto-registration-des-controleurs-par-le-starter-web: done
+  7-6-lifecycle-http-integre-suppression-du-wrapper-appserver: done
+  7-7-auto-detection-des-starters-par-markers-de-composants: done
   epic-7-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 8: Sécurité
   # ─────────────────────────────────────────────
-  epic-8: in-progress
+  epic-8: done
   8-1-jwt-generation-validation-refresh: done
-  8-2-rbac-guards-de-roles-declaratifs: backlog
-  8-3-helix-securityconfigurer-regles-globales: backlog
+  8-2-rbac-guards-de-roles-declaratifs: done
+  8-3-helix-securityconfigurer-regles-globales: done
   epic-8-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 9: Scheduling
   # ─────────────────────────────────────────────
-  epic-9: backlog
-  9-1-scheduler-interface-adaptateur-robfig-cron: backlog
-  9-2-taches-planifiees-declaratives-helix-scheduled: backlog
+  epic-9: done
+  9-1-scheduler-interface-adaptateur-robfig-cron: done
+  9-2-taches-planifiees-declaratives-helix-scheduled: done
   epic-9-retrospective: optional
 
   # ─────────────────────────────────────────────
   # Epic 10: CLI & Génération de Code
   # ─────────────────────────────────────────────
-  epic-10: backlog
-  10-1-moteur-de-generation-de-code-scanner-ast: backlog
-  10-2-di-codegen-compile-time-helix-generate-wire: backlog
-  10-3-scaffold-projet-modules-helix-new-generate-module: backlog
-  10-4-contextes-de-domaine-ddd-light-helix-generate-context: backlog
-  10-5-migrations-db-cli-helix-db-migrate: backlog
-  10-6-helix-run-helix-build: backlog
+  epic-10: done
+  10-1-moteur-de-generation-de-code-scanner-ast: done
+  10-2-di-codegen-compile-time-helix-generate-wire: done
+  10-3-scaffold-projet-modules-helix-new-generate-module: done
+  10-4-contextes-de-domaine-ddd-light-helix-generate-context: done
+  10-5-migrations-db-cli-helix-db-migrate: done
+  10-6-helix-run-helix-build: done
   epic-10-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 11: Documentation & Guides Développeur
+  # ─────────────────────────────────────────────
+  epic-11: in-progress
+  11-1-readme-enrichi-quick-start: done
+  11-2-guide-di-container-configuration: done
+  11-3-guide-couche-http-routing-guards-extracteurs: done
+  11-4-guide-data-layer-repository-pattern: done
+  11-5-guide-securite-observabilite-scheduling: done
+  epic-11-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 12: Exemples d'Applications
+  # ─────────────────────────────────────────────
+  epic-12: in-progress
+  12-1-exemple-crud-api-users-complet: done
+  12-2-exemple-authentification-jwt-rbac: done
+  epic-12-retrospective: optional
+
+  # ─────────────────────────────────────────────
+  # Epic 13: Assainissement Technique (Dette)
+  # ─────────────────────────────────────────────
+  epic-13: in-progress
+  13-1-securite-dsn-credentials-bypass-url: done
+  13-2-thread-safety-container-di-resolver: done
+  13-3-robustesse-starters-detection-gomod-walkup: done
+  13-4-compatibilite-binaires-deployes-suppression-ast-runtime: done
+  13-5-cache-interceptor-production-grade: done
+  13-6-qualite-ux-developpeur-validation-routing-erreurs: done
+  epic-13-retrospective: optional

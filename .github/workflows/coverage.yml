@@ -1,0 +1,23 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Coverage
+        run: |
+          go test -timeout 10m -coverprofile=coverage.out ./...
+          go test -timeout 10m -coverprofile=core-coverage.out ./core/...
+          coverage=$(go tool cover -func=core-coverage.out | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+          if [ -z "$coverage" ]; then echo "coverage: could not determine"; exit 1; fi
+          awk "BEGIN { exit !($coverage >= 80) }"

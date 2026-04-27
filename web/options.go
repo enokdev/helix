@@ -5,10 +5,19 @@ import "go.opentelemetry.io/otel/trace"
 type serverOptions struct {
 	routeObserver  RouteObserver
 	tracerProvider trace.TracerProvider
+	generatedOnly  bool
 }
 
 // Option configures an HTTP server.
 type Option func(*serverOptions)
+
+// WithGeneratedOnly disables AST-parsing fallback for route and error handler
+// discovery, requiring all directives to be pre-generated.
+func WithGeneratedOnly() Option {
+	return func(o *serverOptions) {
+		o.generatedOnly = true
+	}
+}
 
 // WithRouteObserver installs a RouteObserver that receives an observation for
 // every HTTP request handled by the server.

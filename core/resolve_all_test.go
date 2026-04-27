@@ -69,6 +69,59 @@ func TestResolveAllReturnsAssignableComponentsInRegistrationOrder(t *testing.T) 
 	}
 }
 
+func TestResolveAllConcurrentCallsDoNotRace(t *testing.T) {
+	t.Parallel()
+
+	container := NewContainer(WithResolver(NewReflectResolver()))
+	if err := container.Register(&resolveAllFirst{}); err != nil {
+		t.Fatalf("Register(first) error = %v", err)
+	}
+	if err := container.Register(&resolveAllDependency{Value: "ready"}); err != nil {
+		t.Fatalf("Register(dependency) error = %v", err)
+	}
+	if err := container.Register(&resolveAllSecond{}); err != nil {
+		t.Fatalf("Register(second) error = %v", err)
+	}
+
+	runConcurrently(t, 32, func() {
+		services, err := ResolveAll[resolveAllService](container)
+		if err != nil {
+			t.Errorf("ResolveAll() error = %v", err)
+			return
+		}
+		if got, want := len(services), 2; got != want {
+			t.Errorf("len(services) = %d, want %d", got, want)
+			return
+		}
+		if services[1].ID() != "second:ready" {
+			t.Errorf("services[1].ID() = %q, want second:ready", services[1].ID())
+		}
+	})
+}
+
+func TestResolveAllConcurrentWithRegisterDoesNotRace(t *testing.T) {
+	t.Parallel()
+
+	container := NewContainer(WithResolver(NewReflectResolver()))
+	if err := container.Register(&resolveAllFirst{}); err != nil {
+		t.Fatalf("Register(first) error = %v", err)
+	}
+	if err := container.Register(&resolveAllDependency{Value: "ready"}); err != nil {
+		t.Fatalf("Register(dependency) error = %v", err)
+	}
+	if err := container.Register(&resolveAllSecond{}); err != nil {
+		t.Fatalf("Register(second) error = %v", err)
+	}
+
+	runConcurrently(t, 32, func() {
+		if err := container.Register(&resolveAllDependency{Value: "replacement"}); err != nil {
+			t.Errorf("Register(dependency) error = %v", err)
+			return
+		}
+		_, _ = ResolveAll[resolveAllService](container)
+	})
+}
+
 func TestResolveAllReturnsEmptySliceWhenNoComponentMatches(t *testing.T) {
 	t.Parallel()
 

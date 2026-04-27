@@ -6,10 +6,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"reflect"
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/enokdev/helix/web/internal"
 )
 
 const errorHandlerMarkerName = "ErrorHandler"
@@ -38,15 +41,68 @@ func RegisterErrorHandler(server HTTPServer, handler any) error {
 	return nil
 }
 
-func buildErrorHandlers(handler any) (map[string]errorHandlerInvoker, error) {
+// tryGetGeneratedErrorHandlers checks the registry for pre-generated error handlers.
+// If handlers are found in the registry, they are converted to the directives format
+// and returned. Otherwise, returns nil, false to signal AST parsing fallback.
+func tryGetGeneratedErrorHandlers(handlerName string) (map[string]handlesDirective, bool) {
+	registry := internal.GlobalErrorHandlerRegistry()
+	if !registry.HasGeneratedErrorHandlers() {
+		return nil, false
+	}
+
+	handlers, ok := registry.GetErrorHandlersForHandler(handlerName)
+	if !ok || len(handlers) == 0 {
+		return nil, false
+	}
+
+	// Convert registry ErrorHandlerInfo entries into handlesDirective format
+	directives := make(map[string]handlesDirective)
+	for i, handler := range handlers {
+		// Each handler entry maps to a method name
+		// Use a generated method name if not provided
+		methodName := fmt.Sprintf("Handle%d", i)
+		if handler.MethodName != "" {
+			methodName = handler.MethodName
+		}
+
+		directives[methodName] = handlesDirective{
+			errorType: handler.ErrorType,
+		}
+	}
+
+	slog.Debug("using generated error handlers from registry", "handler", handlerName, "count", len(handlers))
+	return directives, true
+}
+
+func buildErrorHandlers(server HTTPServer, handler any) (map[string]errorHandlerInvoker, error) {
 	handlerValue, handlerType, err := validateErrorHandler(handler)
 	if err != nil {
 		return nil, err
 	}
 
-	directives, err := errorHandlerDirectives(handlerValue.Type(), handlerType.Name())
-	if err != nil {
-		return nil, err
+	// First, try to get directives from the generated registry
+	directives, hasGenerated := tryGetGeneratedErrorHandlers(handlerType.Name())
+	
+	// Check if server enforces generated only mode
+	generatedOnly := false
+	if srv, ok := server.(interface{ IsGeneratedOnly() bool }); ok {
+		generatedOnly = srv.IsGeneratedOnly()
+	}
+
+	if !hasGenerated {
+		if generatedOnly {
+			return nil, fmt.Errorf("web: build error handler %s: generated registry empty and GeneratedOnly mode enabled", handlerType.Name())
+		}
+
+		// Fall back to AST parsing if no generated handlers are found
+		var err error
+		directives, err = errorHandlerDirectives(handlerValue.Type(), handlerType.Name())
+		if err != nil {
+			return nil, err
+		}
+		if len(directives) > 0 {
+			slog.Debug("using AST-parsed error handlers (no generated registry found)", "handler", handlerType.Name())
+		}
 	}
 	if len(directives) == 0 {
 		return nil, fmt.Errorf("web: validate error handler %s directives: %w", handlerType.Name(), ErrInvalidErrorHandler)

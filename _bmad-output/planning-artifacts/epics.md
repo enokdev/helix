@@ -1,10 +1,12 @@
 ---
 stepsCompleted: [1, 2, 3, 4]
-status: 'complete'
+status: 'augmented'
 completedAt: '2026-04-14'
+augmentedAt: '2026-04-26'
 inputDocuments:
   - '_bmad-output/product-development/PRD.md'
   - '_bmad-output/planning-artifacts/architecture.md'
+augmentationSource: 'PM session Zero-Config vision (2026-04-26)'
 ---
 
 # Helix - Epic Breakdown
@@ -45,6 +47,10 @@ FR25: Le système doit fournir des commandes CLI pour les migrations DB (`helix 
 FR26: Le système doit fournir un CLI complet (`helix new app`, `helix generate module/context/repository`, `helix run`, `helix build`).
 FR27: Le système doit implémenter l'auto-configuration des starters (web, data, security, config, observability, scheduling) avec détection automatique et override YAML.
 FR28: Le système doit supporter les guards déclaratifs (`//helix:guard`) et interceptors (`//helix:interceptor`) sur les routes.
+FR-ZC1: `helix.Run()` doit fonctionner sans aucun argument — bootstrap complet automatique avec config auto-chargée depuis `config/application.yaml` et starters auto-détectés.
+FR-ZC2: Les contrôleurs avec embed `helix.Controller` doivent être auto-découverts et auto-enregistrés sur le serveur HTTP par le starter web, sans appel manuel à `web.RegisterController()`.
+FR-ZC3: Le lifecycle du serveur HTTP (démarrage/arrêt) doit être géré entièrement par le framework — le pattern `appServer{OnStart/OnStop}` ne doit plus être requis dans le code utilisateur.
+FR-ZC4: Les starters doivent s'activer par présence de markers de composants dans le container (`helix.Controller`, `helix.SecurityConfigurer`, `//helix:scheduled`) en plus de la détection via `go.mod`.
 
 ### NonFunctional Requirements
 
@@ -101,12 +107,16 @@ FR3: Epic 10 — DI codegen compile-time (helix generate wire)
 FR24: Epic 10 — DDD contexts via helix generate context
 FR25: Epic 10 — DB migrations CLI (helix db migrate)
 FR26: Epic 10 — CLI complet (new/generate/run/build)
+FR-ZC1: Epic 1 — helix.Run() zéro-paramètre, bootstrap complet automatique
+FR-ZC2: Epic 7 — Auto-registration des contrôleurs par le starter web
+FR-ZC3: Epic 7 — Lifecycle HTTP intégré, suppression du wrapper appServer
+FR-ZC4: Epic 7 — Auto-détection des starters par markers de composants
 
 ## Epic List
 
 ### Epic 1: Application Bootstrap & DI Container
-Un développeur peut créer une application Helix avec injection de dépendances automatique en une ligne de code.
-**FRs couverts :** FR1, FR2, FR4, FR5, FR17
+Un développeur peut créer une application Helix avec injection de dépendances automatique en une ligne de code — jusqu'à `func main() { helix.Run() }` en zéro-config complet.
+**FRs couverts :** FR1, FR2, FR4, FR5, FR17, FR-ZC1
 **Phase PRD :** Phase 1 (MVP)
 
 ### Epic 2: Configuration Centralisée
@@ -135,8 +145,8 @@ Un développeur peut monitorer son application Helix en production via des endpo
 **Phase PRD :** Phase 2
 
 ### Epic 7: Auto-Configuration & Starters
-Un développeur peut démarrer une application Helix sans aucune configuration explicite — les starters s'activent automatiquement.
-**FRs couverts :** FR27
+Un développeur peut démarrer une application Helix sans aucune configuration explicite — les starters s'activent automatiquement, les contrôleurs sont auto-enregistrés et le lifecycle serveur est géré par le framework.
+**FRs couverts :** FR27, FR-ZC2, FR-ZC3, FR-ZC4
 **Phase PRD :** Phase 2
 
 ### Epic 8: Sécurité
@@ -153,6 +163,21 @@ Un développeur peut planifier des tâches récurrentes de façon déclarative v
 Un développeur peut scaffolder un projet, générer des modules, gérer les migrations et construire du code compile-time depuis le terminal.
 **FRs couverts :** FR3, FR24, FR25, FR26
 **Phase PRD :** Phase 3
+
+### Epic 11: Documentation & Guides Développeur
+Un développeur peut apprendre et maîtriser Helix en moins de 30 minutes grâce à une documentation complète et des guides pratiques.
+**FRs couverts :** NFR6
+**Phase PRD :** Phase 4 (Post-MVP)
+
+### Epic 12: Exemples d'Applications
+Un développeur peut partir d'un exemple concret et fonctionnel pour bootstrap son projet Helix.
+**FRs couverts :** NFR6
+**Phase PRD :** Phase 4 (Post-MVP)
+
+### Epic 13: Assainissement Technique (Dette)
+Le framework est exempt de data races, de bugs de sécurité connus et de limitations majeures documentées dans deferred-work.md.
+**FRs couverts :** NFR1, NFR2, NFR4
+**Phase PRD :** Phase 4 (Post-MVP)
 
 ---
 
@@ -271,6 +296,25 @@ Afin de me concentrer sur ma logique métier.
 **And** les structs avec embed `helix.Service`, `helix.Controller`, `helix.Repository`, `helix.Component` sont auto-enregistrés
 **And** les dépendances sont résolues avant le premier `OnStart()`
 **And** `helix.Run()` bloque jusqu'à réception de SIGTERM/SIGINT
+**And** l'application démarre en < 100ms (benchmark CI)
+
+### Story 1.8: helix.Run() Zéro-Paramètre — Bootstrap Complet Automatique
+
+En tant que **développeur utilisant Helix**,
+Je veux démarrer mon application avec `helix.Run()` sans aucun argument,
+Afin que mon `main.go` se résume à `func main() { helix.Run() }`.
+
+**Acceptance Criteria:**
+
+**Given** un projet Helix avec des composants annotés et un fichier `config/application.yaml` ou `application.yaml` présent
+**When** `helix.Run()` est appelé sans aucun argument
+**Then** la configuration est chargée automatiquement depuis `config/application.yaml` (ou `application.yaml` en fallback)
+**And** les starters sont auto-détectés : web si `gofiber/fiber` dans `go.mod`, security si clé `security.*` présente dans la config, data si driver DB dans `go.mod` et clé `database.url` présente
+**And** tous les composants avec embed `helix.Controller`, `helix.Service`, `helix.Repository`, `helix.Component`, `helix.SecurityConfigurer` sont découverts et câblés automatiquement
+**And** le serveur HTTP démarre sans aucune ligne de code de bootstrap manuel dans `main.go`
+**And** si aucun fichier de config n'est trouvé, les valeurs par défaut des starters s'appliquent (port 8080, etc.)
+**Given** `helix.Run(App{Starters: ..., Components: ...})` est utilisé par un développeur existant
+**Then** le comportement existant est conservé sans aucune modification requise (rétrocompatibilité totale)
 **And** l'application démarre en < 100ms (benchmark CI)
 
 ---
@@ -698,6 +742,61 @@ Afin d'enrichir mon application sans modifier le code de bootstrap.
 **Then** le starter scheduling s'active automatiquement et enregistre les jobs cron
 **And** chaque starter peut être forcé à `enabled: false` pour désactiver l'auto-détection
 
+### Story 7.5: Auto-Registration des Contrôleurs par le Starter Web
+
+En tant que **développeur utilisant Helix**,
+Je veux que le starter web découvre et enregistre automatiquement tous mes contrôleurs,
+Afin de ne plus écrire `web.RegisterController(server, ctrl)` pour chaque contrôleur.
+
+**Acceptance Criteria:**
+
+**Given** des structs avec embed `helix.Controller` enregistrées dans le container DI
+**When** le starter web s'active
+**Then** chaque contrôleur est découvert automatiquement depuis le container
+**And** les routes de chaque contrôleur sont enregistrées sur le serveur HTTP sans aucun code utilisateur
+**And** les guard factories requises par les directives `//helix:guard` des contrôleurs sont auto-enregistrées (`role` guard factory activée si `//helix:guard role:*` est détecté)
+**And** l'ordre de registration est déterministe et suit l'ordre d'enregistrement dans le container
+**Given** un projet avec `AuthController`, `APIController` et `AdminController` dans le container
+**Then** les trois contrôleurs et toutes leurs routes sont actifs sans une seule ligne de code de registration manuel
+**And** si un contrôleur est résolu avec une erreur, `helix.Run()` échoue avec un message identifiant le contrôleur concerné
+
+### Story 7.6: Lifecycle HTTP Intégré — Suppression du Wrapper appServer
+
+En tant que **développeur utilisant Helix**,
+Je veux que le serveur HTTP démarre et s'arrête sans que j'aie à créer un wrapper lifecycle,
+Afin de supprimer définitivement le pattern `appServer{OnStart/OnStop}` de mon code.
+
+**Acceptance Criteria:**
+
+**Given** le starter web actif et `server.port` configuré dans `application.yaml` (défaut: 8080)
+**When** `helix.Run()` est appelé
+**Then** le serveur HTTP démarre automatiquement via le lifecycle interne du starter web
+**And** aucune struct `appServer` implémentant `OnStart/OnStop` n'est nécessaire dans le code utilisateur
+**And** l'adresse d'écoute est construite depuis `server.port` sans code utilisateur
+**When** SIGTERM ou SIGINT est reçu
+**Then** le serveur s'arrête proprement via le graceful shutdown du container
+**And** les requêtes en cours sont finalisées avant l'arrêt (timeout `helix.shutdown-timeout`, défaut 30s)
+**And** le pattern `appServer` reste disponible comme option avancée pour les cas nécessitant un contrôle fin du lifecycle (rétrocompatibilité)
+
+### Story 7.7: Auto-Détection des Starters par Markers de Composants
+
+En tant que **développeur utilisant Helix**,
+Je veux que les starters s'activent automatiquement selon les composants présents dans mon code,
+Afin de ne jamais déclarer explicitement `Starters: []starter.Entry{starter.Security()}` dans `main.go`.
+
+**Acceptance Criteria:**
+
+**Given** un composant avec embed `helix.SecurityConfigurer` est dans le container DI
+**When** `helix.Run()` orchestre le démarrage
+**Then** le starter security s'active automatiquement — sans déclaration explicite dans `main.go` ni clé `security.*` dans la config
+**And** le service JWT est créé depuis `security.jwt.secret` et `security.jwt.expiry` dans la config
+**Given** des composants avec directive `//helix:scheduled` sont détectés dans le container
+**Then** le starter scheduling s'active automatiquement
+**Given** `helix.starters.security.enabled: false` est défini explicitement dans la config
+**Then** le starter security NE s'active PAS même si un `SecurityConfigurer` est présent (override explicite prioritaire sur l'auto-détection)
+**And** l'auto-détection par markers est complémentaire à la détection existante via `go.mod` (Stories 7.1–7.4)
+**And** le log de démarrage indique pour chaque starter : la raison d'activation (`go.mod`, `config key`, ou `component marker`)
+
 ---
 
 ## Epic 8: Sécurité
@@ -896,3 +995,233 @@ Afin d'avoir un workflow de développement fluide sans configurer de Makefile.
 **Then** `helix generate` est exécuté, puis `go build -o bin/app ./cmd/...`
 **And** le binaire produit est statique (CGO_ENABLED=0) par défaut
 **And** `helix build --docker` génère également un `Dockerfile` minimal multi-stage
+
+---
+
+## Epic 11: Documentation & Guides Développeur
+
+Un développeur peut apprendre et maîtriser Helix en moins de 30 minutes grâce à une documentation complète et des guides pratiques.
+
+### Story 11.1: README enrichi — Quick Start < 30 min
+
+En tant que **développeur découvrant Helix**,
+Je veux un README complet avec un exemple fonctionnel dès les premières lignes,
+Afin de comprendre la valeur du framework et démarrer sans consulter d'autre documentation.
+
+**Acceptance Criteria:**
+
+**Given** un développeur qui consulte le README pour la première fois
+**When** il lit la section Quick Start
+**Then** il peut créer une API CRUD complète (users) en suivant les étapes en moins de 30 minutes
+**And** le README présente les fonctionnalités clés avec des snippets de code concis
+**And** les badges CI, couverture et Go Report Card sont affichés et fonctionnels
+**And** la section Installation couvre `go get` et les prérequis Go 1.21+
+**And** des liens vers les guides détaillés dans `docs/` sont présents
+
+### Story 11.2: Guide DI Container & Configuration
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide détaillé sur le container DI et le système de configuration,
+Afin de comprendre les concepts fondamentaux du framework.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/di-and-config.md`
+**When** un développeur le lit
+**Then** le guide explique `helix.Service`, `helix.Controller`, `helix.Repository`, `helix.Component`
+**And** les tags `inject:"true"` et `value:"key"` sont documentés avec des exemples
+**And** les scopes Singleton et Prototype sont expliqués
+**And** la chaîne de priorité config (ENV > profil YAML > application.yaml > DEFAULT) est documentée
+**And** les profils (`HELIX_PROFILES_ACTIVE`) et le rechargement dynamique (SIGHUP) sont couverts
+
+### Story 11.3: Guide Couche HTTP — Routing, Guards & Extracteurs
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide complet sur la couche HTTP déclarative,
+Afin d'exposer une API REST sans boilerplate.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/http-layer.md`
+**When** un développeur le lit
+**Then** les conventions de nommage (Index/Show/Create/Update/Delete) sont documentées avec des exemples
+**And** les directives `//helix:route`, `//helix:guard`, `//helix:interceptor` sont expliquées
+**And** les extracteurs typés (query params, body JSON, validation) sont documentés
+**And** le mapping automatique des types de retour vers HTTP status est expliqué
+**And** l'error handler centralisé (`//helix:handles`) est couvert
+
+### Story 11.4: Guide Data Layer & Repository Pattern
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide sur l'accès aux données avec le pattern Repository,
+Afin de persister mes entités sans écrire de SQL.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/data-layer.md`
+**When** un développeur le lit
+**Then** l'interface `Repository[T, ID]` est documentée avec tous ses méthodes
+**And** l'utilisation de `data/gorm.NewRepository` est expliquée avec des exemples
+**And** le tag `query:"auto"` et les conventions de nommage de méthodes sont documentés
+**And** la directive `//helix:transactional` est expliquée avec un exemple complet
+**And** la pagination via `Paginate(page, size)` est documentée
+
+### Story 11.5: Guide Sécurité, Observabilité & Scheduling
+
+En tant que **développeur utilisant Helix**,
+Je veux un guide sur les modules transversaux (sécurité, observabilité, scheduling),
+Afin de sécuriser et monitorer mon application de production.
+
+**Acceptance Criteria:**
+
+**Given** le fichier `docs/security-observability-scheduling.md`
+**When** un développeur le lit
+**Then** la configuration JWT (`security.jwt.secret`, `security.jwt.expiry`) est documentée
+**And** le RBAC déclaratif (`//helix:guard role:admin`) est expliqué avec des exemples
+**And** `helix.SecurityConfigurer` est documenté avec un exemple de règles globales
+**And** les endpoints `/actuator/health`, `/actuator/metrics`, `/actuator/info` sont décrits
+**And** la directive `//helix:scheduled` avec expressions cron est documentée
+
+---
+
+## Epic 12: Exemples d'Applications
+
+Un développeur peut partir d'un exemple concret et fonctionnel pour bootstrap son projet Helix.
+
+### Story 12.1: Exemple CRUD API — Users (complet et fonctionnel)
+
+En tant que **développeur découvrant Helix**,
+Je veux un exemple d'application CRUD complète avec toutes les couches du framework,
+Afin de voir comment les composants s'assemblent dans un projet réel.
+
+**Acceptance Criteria:**
+
+**Given** le répertoire `examples/crud-api/`
+**When** `go run ./examples/crud-api` est exécuté
+**Then** un serveur HTTP démarre sur le port 8080 sans erreur
+**And** les endpoints `GET/POST/PUT/DELETE /users` sont fonctionnels
+**And** l'exemple utilise `helix.Controller`, `helix.Service`, `helix.Repository`
+**And** la configuration est chargée depuis `examples/crud-api/config/application.yaml`
+**And** le README de l'exemple explique comment le lancer et le tester
+
+### Story 12.2: Exemple avec Authentification JWT & RBAC
+
+En tant que **développeur souhaitant sécuriser son API**,
+Je veux un exemple complet avec authentification JWT et contrôle d'accès par rôle,
+Afin d'avoir un point de départ concret pour la sécurisation de mon API.
+
+**Acceptance Criteria:**
+
+**Given** le répertoire `examples/secured-api/`
+**When** `go run ./examples/secured-api` est exécuté
+**Then** un endpoint `POST /auth/login` retourne un token JWT valide
+**And** les endpoints protégés retournent `401` sans token valide
+**And** les endpoints avec `//helix:guard role:admin` retournent `403` pour les non-admins
+**And** `helix.SecurityConfigurer` est utilisé pour définir les règles globales
+**And** un README explique le flux d'authentification
+
+---
+
+## Epic 13: Assainissement Technique (Dette)
+
+Le framework est exempt de data races, de bugs de sécurité connus et de limitations majeures documentées dans deferred-work.md.
+
+### Story 13.1: Sécurité — DSN credentials & bypass URL
+
+En tant que **opérateur déployant Helix en production**,
+Je veux que les credentials de base de données ne soient pas exposés dans les processus système et que les règles de sécurité ne puissent pas être contournées par des URLs encodées,
+Afin de garantir la sécurité de l'application.
+
+**Acceptance Criteria:**
+
+**Given** la migration `helix db migrate up` est exécutée
+**When** `ps aux` est inspecté pendant l'exécution
+**Then** le DSN de la base de données n'est pas visible dans les arguments du sous-processus
+**And** le DSN est transmis via variable d'environnement au sous-processus `go run`
+**Given** une règle `SecurityConfigurer` bloquant `/api/**`
+**When** une requête arrive sur `/api%2Fusers` (chemin URL-encodé)
+**Then** la règle s'applique correctement et la requête est bloquée
+**And** `matchesPattern` normalise les chemins avant comparaison
+**Refs:** D-10.5-1, W2 [cli/internal/migrate/migrate.go, security/configurer.go]
+
+### Story 13.2: Thread-safety du container DI & resolver
+
+En tant que **développeur Helix**,
+Je veux que le container DI soit sûr en concurrence,
+Afin d'éviter les data races dans les applications qui résolvent des dépendances depuis plusieurs goroutines.
+
+**Acceptance Criteria:**
+
+**Given** un container avec plusieurs composants enregistrés
+**When** `container.Resolve()` est appelé simultanément depuis N goroutines
+**Then** aucune data race n'est détectée par `go test -race`
+**And** les maps `registrations`, `singletons` et `graph.Edges` sont protégées par un mutex
+**And** `Container.Resolve()` est protégé par un `sync.RWMutex` (read-lock pour la résolution, write-lock pour l'enregistrement)
+**Refs:** core/reflect_resolver.go (sync absent), core/container.go, core/wire_resolver.go
+
+### Story 13.3: Robustesse des starters — détection go.mod walk-up
+
+En tant que **développeur utilisant Helix**,
+Je veux que les starters web, data et scheduling s'activent correctement quel que soit le répertoire de travail du processus,
+Afin que mon application fonctionne depuis n'importe quel CWD (déploiement, tests, CI).
+
+**Acceptance Criteria:**
+
+**Given** un binaire Helix démarré depuis `/var/app/` alors que `go.mod` est dans `/var/app/`
+**Then** le starter web détecte bien `gofiber/fiber` dans `go.mod`
+**Given** un binaire démarré depuis `/tmp/` (CWD ≠ racine du module)
+**Then** le starter effectue un walk-up jusqu'à trouver le `go.mod` ou la racine du FS
+**And** si aucun `go.mod` n'est trouvé, le starter logue un warning et reste inactif
+**And** le comportement est identique pour les starters web, data et scheduling
+**Refs:** D-7.2-1, D-7.3, D-7.4-1, D-9.1-3 [starter/web/starter.go, starter/data/starter.go, starter/scheduling/starter.go]
+
+### Story 13.4: Compatibilité binaires déployés — suppression AST runtime
+
+En tant que **développeur déployant Helix en production**,
+Je veux que les directives `//helix:route` et `//helix:handles` fonctionnent sans sources Go sur le serveur,
+Afin que mon application déployée en binaire statique soit pleinement opérationnelle.
+
+**Acceptance Criteria:**
+
+**Given** un binaire compilé avec `go build -trimpath` sans sources Go sur le serveur
+**When** le serveur démarre
+**Then** toutes les routes déclarées via `//helix:route` sont bien enregistrées
+**And** tous les error handlers déclarés via `//helix:handles` sont bien enregistrés
+**And** le mécanisme remplace `parser.ParseFile` par une registration explicite au démarrage (ex: `RegisterRoute(method, path, handler)` généré par `helix generate`)
+**Refs:** D1/D2 [web/router.go:controllerRouteDirectives], [web/server.go:RegisterErrorHandler]
+
+### Story 13.5: Cache interceptor production-grade
+
+En tant que **développeur utilisant `//helix:interceptor cache`**,
+Je veux un interceptor de cache robuste sans stampede ni fuite mémoire,
+Afin de l'utiliser en production sans risque de surcharge ou de consommation mémoire illimitée.
+
+**Acceptance Criteria:**
+
+**Given** N requêtes simultanées sur un cache froid pour la même clé
+**When** le handler est appelé
+**Then** un seul appel au handler est effectué (single-flight pattern)
+**And** les autres requêtes attendent et reçoivent la réponse mise en cache
+**Given** le cache est en production depuis 1h avec des milliers de clés
+**Then** le cache ne dépasse pas la taille maximale configurée (`cache:5m:max=1000`)
+**And** les entrées expirées sont évincées proactivement par un goroutine de sweep
+**Refs:** D-3.7-3, D-3.7-4, D-3.7-5 [web/cache_interceptor.go]
+
+### Story 13.6: Qualité & UX développeur — validation, routing & erreurs
+
+En tant que **développeur utilisant Helix**,
+Je veux des messages d'erreur clairs et une UX de validation améliorée,
+Afin de diagnostiquer rapidement les problèmes dans mon code.
+
+**Acceptance Criteria:**
+
+**Given** un handler avec un body ayant plusieurs champs invalides
+**When** la requête arrive
+**Then** toutes les erreurs de validation sont retournées (pas seulement la première)
+**And** le format `{"errors": [{"field": "email", "msg": "required"}, ...]}` est retourné
+**Given** un `UserHTTPController` enregistré
+**Then** la route générée est `/user-https` → correction : les acronymes terminaux sont gérés correctement
+**And** un préfixe de route override est possible via tag `helix:"route:/v1/users"` sur la struct
+**Given** un `controller.Register` échoue
+**Then** le message d'erreur indique le type du controller et la raison précise (pas juste `ErrInvalidController`)
+**Refs:** D-3.4-4, D-3.2-1/2/3/5/6, D-3.5-1 [web/binding.go, web/router.go]

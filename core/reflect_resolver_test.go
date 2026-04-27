@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -597,6 +598,107 @@ func TestReflectResolver_CyclicDependencies(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReflectResolverConcurrentColdSingletonResolveDoesNotRace(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewReflectResolver()
+	dependency := &testDependency{Name: "dependency"}
+	if err := resolver.Register(dependency); err != nil {
+		t.Fatalf("Register(dependency) error = %v", err)
+	}
+	if err := resolver.Register(&testService{}); err != nil {
+		t.Fatalf("Register(service) error = %v", err)
+	}
+
+	results := make(chan *testService, 32)
+	runConcurrently(t, 32, func() {
+		var service *testService
+		if err := resolver.Resolve(&service); err != nil {
+			t.Errorf("Resolve() error = %v", err)
+			return
+		}
+		if service == nil || service.Dependency != dependency {
+			t.Errorf("resolved service dependency = %p, want %p", service.Dependency, dependency)
+			return
+		}
+		results <- service
+	})
+	close(results)
+
+	var first *testService
+	for service := range results {
+		if first == nil {
+			first = service
+			continue
+		}
+		if service != first {
+			t.Fatalf("singleton instances differ: got %p, want %p", service, first)
+		}
+	}
+}
+
+func TestReflectResolverConcurrentGraphAndResolveDoesNotRace(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewReflectResolver()
+	if err := resolver.Register(&testDependency{Name: "dependency"}); err != nil {
+		t.Fatalf("Register(dependency) error = %v", err)
+	}
+	if err := resolver.Register(&testService{}); err != nil {
+		t.Fatalf("Register(service) error = %v", err)
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 50; j++ {
+				var service *testService
+				if err := resolver.Resolve(&service); err != nil {
+					t.Errorf("Resolve() error = %v", err)
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 50; j++ {
+				_ = resolver.Graph()
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+}
+
+func runConcurrently(t *testing.T, workers int, fn func()) {
+	t.Helper()
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			fn()
+		}()
+	}
+
+	close(start)
+	wg.Wait()
 }
 
 func registeredComponentType(component any) reflect.Type {

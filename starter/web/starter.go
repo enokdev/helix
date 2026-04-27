@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -11,13 +12,16 @@ import (
 
 	helixconfig "github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/starter/internal/gomodutil"
 	helixweb "github.com/enokdev/helix/web"
 )
 
 const (
-	webStarterEnabledKey = "helix.starters.web.enabled"
-	serverPortKey        = "server.port"
-	defaultServerPort    = "8080"
+	webStarterEnabledKey    = "helix.starters.web.enabled"
+	serverPortKey           = "server.port"
+	defaultServerPort       = "8080"
+	shutdownTimeoutKey      = "helix.shutdown-timeout"
+	defaultShutdownTimeout  = 30 * time.Second
 )
 
 // Starter auto-configures the HTTP server when Fiber is available.
@@ -32,7 +36,13 @@ func New(cfg helixconfig.Loader) *Starter {
 
 // Condition reports whether the web starter should be activated.
 func (s *Starter) Condition() bool {
-	data, err := os.ReadFile("go.mod")
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		slog.Debug("web starter: go.mod not found", "error", err)
+		return false
+	}
+
+	data, err := os.ReadFile(goModPath)
 	if err != nil || !bytes.Contains(data, []byte("gofiber/fiber")) {
 		return false
 	}
@@ -50,9 +60,9 @@ func (s *Starter) Condition() bool {
 }
 
 // Configure registers the HTTP server lifecycle in the container.
-func (s *Starter) Configure(container *core.Container) {
+func (s *Starter) Configure(container *core.Container) error {
 	if container == nil {
-		return
+		return nil
 	}
 
 	port := defaultServerPort
@@ -64,17 +74,33 @@ func (s *Starter) Configure(container *core.Container) {
 		}
 	}
 
-	lifecycle := &serverLifecycle{
-		server: helixweb.NewServer(),
-		addr:   ":" + port,
+	shutdownTimeout := defaultShutdownTimeout
+	if s.cfg != nil {
+		if value, ok := s.cfg.Lookup(shutdownTimeoutKey); ok {
+			if d := parseDuration(value); d > 0 {
+				shutdownTimeout = d
+			}
+		}
 	}
-	_ = container.Register(lifecycle)
-	_ = container.Register(lifecycle.server)
+
+	lifecycle := &serverLifecycle{
+		server:          helixweb.NewServer(),
+		addr:            ":" + port,
+		shutdownTimeout: shutdownTimeout,
+	}
+	if err := container.Register(lifecycle); err != nil {
+		return fmt.Errorf("web starter: register lifecycle: %w", err)
+	}
+	if err := container.Register(lifecycle.server); err != nil {
+		return fmt.Errorf("web starter: register server: %w", err)
+	}
+	return nil
 }
 
 type serverLifecycle struct {
-	server helixweb.HTTPServer
-	addr   string
+	server          helixweb.HTTPServer
+	addr            string
+	shutdownTimeout time.Duration
 }
 
 func (l *serverLifecycle) OnStart() error {
@@ -85,13 +111,31 @@ func (l *serverLifecycle) OnStart() error {
 }
 
 func (l *serverLifecycle) OnStop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := l.shutdownTimeout
+	if timeout <= 0 {
+		timeout = defaultShutdownTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if err := l.server.Stop(ctx); err != nil {
 		return fmt.Errorf("web starter: stop: %w", err)
 	}
 	return nil
+}
+
+func parseDuration(value any) time.Duration {
+	switch v := value.(type) {
+	case time.Duration:
+		return v
+	case string:
+		d, err := time.ParseDuration(strings.TrimSpace(v))
+		if err != nil {
+			return 0
+		}
+		return d
+	}
+	return 0
 }
 
 func parseBool(value any) (bool, bool) {

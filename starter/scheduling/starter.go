@@ -2,18 +2,21 @@ package scheduling
 
 import (
 	"bytes"
+	"fmt"
+	"log/slog"
 	"os"
+	"sync"
 
 	helixconfig "github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/scheduler"
+	"github.com/enokdev/helix/starter/internal/gomodutil"
 	"github.com/enokdev/helix/starter/internal/starterutil"
 )
 
 const schedEnabledKey = "helix.starters.scheduling.enabled"
 
 // Starter auto-configures the scheduling stack when robfig/cron is available.
-// NOTE: The full scheduler implementation is delegated to Epic 9. This starter
-// currently registers a no-op lifecycle as a placeholder.
 type Starter struct {
 	cfg helixconfig.Loader
 }
@@ -25,7 +28,13 @@ func New(cfg helixconfig.Loader) *Starter {
 
 // Condition reports whether the scheduling starter should be activated.
 func (s *Starter) Condition() bool {
-	data, err := os.ReadFile("go.mod")
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		slog.Debug("scheduling starter: go.mod not found", "error", err)
+		return false
+	}
+
+	data, err := os.ReadFile(goModPath)
 	if err != nil || !bytes.Contains(data, []byte("robfig/cron")) {
 		return false
 	}
@@ -44,17 +53,104 @@ func (s *Starter) Condition() bool {
 	return true
 }
 
-// Configure registers scheduling components into the DI container.
-func (s *Starter) Configure(container *core.Container) {
-	if container == nil {
-		return
+// ConditionFromContainer evaluates the scheduling starter activation after
+// application components have been registered.
+//
+// Priority (highest to lowest):
+//  1. helix.starters.scheduling.enabled = false → inactive (absolute override)
+//  2. helix.starters.scheduling.enabled = true  → active (absolute override)
+//  3. robfig/cron absent from go.mod            → inactive (missing runtime dependency)
+//  4. container holds a scheduler.ScheduledJobProvider → active (component marker)
+//  5. otherwise → inactive
+func (s *Starter) ConditionFromContainer(container *core.Container) bool {
+	if s.cfg != nil {
+		if value, ok := s.cfg.Lookup(schedEnabledKey); ok {
+			enabled, parsed := starterutil.ParseBool(value)
+			if parsed {
+				return enabled
+			}
+		}
 	}
-	_ = container.Register(&schedulingLifecycle{})
+
+	if container == nil {
+		return false
+	}
+
+	// Keep the same go.mod guard as Condition() for consistency.
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(goModPath)
+	if err != nil || !bytes.Contains(data, []byte("robfig/cron")) {
+		return false
+	}
+
+	providers, err := core.ResolveAll[scheduler.ScheduledJobProvider](container)
+	return err == nil && len(providers) > 0
 }
 
-// schedulingLifecycle is a no-op placeholder until Epic 9 provides the full
-// cron scheduler implementation.
-type schedulingLifecycle struct{}
+// Configure registers scheduling components into the DI container.
+func (s *Starter) Configure(container *core.Container) error {
+	if container == nil {
+		return nil
+	}
+	sched := scheduler.NewScheduler()
+	_ = container.Register(sched)
+	_ = container.Register(newScheduledJobRegistrar(container, sched))
+	return nil
+}
 
-func (l *schedulingLifecycle) OnStart() error { return nil }
-func (l *schedulingLifecycle) OnStop() error  { return nil }
+type scheduledJobRegistrar struct {
+	container *core.Container
+	sched     scheduler.Scheduler
+	once      sync.Once
+	startErr  error
+}
+
+var _ core.Lifecycle = (*scheduledJobRegistrar)(nil)
+
+func newScheduledJobRegistrar(container *core.Container, sched scheduler.Scheduler) *scheduledJobRegistrar {
+	return &scheduledJobRegistrar{container: container, sched: sched}
+}
+
+func (r *scheduledJobRegistrar) OnStart() error {
+	r.once.Do(func() {
+		r.startErr = r.doStart()
+	})
+	return r.startErr
+}
+
+func (r *scheduledJobRegistrar) doStart() error {
+	providers, err := core.ResolveAll[scheduler.ScheduledJobProvider](r.container)
+	if err != nil {
+		return fmt.Errorf("scheduler: resolve scheduled job providers: %w", err)
+	}
+
+	for _, provider := range providers {
+		for _, job := range provider.ScheduledJobs() {
+			if job.Fn == nil {
+				return fmt.Errorf("scheduler: job %q has nil Fn", job.Name)
+			}
+			fn := job.Fn
+			allowConcurrent := job.AllowConcurrent
+			if !job.AllowConcurrent {
+				fn = scheduler.WrapSkipIfBusy(fn)
+				allowConcurrent = true
+			}
+			if err := r.sched.Register(scheduler.Job{
+				Name:            job.Name,
+				Expr:            job.Expr,
+				Fn:              fn,
+				AllowConcurrent: allowConcurrent,
+			}); err != nil {
+				return fmt.Errorf("scheduler: register job %q: %w", job.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (r *scheduledJobRegistrar) OnStop() error {
+	return nil
+}

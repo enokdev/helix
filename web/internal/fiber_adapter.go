@@ -17,6 +17,7 @@ const testTimeout = 30_000
 // creating a package cycle.
 type Context interface {
 	Method() string
+	Path() string
 	OriginalURL() string
 	Param(key string) string
 	Query(key string) string
@@ -27,6 +28,7 @@ type Context interface {
 	SetHeader(key, value string)
 	Send(body []byte) error
 	JSON(body any) error
+	Context() context.Context
 	Locals(key string, value ...any) any
 }
 
@@ -186,6 +188,10 @@ func (c fiberContext) Method() string {
 	return c.ctx.Method()
 }
 
+func (c fiberContext) Path() string {
+	return c.ctx.Path()
+}
+
 func (c fiberContext) OriginalURL() string {
 	return c.ctx.OriginalURL()
 }
@@ -227,6 +233,10 @@ func (c fiberContext) Send(body []byte) error {
 
 func (c fiberContext) JSON(body any) error {
 	return c.ctx.JSON(body)
+}
+
+func (c fiberContext) Context() context.Context {
+	return c.ctx.UserContext()
 }
 
 func (c fiberContext) Locals(key string, value ...any) any {

@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -16,18 +17,20 @@ type mockContext struct {
 	method     string
 }
 
-func (m *mockContext) Method() string         { return m.method }
-func (m *mockContext) OriginalURL() string    { return "" }
-func (m *mockContext) Param(_ string) string  { return "" }
-func (m *mockContext) Query(_ string) string  { return "" }
-func (m *mockContext) Header(_ string) string { return "" }
-func (m *mockContext) IP() string             { return "" }
-func (m *mockContext) Body() []byte           { return nil }
-func (m *mockContext) Status(code int)        { m.statusCode = code }
-func (m *mockContext) SetHeader(_, _ string)  {}
-func (m *mockContext) Send(_ []byte) error         { return nil }
-func (m *mockContext) JSON(_ any) error            { return m.jsonErr }
+func (m *mockContext) Method() string                { return m.method }
+func (m *mockContext) Path() string                  { return "/" }
+func (m *mockContext) OriginalURL() string           { return "" }
+func (m *mockContext) Param(_ string) string         { return "" }
+func (m *mockContext) Query(_ string) string         { return "" }
+func (m *mockContext) Header(_ string) string        { return "" }
+func (m *mockContext) IP() string                    { return "" }
+func (m *mockContext) Body() []byte                  { return nil }
+func (m *mockContext) Status(code int)               { m.statusCode = code }
+func (m *mockContext) SetHeader(_, _ string)         {}
+func (m *mockContext) Send(_ []byte) error           { return nil }
+func (m *mockContext) JSON(_ any) error              { return m.jsonErr }
 func (m *mockContext) Locals(_ string, _ ...any) any { return nil }
+func (m *mockContext) Context() context.Context       { return context.Background() }
 
 func TestWriteSuccessResponse_JSONError_IsLoggedWithWebNamespace(t *testing.T) {
 	orig := slog.Default()

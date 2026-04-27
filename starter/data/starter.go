@@ -3,6 +3,7 @@ package data
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	helixconfig "github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
 	datagorm "github.com/enokdev/helix/data/gorm"
+	"github.com/enokdev/helix/starter/internal/gomodutil"
 )
 
 const (
@@ -47,7 +49,13 @@ func New(cfg helixconfig.Loader, opts ...Option) *Starter {
 
 // Condition reports whether the data starter should be activated.
 func (s *Starter) Condition() bool {
-	goMod, err := os.ReadFile("go.mod")
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		slog.Debug("data starter: go.mod not found", "error", err)
+		return false
+	}
+
+	goMod, err := os.ReadFile(goModPath)
 	if err != nil || !bytes.Contains(goMod, []byte("gorm.io/driver/sqlite")) {
 		return false
 	}
@@ -70,9 +78,9 @@ func (s *Starter) Condition() bool {
 }
 
 // Configure registers DB components and a lifecycle into the container.
-func (s *Starter) Configure(container *core.Container) {
+func (s *Starter) Configure(container *core.Container) error {
 	if container == nil {
-		return
+		return nil
 	}
 
 	lc := &databaseLifecycle{}
@@ -106,6 +114,7 @@ func (s *Starter) Configure(container *core.Container) {
 	}
 
 	_ = container.Register(lc)
+	return nil
 }
 
 type databaseLifecycle struct {

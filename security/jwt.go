@@ -86,4 +86,3 @@ func (s *JWTService) Refresh(tokenStr string) (string, error) {
 	delete(claims, "exp")
 	return s.Generate(claims)
 }
-

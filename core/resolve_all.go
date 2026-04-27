@@ -17,17 +17,22 @@ func ResolveAll[T any](container *Container) ([]T, error) {
 	if container == nil {
 		return nil, fmt.Errorf("core: resolve all: %w", ErrUnresolvable)
 	}
-	if container.resolver == nil {
+
+	container.resolverMu.RLock()
+	resolver := container.resolver
+	container.resolverMu.RUnlock()
+
+	if resolver == nil {
 		return nil, fmt.Errorf("core: resolve all: %w", ErrUnresolvable)
 	}
 
-	resolver, ok := container.resolver.(assignableResolver)
+	assignable, ok := resolver.(assignableResolver)
 	if !ok {
 		return nil, fmt.Errorf("core: resolve all: %w", ErrUnresolvable)
 	}
 
 	targetType := reflect.TypeOf((*T)(nil)).Elem()
-	values, err := resolver.resolveAllAssignable(targetType)
+	values, err := assignable.resolveAllAssignable(targetType)
 	if err != nil {
 		return nil, fmt.Errorf("core: resolve all %s: %w", targetType, err)
 	}

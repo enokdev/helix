@@ -1,4 +1,26 @@
 
+## Deferred from: code review of story-10-5 (2026-04-22)
+
+- [D-10.5-2] Migrations concurrentes non sérialisées — deux appels simultanés `helix db migrate up` peuvent tous deux passer le snapshot `appliedMigrations` et exécuter le même SQL. SQLite DDL est transactionnel donc l'état final reste cohérent, mais ce comportement est une hypothèse implicite non documentée et cassera sur toute DB dont DDL n'est pas transactionnel. [cli/internal/migrate/migrate.go:Up]
+- [D-10.5-3] `CGO_ENABLED=0` casse le subprocess silencieusement — `go-sqlite3` nécessite CGo ; si l'environnement désactive CGo, le subprocess échoue avec une erreur de compilation sans contexte actionnable pour l'utilisateur. Mitigation future : pre-flight check `CGO_ENABLED` ou doc explicite. [cli/internal/migrate/migrate.go:runMigration]
+- [D-10.5-4] Imports du projet hôte impossibles dans les fichiers de migration — le runner est un module isolé (`helix-migration-runner`) qui ne connaît pas le module hôte. Un développeur qui ajoute un import de son projet dans sa migration obtient une erreur de compilation cryptique. Mitigation future : documenter la contrainte dans les commentaires du template générée ou proposer un mécanisme `replace` dans le runner go.mod. [cli/internal/migrate/migrate.go:runMigration]
+- [D-10.5-5] Annulation de contexte mid-migration — si le contexte est annulé après k migrations appliquées, la boucle `Up` retourne une erreur générique sans lister les migrations déjà appliquées. L'état DB est cohérent (chaque migration est atomique) mais l'utilisateur n'a pas de visibilité sur ce qui a réussi. [cli/internal/migrate/migrate.go:Up]
+
+## Deferred from: code review of story-10-1 (2026-04-22)
+
+- [D-10.1-1] Directive `interceptor` gérée par le scanner (`//helix:interceptor`) mais absente du contrat spec des directives de la story 10.1. Probablement prévu pour une story ultérieure (guards/interceptors). À documenter ou retirer si l'interceptor ne fait pas partie du plan Epic 10. [cli/internal/codegen/scanner.go:382]
+
+## Deferred from: code review of story-9-1 (2026-04-21)
+
+- [D-9.1-1] `ErrJobNotFound` est un sentinel mort — rien ne le retourne dans l'implémentation actuelle. Prévu pour story 9.2 lorsque les opérations `Remove`/`FindByName` seront ajoutées. [scheduler/errors.go:9-10]
+- [D-9.1-2] Double `cron.Stop()` si `Stop(ctx)` et `OnStop()` sont appelés en séquence — robfig/cron est idempotent mais le comportement n'est pas documenté dans le code. À clarifier/documenter lors d'une itération future. [internal/cron_adapter.go:35-46]
+- [D-9.1-3] `Condition()` lit `go.mod` via chemin relatif (pré-existant story 7.4, voir D-7.4-1). [starter/scheduling/starter.go:29]
+- [D-9.1-4] `Configure()` ignore l'erreur de `container.Register()` — pattern partagé cross-starters (voir D-7.4-2). [starter/scheduling/starter.go:53]
+
+## Deferred from: code review of story-8-2 (2026-04-21)
+
+- [D-8.2-1] Comparaison des rôles sensible à la casse sans contrat documenté — `role == allowed` est une comparaison exacte. Si le JWT issuer encode les rôles avec une casse différente (ex: "Admin" vs "admin"), les utilisateurs légitimes reçoivent un 403 silencieux. Design choice à documenter ou normaliser lors d'une future itération. [security/rbac.go:50]
+
 ## Deferred from: code review of 7-4-starters-observability-security-scheduling (2026-04-21)
 
 - [D-7.4-1] `go.mod` CWD-dependent dans `scheduling/Condition()` — même pattern pré-existant que D-7.2-1 (web) et D-7.3 (data). Un processus dont le CWD n'est pas la racine du module ne détectera jamais `robfig/cron` ; le starter reste silencieusement inactif. À traiter via un walk-up `go.mod` dans une future itération. [starter/scheduling/starter.go:28]
@@ -82,7 +104,6 @@
 
 - Dépendance cyclique → récursion infinie / goroutine stack overflow (`ErrCyclicDep` jamais retourné) — detectable via visited-set ; implémentation Story 1.4. [core/reflect_resolver.go]
 - `ScopePrototype` retourne toujours le même pointeur enregistré (pas de `reflect.New`) — comportement silencieusement incorrect ; implémentation Story 1.5. [core/reflect_resolver.go:100]
-- Aucune synchronisation (mutex absent) — data race sur les maps `registrations`, `singletons`, `graph.Edges` en accès concurrent — à traiter quand les exigences de concurrence seront définies. [core/reflect_resolver.go]
 - `float32`/`float64`/`uint*` non supportés dans `convertScalarValue` depuis des sources string — au-delà du minimum spécifié (int, string, bool) ; à étendre lors d'une story config/value. [core/reflect_resolver.go:233]
 - Champs de structs embarquées (anonymous) non injectés par `injectFields` — fonctionnalité non requise dans la spec 1.3. [core/reflect_resolver.go:121]
 - Le graphe de dépendances est alimenté mais jamais consulté pour la détection de cycles — normal pour 1.3, consultable dès Story 1.4. [core/reflect_resolver.go]
@@ -99,7 +120,6 @@
 
 - `DependencyGraph.Edges` nil map — un consumer qui écrit dans la map retournée par `Graph()` panique ; surfacera lors de l'implémentation de `Graph()` en Story 1.3. [core/resolver.go]
 - `CyclicDepError` avec `Path` nil ou vide — `Error()` retourne un message tronqué `"helix: cyclic dependency: "` ; à corriger quand `CyclicDepError` sera effectivement émise (Story 1.4+). [core/errors.go]
-- Absence de synchronisation sur `Container` — data race potentielle sur `c.resolver` en accès concurrent ; à traiter quand les exigences de concurrence seront définies. [core/container.go]
 
 ## Deferred from: code review of 1-7-point-dentree-helix-run-marqueurs-de-composants (2026-04-16)
 
@@ -181,7 +201,6 @@
 - [observability/actuator.go:29,40] Contexte de requete abandonne dans les handlers health/info : `context.Background()` utilise au lieu du contexte HTTP entrant. Si un indicateur fait de l'I/O, les annulations et timeouts client sont ignores. A adresser quand `web.Context` exposera le contexte de requete.
 - [core/reflect_resolver.go:143] resolveAllAssignable rejette les types struct concrets (Kind != Interface|Ptr), rendant `ResolveAll[SomeStruct]` inutilisable. Ergonomie API a revoir dans une future iteration de core.
 - [core/reflect_resolver.go:150] AssignableTo manque les impls a pointer-receiver pour types enregistres en valeur — composants silencieusement exclus. Lié à la conception generale du registre ReflectResolver.
-- [core/reflect_resolver.go] Race condition potentielle sur `r.singletons` lors de resolutions concurrentes — pre-existante, non liee a cette story.
 - [observability/actuator.go:28-44] Registration en deux etapes sans rollback : si la route info echoue apres health, le serveur est dans un etat inconsistant. HTTPServer n'expose pas de deregistration.
 
 ## Deferred from: code review of story-6-2 (2026-04-19)
@@ -225,3 +244,84 @@
 - **`MaxIdleConns > MaxOpenConns` silently truncated** (`data/gorm/connection.go:54-65`): `database/sql` cap les idle conns au niveau de max-open sans log ni erreur si `MaxIdleConns > MaxOpenConns`. Ajouter une validation explicite dans `ConfigurePool` pour une meilleure expérience développeur.
 - **`intValue` uint64 overflow sur 32-bit** (`starter/data/starter.go`, `intValue`): `case uint64: return int(v), true` sans bounds check. Irrelevant en pratique sur les plateformes 64-bit supportées; à adresser si le support 32-bit est requis.
 - **Nil cfg dans `Configure` enregistre lifecycle avec nil db** (`starter/data/starter.go:80`): quand `s.cfg == nil`, un `databaseLifecycle{}` vide est enregistré; `OnStart()` appelle `l.db.Ping()` sur nil, retournant "nil database" sans contexte. `Condition()` empêche ce cas en usage normal.
+
+## Deferred from: code review of 8-3-helix-securityconfigurer-regles-globales (2026-04-21)
+
+- **W1 — JWTServicer custom ignoré** : `applySecurityConfigurer` résout `*security.JWTService` (type concret). Toute implémentation custom de `JWTServicer` est invisible. Nécessite une méthode `ResolveByInterface` dans `core.Container`.
+- **W3 — Chaîner Authenticated + HasRole sur le même pattern impossible** : la sémantique first-match interdit la composition de guards sur le même pattern. Envisager une méthode `HasRoleAuthenticated()` ou une API de chaînage.
+- **W4 — SecurityConfigurer via container.Register() non détecté** : l'itération sur `app.Components` ne voit pas les composants enregistrés directement dans le container. Fonctionne tel que spécifié pour l'instant.
+- **W5 — `*` matche un segment vide (double-slash)** : `strings.Split(strings.Trim("/api//users", "/"), "/")` produit `["api", "", "users"]`, le segment vide passe le `*`. Normaliser les chemins avant le matching.
+
+## Deferred from: code review of 9-2-taches-planifiees-declaratives-helix-scheduled (2026-04-22)
+
+- **D1** — `WrapError`/`WrapSkipIfBusy` ne récupèrent pas les panics de `fn()` : une panique dans un job propagée à la goroutine du scheduler la tue silencieusement. Nécessite une décision de design sur les limites de récupération du framework.
+- **D2** — `container.Register` errors ignorées dans `Configure()` : pattern `_ = container.Register(...)` pré-existant. Si l'enregistrement échoue, le scheduler et le registrar sont absents sans avertissement. Adresser lors d'une refonte de `Configure`.
+- **D3** — `nil sched` théorique dans `newScheduledJobRegistrar` : défensif uniquement, `sched` est toujours le retour de `NewScheduler()` appelé juste au-dessus.
+- **D4** — `AllowConcurrent` non appliqué par le scheduler lui-même : les appelants de `sched.Register()` directs (hors starter) ne bénéficient pas du skip-lock automatique. Décision de design : appliquer le wrapping dans l'adapter cron ou documenter le contrat.
+- **D5** — Échec partiel dans `OnStart()` laisse des jobs orphelins actifs : si le job N échoue à l'enregistrement, les jobs 1..N-1 sont déjà dans le cron en cours d'exécution. Adresser par un pattern all-or-nothing ou rollback dans une future itération.
+- **D6** — Noms de jobs dupliqués silencieusement acceptés : plusieurs providers peuvent enregistrer des jobs de même nom, créant des entrées cron multiples. Ajouter un check d'unicité dans une future itération.
+- **D7** — `WrapError` non appliqué par le registrar : AC4 (log d'erreur) repose sur l'utilisateur appelant `scheduler.WrapError(...)` manuellement dans `ScheduledJobs()`. Documenter l'invariant dans `provider.go` et `job.go`.
+- **D8** — `slog.SetDefault` mutation globale dans les tests : sans `t.Parallel()`, les tests sont séquentiels et sûrs. Risque si `t.Parallel()` ajouté à l'avenir.
+- **D9** — `TestConfigureRegistersLifecycle` ordre lifecycle incorrect : le test itère start+stop par lifecycle au lieu de start-all puis stop-all-reversed. Masque potentiellement des bugs d'ordre.
+- **D10** — `TestWrapError_NonNilError` format slog fragile : les assertions vérifient des tokens exacts du `TextHandler` Go stdlib, susceptibles de changer en version mineure.
+- **D11** — `job.Name` vide non validé : `WrapSkipIfBusy` et les logs d'erreur affichent `""` sans diagnostic utilisable. Ajouter validation dans `OnStart()` ou `adapterWrapper.Register`.
+
+## Deferred from: code review of story-10-2 (2026-04-22)
+
+- [D-10.2-1] Conflit starters/wire registration : les starters enregistrent des composants dans le container avant wireSetupFn ; en cas de chevauchement de types, la seconde registration écrase silencieusement la première (WireResolver) ou peut échouer. Aucun mécanisme de coordination n'existe. Pré-existant (reflect mode avait le même comportement). À traiter lors d'une story d'orchestration des starters. [helix.go:107-123]
+- [D-10.2-2] WireResolver.lookup hazard défensif sur AssignableTo : si isRegistrableComponent est contourné dans un futur code path et qu'une valeur non-pointeur est stockée, les méthodes définies sur *T ne satisferont pas l'interface et le composant sera silencieusement ignoré. Actuellement impossible car isRegistrableComponent bloque les valeurs non-pointeur. À documenter comme invariant. [core/wire_resolver.go:lookup]
+
+## Deferred from: code review of story-10-3 (2026-04-22)
+
+- [D-10.3-1] `extractRequireBlocks` off-by-one dans la boucle interne : après un block `require (...)`, le `continue` de la boucle externe déclenche `i++` et saute la ligne suivante. En pratique cette ligne est toujours vide dans un `go.mod` bien formé, donc fonctionnellement inoffensif. À corriger lors d'une refactorisation de la fonction. [cli/internal/scaffold/scaffold.go:277]
+
+## Deferred from: code review of story 10-4 (2026-04-22)
+
+- Flags avant le nom positionnel dans les sous-commandes CLI (`cmd/helix/main.go:55`, `98`, `115`) — pattern pré-existant hérité de l'architecture `flag.NewFlagSet` stdlib ; `helix new app --dir . myapp` échoue avec "unexpected argument" car le nom doit précéder les flags. Pattern identique dans `runGenerateModule` et `runGenerateContext`.
+- `new{{ .TypeName }}Service()` dans `api.go` contourne le DI container — construit un repository à zéro sans connexion injectée ; intentionnel (squelette compilable, `ErrNotImplemented` retourné explicitement), compatible avec la spec qui autorise "retourner une erreur explicite".
+- `cli/module.go`, `cli/new.go` et routage `new`/`module` dans le diff story 10.4 — ces fichiers appartiennent au périmètre story 10.3 mais ont été livrés dans 10.4 ; inclus intentionnellement dans la File List de la story 10.4 pour clore le gap de la story précédente.
+
+## Deferred from: code review of story 10-6-helix-run-helix-build (2026-04-22)
+
+- `vendor/` et `testdata/` non exclus du watcher fsnotify (`cli/internal/runner/runner.go:891-893`) — hors scope spec ; sur un projet avec vendor, peut consommer beaucoup d'inotify watches.
+- Risque zombie si le process enfant se termine seul (`cli/internal/runner/runner.go:865-874`) — pas de goroutine `Wait` en background ; zombie potentiel entre exit naturel et prochain rechargement.
+- Duplication de `checkContext`, `projectRoot`, `output` entre `builder.go` et `runner.go` — idiome Go acceptable, extraction vers `cli/internal/util` serait un refactor autonome.
+- `go mod tidy` a promu `mattn/go-sqlite3` de indirect à direct dans cette story alors que c'est une dépendance story 10.5 — inoffensif.
+
+## Deferred from: code review of 11-1-readme-enrichi-quick-start (2026-04-23)
+
+- `FindAll` dégradation O(nextID) après suppression (`examples/crud-api/main.go:40-52`) — itère de 1 à nextID au lieu de parcourir la map directement ; acceptable pour un exemple en mémoire, refactor autonome pour un usage production.
+- `coverage.out` repo complet généré dans coverage.yml mais jamais uploadé ni rattaché comme artifact — dead work sur chaque run CI, nettoyable dans une story d'assainissement technique.
+- `serve` dans `examples/crud-api/main_test.go:60-62` définit `Content-Type` après passage du buffer à `http.NewRequest`, s'appuyant sur un comportement non documenté de `bytes.Buffer` — fonctionne aujourd'hui, fragile si l'implémentation stdlib change.
+
+## Deferred from: code review of 11-3-guide-couche-http-routing-guards-extracteurs (2026-04-23)
+
+- Future date hardcoded in sprint status file (sprint-status.yaml:2, 40) — The last_updated timestamp uses 2026-04-23, a future date inconsistent with typical practice. This suggests a test artifact, configuration error, or manual entry mistake. Dates in tracking files should reflect actual change dates for audit and historical accuracy.
+
+
+## Deferred from: code review of 11-3-guide-couche-http-routing-guards-extracteurs (2026-04-24)
+
+- Complex pluralization logic risks: Automatic pluralization of controller names might fail on irregular plurals.
+- Type safety in Error Handlers: String-based error matching is less type-safe than `errors.As`.
+- Forward compatibility issue in JSON binding: Refusing unknown fields blocks clients sending extra data.
+- Lack of PATCH support convention: No convention for partial updates.
+- Usability: Strict directive syntax (e.g., `// helix:route` is invalid).
+- Binding limitation: Cannot mix query and json in one struct.
+- Runtime AST parsing failure in deployed binaries: Directives might fail if source code is not available at runtime.
+- Validation UX: Only the first validation error is reported.
+- Unsupported types in query params: Risk of silent failures or errors for float/slice types.
+- Concurrency race in guard/interceptor registration: Registration maps are not thread-safe.
+- Cache stampede risk: Cold cache key hit by many concurrent requests.
+- Memory leak in cache: No periodic eviction for expired entries.
+- Overlapping error handlers selection: Ambiguity when multiple handlers match an error type.
+
+## Deferred from: code review of story 11.4 (2026-04-24)
+
+- [x] Abstraction transactionnelle poreuse : L'abstraction `data` semble trop liée aux détails internes de l'adaptateur.
+
+## Deferred from: code review of story 12.1 (2026-04-24)
+
+- [x] Faiblesses architecturales et cohérence DI : Des points de vigilance sur la cohérence de l'injection de dépendances et la robustesse des tests dans l'exemple CRUD.
+
+## Deferred from: code review of story-13.6 (2026-04-27)
+- Proxy Fragility: observingContext uses manual delegation instead of embedding. This is fragile to changes in the fiberinternal.Context interface.

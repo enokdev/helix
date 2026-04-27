@@ -218,10 +218,39 @@ func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
 func validationRequestError(err error) error {
 	var validationErrors validator.ValidationErrors
 	if errors.As(err, &validationErrors) && len(validationErrors) > 0 {
-		field := validationErrors[0].Field()
-		return newRequestError(http.StatusBadRequest, codeValidationFailed, field, fmt.Sprintf("%s failed validation", field))
+		// If multiple validation errors, use multi-field format
+		if len(validationErrors) > 1 {
+			fieldErrors := make([]FieldError, 0, len(validationErrors))
+			for _, ve := range validationErrors {
+				fieldErrors = append(fieldErrors, FieldError{
+					Field: ve.Field(),
+					Msg:   validationErrorMessage(ve),
+				})
+			}
+			return newMultiFieldValidationError(fieldErrors)
+		}
+		
+		// Single validation error - use old format for backward compatibility
+		ve := validationErrors[0]
+		return newRequestError(http.StatusBadRequest, codeValidationFailed, ve.Field(),
+			validationErrorMessage(ve))
 	}
 	return newRequestError(http.StatusBadRequest, codeValidationFailed, "", "request validation failed")
+}
+
+func validationErrorMessage(ve validator.FieldError) string {
+	switch ve.Tag() {
+	case "required":
+		return "required"
+	case "email":
+		return "must be a valid email address"
+	case "min":
+		return fmt.Sprintf("must be at least %s", ve.Param())
+	case "max":
+		return fmt.Sprintf("must be at most %s", ve.Param())
+	default:
+		return fmt.Sprintf("invalid value for %s", ve.Tag())
+	}
 }
 
 func setQueryValue(value reflect.Value, raw string) error {

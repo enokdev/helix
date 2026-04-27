@@ -129,6 +129,9 @@ func (r *Repository[T, ID]) Paginate(ctx context.Context, page, size int) (data.
 	if page < 1 || size < 1 {
 		return data.Page[T]{}, wrapError("paginate", errInvalidPage)
 	}
+	if size > 1000 {
+		size = 1000
+	}
 	// Avoid overflow: (page-1)*size must not exceed maxInt.
 	// Check (page-1) > maxInt()/size instead of page > (maxInt()/size)+1
 	// because the latter overflows to minInt when size == 1.

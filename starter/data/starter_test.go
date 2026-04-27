@@ -167,6 +167,41 @@ func TestConditionMissingGoMod(t *testing.T) {
 	}
 }
 
+func TestConditionWalkUpDetectsGoMod(t *testing.T) {
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	goModContent := `module example.com/app
+
+require gorm.io/driver/sqlite v1.5.4
+`
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	subDir := filepath.Join(tmpDir, "subdir", "nested")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.Chdir(subDir); err != nil {
+		t.Fatalf("chdir to subdir: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = os.Chdir(oldDir)
+	})
+
+	s := New(fakeConfig{values: map[string]any{"database.url": ":memory:"}})
+	if !s.Condition() {
+		t.Fatal("Condition() = false with go.mod in parent, want true")
+	}
+}
+
 func TestConfigureNilContainerIsNoOp(_ *testing.T) {
 	s := New(fakeConfig{values: map[string]any{"database.url": ":memory:"}})
 	s.Configure(nil) // must not panic

@@ -31,6 +31,7 @@ func (f *fakeHTTPServer) Start(_ string) error                                  
 func (f *fakeHTTPServer) Stop(_ context.Context) error                            { return nil }
 func (f *fakeHTTPServer) RegisterRoute(_, _ string, _ helixweb.HandlerFunc) error { return nil }
 func (f *fakeHTTPServer) ServeHTTP(_ *http.Request) (*http.Response, error)       { return nil, nil }
+func (f *fakeHTTPServer) IsGeneratedOnly() bool                                   { return false }
 
 func newTestContainer() *core.Container {
 	return core.NewContainer(core.WithResolver(core.NewReflectResolver()))

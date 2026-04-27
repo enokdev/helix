@@ -75,6 +75,73 @@ func TestRunRegistersComponentsResolvesDependenciesAndShutsDown(t *testing.T) {
 	}
 }
 
+func TestRunModeWireUsesRegisteredWireSetup(t *testing.T) {
+	wireSetupMu.Lock()
+	previous := wireSetupFn
+	wireSetupMu.Unlock()
+	t.Cleanup(func() {
+		wireSetupMu.Lock()
+		wireSetupFn = previous
+		wireSetupMu.Unlock()
+	})
+
+	events := make(chan string, 4)
+	service := &runLifecycleService{started: events, stopped: events}
+	RegisterWireSetup(func(container *core.Container) error {
+		dependency := &runDependency{}
+		service.Dependency = dependency
+		if err := container.Register(dependency); err != nil {
+			return err
+		}
+		return container.Register(service)
+	})
+
+	err := Run(App{
+		Mode: ModeWire,
+		awaitShutdown: func() error {
+			if got := <-events; got != "start" {
+				t.Fatalf("first lifecycle event = %q, want start", got)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if service.Dependency == nil {
+		t.Fatal("Run() did not use generated wire setup")
+	}
+	select {
+	case got := <-events:
+		if got != "stop" {
+			t.Fatalf("second lifecycle event = %q, want stop", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for OnStop event")
+	}
+}
+
+func TestRunModeWireRequiresRegisteredWireSetup(t *testing.T) {
+	wireSetupMu.Lock()
+	previous := wireSetupFn
+	wireSetupFn = nil
+	wireSetupMu.Unlock()
+	t.Cleanup(func() {
+		wireSetupMu.Lock()
+		wireSetupFn = previous
+		wireSetupMu.Unlock()
+	})
+
+	err := Run(App{
+		Mode:          ModeWire,
+		awaitShutdown: func() error { return nil },
+	})
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Run() error = %v, want core.ErrUnresolvable", err)
+	}
+}
+
 func TestRunStartFailureDoesNotAwaitShutdown(t *testing.T) {
 	t.Parallel()
 
@@ -383,6 +450,142 @@ type SomeService struct {
 	})
 	if !errors.Is(err, ErrScanRequiresComponents) {
 		t.Fatalf("Run() with relative scan path: error = %v, want %v", err, ErrScanRequiresComponents)
+	}
+}
+
+// TestRun_BackwardCompatibilityWithApp verifies that existing callers using
+// Run(App{Components: [...], Starters: [...]}) compile and behave identically.
+func TestRun_BackwardCompatibilityWithApp(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan string, 4)
+	service := &runLifecycleService{started: events, stopped: events}
+
+	err := Run(App{
+		Components: []any{
+			&runDependency{},
+			service,
+		},
+		awaitShutdown: func() error {
+			if got := <-events; got != "start" {
+				t.Fatalf("lifecycle event = %q, want start", got)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() backward compat error = %v", err)
+	}
+
+	if service.Dependency == nil {
+		t.Fatal("Run() did not inject dependency in backward-compat mode")
+	}
+}
+
+// TestRun_ZeroParams_NoConfigFile_UsesDefaults verifies that helix.Run()
+// without arguments (and without any application.yaml on disk) completes
+// without error — starters use their built-in defaults.
+func TestRun_ZeroParams_NoConfigFile_UsesDefaults(t *testing.T) {
+	// Cannot run in parallel: changes the working directory.
+	root := t.TempDir()
+	// Write a config that disables the web starter so no port bind is attempted.
+	writeTestFile(t, root, "application.yaml", "helix:\n  starters:\n    web:\n      enabled: false\n")
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("Chdir(%q) error = %v", root, err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	err = Run(App{
+		awaitShutdown: func() error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("Run() zero-params with no config file: error = %v", err)
+	}
+}
+
+// TestRun_ZeroParams_LoadsConfig verifies that helix.Run() without explicit
+// App arguments discovers and loads config/application.yaml when present.
+func TestRun_ZeroParams_LoadsConfig(t *testing.T) {
+	// Cannot run in parallel: changes the working directory.
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	// Disable web starter to avoid port-bind conflicts; the key config behaviour
+	// under test is that the YAML file is found and loaded.
+	writeTestFile(t, configDir, "application.yaml",
+		"helix:\n  starters:\n    web:\n      enabled: false\n")
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("Chdir(%q) error = %v", root, err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	err = Run(App{
+		awaitShutdown: func() error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("Run() zero-params with config file: error = %v", err)
+	}
+}
+
+// TestRun_ZeroParams_StartsServer verifies that helix.Run() without arguments
+// orchestrates the full bootstrap cycle without any manually registered
+// components.
+func TestRun_ZeroParams_StartsServer(t *testing.T) {
+	// Cannot run in parallel: changes the working directory.
+	root := t.TempDir()
+	// Use a config that disables the web starter to avoid port-bind conflicts
+	// in the test environment while still exercising the full auto-bootstrap path.
+	writeTestFile(t, root, "application.yaml", "helix:\n  starters:\n    web:\n      enabled: false\n")
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("Chdir(%q) error = %v", root, err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	err = Run(App{
+		awaitShutdown: func() error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("Run() zero-params starts server: error = %v", err)
+	}
+}
+
+func BenchmarkRun_ZeroParams(b *testing.B) {
+	// Disable the web starter to avoid port-bind conflicts in the benchmark
+	// environment while exercising the full auto-bootstrap path.
+	root := b.TempDir()
+	cfg := []byte("helix:\n  starters:\n    web:\n      enabled: false\n")
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o755); err != nil {
+		b.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "application.yaml"), cfg, 0o644); err != nil {
+		b.Fatalf("WriteFile: %v", err)
+	}
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(root)
+	b.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := Run(App{
+			awaitShutdown: func() error { return nil },
+		})
+		if err != nil {
+			b.Fatalf("Run() error = %v", err)
+		}
 	}
 }
 

@@ -103,10 +103,10 @@ func TestJWTService_Validate(t *testing.T) {
 	validToken, _ := svc.Generate(map[string]any{"sub": "user-1", "role": "admin"})
 
 	tests := []struct {
-		name      string
-		token     string
-		wantErr   error
-		wantSub   string
+		name    string
+		token   string
+		wantErr error
+		wantSub string
 	}{
 		{
 			name:    "valid token",

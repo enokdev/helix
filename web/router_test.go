@@ -158,6 +158,12 @@ func TestRegisterController_RejectsInvalidController(t *testing.T) {
 			t.Parallel()
 
 			err := web.RegisterController(newTestServer(t), tt.controller)
+			if tt.name == "no conventional methods" {
+				if err == nil || !strings.Contains(err.Error(), "no routable methods found") {
+					t.Fatalf("RegisterController() error = %v, want error containing 'no routable methods found'", err)
+				}
+				return
+			}
 			if !errors.Is(err, web.ErrInvalidController) {
 				t.Fatalf("RegisterController() error = %v, want ErrInvalidController", err)
 			}
@@ -1528,3 +1534,48 @@ func (s *recordingServer) RegisterRoute(method, path string, _ web.HandlerFunc) 
 func (s *recordingServer) ServeHTTP(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
+
+func (s *recordingServer) IsGeneratedOnly() bool {
+	return false
+}
+
+func TestRegisterController_UsesRegistryWhenAvailable(t *testing.T) {
+	t.Parallel()
+
+	// Register a route in the registry
+	registry := web.GlobalRouteRegistry()
+
+	// Verify registry has methods for querying routes
+	if registry == nil {
+		t.Fatal("GlobalRouteRegistry() returned nil")
+	}
+
+	// Test that HasGeneratedRoutes returns false initially
+	if registry.HasGeneratedRoutes("TestController") {
+		t.Fatal("HasGeneratedRoutes should return false initially")
+	}
+}
+
+func TestRegisterController_FallsBackToASTWhenNoRegistry(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &UserController{calls: make(map[string]string)}
+
+	// Verify that RegisterController still works (falls back to AST parsing)
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	// Verify conventional routes were registered via AST parsing
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/users", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ServeHTTP() status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+

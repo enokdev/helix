@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -106,4 +107,70 @@ func TestNewContainer(t *testing.T) {
 			t.Error("last WithResolver should win")
 		}
 	})
+}
+
+func TestContainerConcurrentResolveUsesRegisteredGraph(t *testing.T) {
+	t.Parallel()
+
+	container := NewContainer(WithResolver(NewReflectResolver()))
+	if err := container.Register(&testDependency{Name: "shared"}); err != nil {
+		t.Fatalf("Register(dependency) error = %v", err)
+	}
+	if err := container.Register(&testService{}); err != nil {
+		t.Fatalf("Register(service) error = %v", err)
+	}
+
+	runConcurrently(t, 32, func() {
+		var service *testService
+		if err := container.Resolve(&service); err != nil {
+			t.Errorf("Resolve() error = %v", err)
+			return
+		}
+		if service == nil || service.Dependency == nil {
+			t.Error("Resolve() returned service without injected dependency")
+		}
+	})
+}
+
+func TestContainerConcurrentRegisterResolveAndGraphDoesNotRace(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewReflectResolver()
+	container := NewContainer(WithResolver(resolver))
+	if err := container.Register(&testDependency{Name: "initial"}); err != nil {
+		t.Fatalf("Register(initial dependency) error = %v", err)
+	}
+	if err := container.Register(&testService{}); err != nil {
+		t.Fatalf("Register(service) error = %v", err)
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 50; j++ {
+				_ = container.Register(&testDependency{Name: "replacement"})
+			}
+		}()
+	}
+
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 50; j++ {
+				var service *testService
+				_ = container.Resolve(&service)
+				_ = resolver.Graph()
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
 }

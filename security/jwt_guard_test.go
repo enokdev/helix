@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -26,17 +27,19 @@ func newMockCtx(authHeader string) *mockCtx {
 	return &mockCtx{headers: headers, locals: map[string]any{}}
 }
 
-func (m *mockCtx) Method() string              { return "GET" }
-func (m *mockCtx) OriginalURL() string         { return "/" }
-func (m *mockCtx) Param(_ string) string       { return "" }
-func (m *mockCtx) Query(_ string) string       { return "" }
-func (m *mockCtx) Header(key string) string    { return m.headers[key] }
-func (m *mockCtx) IP() string                  { return "" }
-func (m *mockCtx) Body() []byte                { return nil }
-func (m *mockCtx) Status(_ int)                {}
-func (m *mockCtx) SetHeader(_, _ string)       {}
-func (m *mockCtx) Send(_ []byte) error         { return nil }
-func (m *mockCtx) JSON(_ any) error            { return nil }
+func (m *mockCtx) Method() string           { return "GET" }
+func (m *mockCtx) Path() string             { return "/" }
+func (m *mockCtx) OriginalURL() string      { return "/" }
+func (m *mockCtx) Param(_ string) string    { return "" }
+func (m *mockCtx) Query(_ string) string    { return "" }
+func (m *mockCtx) Header(key string) string { return m.headers[key] }
+func (m *mockCtx) IP() string               { return "" }
+func (m *mockCtx) Body() []byte             { return nil }
+func (m *mockCtx) Status(_ int)             {}
+func (m *mockCtx) SetHeader(_, _ string)    {}
+func (m *mockCtx) Send(_ []byte) error      { return nil }
+func (m *mockCtx) JSON(_ any) error         { return nil }
+func (m *mockCtx) Context() context.Context { return context.Background() }
 func (m *mockCtx) Locals(key string, value ...any) any {
 	if len(value) > 0 {
 		m.locals[key] = value[0]
@@ -63,11 +66,11 @@ func TestJWTGuard_CanActivate(t *testing.T) {
 	validToken, _ := svc.Generate(map[string]any{"sub": "user-1", "role": "admin"})
 
 	tests := []struct {
-		name        string
-		authHeader  string
-		wantErr     bool
-		wantStatus  int
-		wantClaims  bool
+		name       string
+		authHeader string
+		wantErr    bool
+		wantStatus int
+		wantClaims bool
 	}{
 		{
 			name:       "valid bearer token",

@@ -21,6 +21,9 @@ type HTTPServer interface {
 	// ServeHTTP executes a request against the server without starting a
 	// network listener. Intended for use in tests and tooling.
 	ServeHTTP(req *http.Request) (*http.Response, error)
+	// IsGeneratedOnly returns true if the server is configured to only use
+	// pre-generated route and error handler metadata.
+	IsGeneratedOnly() bool
 }
 
 type server struct {
@@ -28,11 +31,13 @@ type server struct {
 	errorHandlers        map[string]errorHandlerInvoker
 	errorHandlerOrder    []string
 	guards               map[string]Guard
+	globalGuards         []Guard
 	guardFactories       map[string]GuardFactory
 	interceptors         map[string]Interceptor
 	interceptorFactories map[string]InterceptorFactory
 	cache                *cacheStore
 	routeObserver        RouteObserver
+	generatedOnly        bool
 }
 
 // NewServer creates an HTTP server backed by an internal Fiber adapter.
@@ -53,9 +58,14 @@ func NewServer(opts ...Option) HTTPServer {
 		interceptorFactories: make(map[string]InterceptorFactory),
 		cache:                newCacheStore(),
 		routeObserver:        options.routeObserver,
+		generatedOnly:        options.generatedOnly,
 	}
 	s.interceptorFactories["cache"] = cacheInterceptorFactory(s.cache)
 	return s
+}
+
+func (s *server) IsGeneratedOnly() bool {
+	return s.generatedOnly
 }
 
 func (s *server) Start(addr string) error {
@@ -68,6 +78,10 @@ func (s *server) Start(addr string) error {
 func (s *server) Stop(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("web: stop: nil context")
+	}
+	// Stop the cache sweep goroutine gracefully.
+	if err := s.cache.Stop(); err != nil {
+		return fmt.Errorf("web: stop cache: %w", err)
 	}
 	if err := s.adapter.Stop(ctx); err != nil {
 		return fmt.Errorf("web: stop: %w", err)
@@ -86,7 +100,14 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 
 	err = s.adapter.RegisterRoute(normalizedMethod, path, func(ctx fiberinternal.Context) error {
 		start := time.Now()
-		observed := &observingContext{Context: ctx}
+		observed := &observingContext{BaseContext: ctx}
+
+		// Run global guards before the handler.
+		for _, g := range s.globalGuards {
+			if guardErr := g.CanActivate(observed); guardErr != nil {
+				return writeErrorResponse(observed, guardErr)
+			}
+		}
 
 		handlerErr := handler(observed)
 		if handlerErr != nil {
@@ -121,25 +142,46 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 // observingContext wraps a Context to intercept Status calls and record the
 // final status code set during handler execution.
 type observingContext struct {
-	fiberinternal.Context
-	statusCode int // 0 means no explicit Status call; interpret as 200
+	BaseContext fiberinternal.Context
+	statusCode  int // 0 means no explicit Status call; interpret as 200
 }
 
+func (o *observingContext) Method() string      { return o.BaseContext.Method() }
+func (o *observingContext) Path() string        { return o.BaseContext.Path() }
+func (o *observingContext) OriginalURL() string { return o.BaseContext.OriginalURL() }
+func (o *observingContext) Param(key string) string {
+	return o.BaseContext.Param(key)
+}
+func (o *observingContext) Query(key string) string {
+	return o.BaseContext.Query(key)
+}
+func (o *observingContext) Header(key string) string {
+	return o.BaseContext.Header(key)
+}
+func (o *observingContext) IP() string   { return o.BaseContext.IP() }
+func (o *observingContext) Body() []byte { return o.BaseContext.Body() }
 func (o *observingContext) Status(code int) {
 	o.statusCode = code
-	o.Context.Status(code)
+	o.BaseContext.Status(code)
 }
-
 func (o *observingContext) SetHeader(key, value string) {
-	o.Context.SetHeader(key, value)
+	o.BaseContext.SetHeader(key, value)
 }
-
 func (o *observingContext) Send(body []byte) error {
-	return o.Context.Send(body)
+	return o.BaseContext.Send(body)
+}
+func (o *observingContext) JSON(body any) error {
+	return o.BaseContext.JSON(body)
+}
+func (o *observingContext) Context() context.Context {
+	return o.BaseContext.Context()
+}
+func (o *observingContext) Locals(key string, value ...any) any {
+	return o.BaseContext.Locals(key, value...)
 }
 
 func (s *server) registerErrorHandler(handler any) error {
-	handlers, err := buildErrorHandlers(handler)
+	handlers, err := buildErrorHandlers(s, handler)
 	if err != nil {
 		return err
 	}
@@ -175,6 +217,10 @@ func (s *server) registerGuard(name string, guard Guard) error {
 	}
 	s.guards[name] = guard
 	return nil
+}
+
+func (s *server) addGlobalGuard(guard Guard) {
+	s.globalGuards = append(s.globalGuards, guard)
 }
 
 func (s *server) registerGuardFactory(name string, factory GuardFactory) error {

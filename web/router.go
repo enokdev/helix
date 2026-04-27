@@ -5,12 +5,15 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"runtime"
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/enokdev/helix/web/internal"
 )
 
 const controllerMarkerPkgPath = "github.com/enokdev/helix"
@@ -78,14 +81,43 @@ func RegisterController(server HTTPServer, controller any) error {
 		return err
 	}
 
-	prefix, err := controllerRoutePrefix(controllerType.Name())
+	// Check for route override via struct tag first
+	prefix, err := getControllerRouteOverride(controllerType)
 	if err != nil {
 		return err
 	}
+	
+	// If no override, use convention-based prefix
+	if prefix == "" {
+		prefix, err = controllerRoutePrefix(controllerType.Name())
+		if err != nil {
+			return fmt.Errorf("web: register controller %s derivation failure: %w — ensure name follows PascalCase and ends with 'Controller'", controllerType.Name(), err)
+		}
+	}
 
-	directives, err := controllerRouteDirectives(controllerValue.Type(), controllerType.Name())
-	if err != nil {
-		return err
+	// First, try to get directives from the generated registry
+	directives, hasGenerated := tryGetGeneratedRoutes(controllerType.Name())
+
+	// Check if server enforces generated only mode
+	generatedOnly := false
+	if srv, ok := server.(interface{ IsGeneratedOnly() bool }); ok {
+		generatedOnly = srv.IsGeneratedOnly()
+	}
+
+	if !hasGenerated {
+		if generatedOnly {
+			return fmt.Errorf("web: register controller %s: generated registry empty and GeneratedOnly mode enabled — run 'helix generate web' to sync", controllerType.Name())
+		}
+
+		// Fall back to AST parsing if no generated routes are found
+		var err error
+		directives, err = controllerRouteDirectives(controllerValue.Type(), controllerType.Name())
+		if err != nil {
+			return err
+		}
+		if len(directives) > 0 {
+			slog.Debug("using AST-parsed routes (no generated registry found)", "controller", controllerType.Name())
+		}
 	}
 
 	// First pass: validate all handler signatures and route definitions before
@@ -165,7 +197,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	}
 
 	if len(routes) == 0 {
-		return fmt.Errorf("web: register controller %s: %w", controllerType.Name(), ErrInvalidController)
+		return fmt.Errorf("web: register controller %s: no routable methods found — add public methods like Index, Show, Create, Update, or Delete, or use //helix:route directives", controllerType.Name())
 	}
 
 	sortControllerRoutes(routes)
@@ -242,6 +274,66 @@ func composeHandler(guards []Guard, interceptors []Interceptor, handler HandlerF
 		}
 		return wrapped(ctx)
 	}
+}
+
+// tryGetGeneratedRoutes checks the registry for pre-generated routes for a controller.
+// If routes are found in the registry, they are returned. Otherwise, returns nil to
+// signal that AST parsing fallback should be used.
+func tryGetGeneratedRoutes(controllerName string) (map[string]methodDirectives, bool) {
+	registry := internal.GlobalRouteRegistry()
+	if !registry.HasGeneratedRoutes(controllerName) {
+		return nil, false
+	}
+
+	routes, ok := registry.GetRoutesForController(controllerName)
+	if !ok || len(routes) == 0 {
+		return nil, false
+	}
+
+	// Convert registry RouteInfo entries into methodDirectives format
+	directives := make(map[string]methodDirectives)
+	for _, route := range routes {
+		methodName := route.HandlerName
+
+		if _, exists := directives[methodName]; !exists {
+			directives[methodName] = methodDirectives{
+				routes:       []routeDirective{},
+				guards:       []namedDirective{},
+				interceptors: []namedDirective{},
+			}
+		}
+
+		existing := directives[methodName]
+		existing.routes = append(existing.routes, routeDirective{
+			method: route.Method,
+			path:   route.Path,
+		})
+
+		// Populate guards from registry
+		for _, g := range route.Guards {
+			name, arg, _ := strings.Cut(g, ":")
+			existing.guards = append(existing.guards, namedDirective{
+				name:     name,
+				argument: arg,
+				raw:      g,
+			})
+		}
+
+		// Populate interceptors from registry
+		for _, i := range route.Interceptors {
+			name, arg, _ := strings.Cut(i, ":")
+			existing.interceptors = append(existing.interceptors, namedDirective{
+				name:     name,
+				argument: arg,
+				raw:      i,
+			})
+		}
+
+		directives[methodName] = existing
+	}
+
+	slog.Debug("using generated routes from registry", "controller", controllerName, "count", len(routes))
+	return directives, true
 }
 
 func controllerRouteDirectives(controllerMethodType reflect.Type, controllerName string) (map[string]methodDirectives, error) {
@@ -459,41 +551,133 @@ func hasControllerMarker(controllerType reflect.Type) bool {
 	return false
 }
 
+// getControllerRouteOverride checks for a helix:"route:..." tag on the Controller field.
+// Returns the route if found, empty string if not found, and an error if invalid.
+func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
+	for i := 0; i < controllerType.NumField(); i++ {
+		field := controllerType.Field(i)
+		if !field.Anonymous {
+			continue
+		}
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Ptr {
+			fieldType = fieldType.Elem()
+		}
+		if fieldType.Kind() != reflect.Struct {
+			continue
+		}
+		if fieldType.Name() == "Controller" && fieldType.PkgPath() == controllerMarkerPkgPath {
+			// Found the Controller field, check for helix:"route:..." tag
+			tagValue, ok := field.Tag.Lookup("helix")
+			if !ok {
+				return "", nil // No override tag
+			}
+			
+			// Parse helix tag - expecting format like: helix:"route:/path"
+			// Split by semicolon to allow future extensibility without hard failure
+			parts := strings.Split(tagValue, ";")
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if strings.HasPrefix(part, "route:") {
+					route := strings.TrimSpace(strings.TrimPrefix(part, "route:"))
+					if route == "" {
+						return "", fmt.Errorf("web: invalid controller %s tag: route value cannot be empty — use helix:\"route:/v1/path\"", controllerType.Name())
+					}
+					if !strings.HasPrefix(route, "/") {
+						return "", fmt.Errorf("web: invalid controller %s tag: route must start with '/' — found %q", controllerType.Name(), route)
+					}
+					if strings.Contains(route, "..") {
+						return "", fmt.Errorf("web: invalid controller %s tag: route contains illegal '..' sequence", controllerType.Name())
+					}
+					return route, nil
+				}
+			}
+			
+			return "", nil
+		}
+	}
+	return "", nil
+}
+
 func controllerRoutePrefix(controllerName string) (string, error) {
 	baseName := strings.TrimSuffix(controllerName, "Controller")
 	if baseName == "" {
-		return "", fmt.Errorf("web: derive route prefix %s: %w", controllerName, ErrInvalidController)
+		return "", fmt.Errorf("web: derive route prefix %s: name must have a prefix before 'Controller'", controllerName)
 	}
 
 	segments := pascalWords(baseName)
 	if len(segments) == 0 {
-		return "", fmt.Errorf("web: derive route prefix %s: %w", controllerName, ErrInvalidController)
+		return "", fmt.Errorf("web: derive route prefix %s: no segments found", controllerName)
 	}
+
+	// Filter out common technical acronym suffixes if they are redundant
+	// e.g. UserHTTP -> User (pluralized: Users)
+	if len(segments) > 1 {
+		last := segments[len(segments)-1]
+		if isTechnicalAcronym(last) {
+			segments = segments[:len(segments)-1]
+		}
+	}
+
 	segments[len(segments)-1] = pluralize(segments[len(segments)-1])
 
 	return "/" + strings.Join(segments, "-"), nil
 }
 
+func isTechnicalAcronym(word string) bool {
+	switch strings.ToUpper(word) {
+	case "HTTP", "HTTPS", "API", "JSON", "XML", "URL", "ID":
+		return true
+	default:
+		return false
+	}
+}
+
 func pascalWords(value string) []string {
 	runes := []rune(value)
-	words := make([]string, 0, len(runes))
+	if len(runes) == 0 {
+		return []string{}
+	}
+
+	words := make([]string, 0)
 	start := 0
 
-	for i := 1; i < len(runes); i++ {
-		current := runes[i]
-		previous := runes[i-1]
-		var next rune
-		if i+1 < len(runes) {
-			next = runes[i+1]
+	for i := 1; i <= len(runes); i++ {
+		var current rune
+		if i < len(runes) {
+			current = runes[i]
 		}
 
-		if unicode.IsUpper(current) && (unicode.IsLower(previous) || unicode.IsDigit(previous) || (next != 0 && unicode.IsLower(next))) {
-			words = append(words, strings.ToLower(string(runes[start:i])))
+		previous := runes[i-1]
+
+		// Check if we need to split at position i
+		shouldSplit := false
+
+		if i == len(runes) {
+			// End of string, always split
+			shouldSplit = true
+		} else if !unicode.IsUpper(current) {
+			// Current is lowercase, but we might need to continue
+			continue
+		} else if unicode.IsLower(previous) || unicode.IsDigit(previous) {
+			// Previous is lowercase/digit, current is uppercase
+			// Always split: "aB" -> "a" | "B"
+			shouldSplit = true
+		} else if unicode.IsUpper(previous) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+			// Previous is uppercase, current is uppercase, next is lowercase
+			// Split before current: "ABc" -> "A" | "Bc"
+			shouldSplit = true
+		}
+
+		if shouldSplit {
+			word := string(runes[start:i])
+			if word != "" {
+				words = append(words, strings.ToLower(word))
+			}
 			start = i
 		}
 	}
 
-	words = append(words, strings.ToLower(string(runes[start:])))
 	return words
 }
 
@@ -583,4 +767,16 @@ func isNilReflectValue(value reflect.Value) bool {
 	default:
 		return false
 	}
+}
+
+// GlobalRouteRegistry returns the global route registry for accessing pre-generated routes.
+// This is primarily used for testing and accessing generated route metadata.
+func GlobalRouteRegistry() *internal.RouteRegistry {
+	return internal.GlobalRouteRegistry()
+}
+
+// GlobalErrorHandlerRegistry returns the global error handler registry for accessing pre-generated handlers.
+// This is primarily used for testing and accessing generated handler metadata.
+func GlobalErrorHandlerRegistry() *internal.ErrorHandlerRegistry {
+	return internal.GlobalErrorHandlerRegistry()
 }

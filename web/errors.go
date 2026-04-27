@@ -1,6 +1,9 @@
 package web
 
-import "errors"
+import (
+	"errors"
+	"net/http"
+)
 
 // ErrInvalidRoute is returned when a route cannot be registered.
 var ErrInvalidRoute = errors.New("web: invalid route")
@@ -29,6 +32,17 @@ type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`
 }
 
+// ValidationErrorResponse is the JSON envelope for multiple validation errors.
+type ValidationErrorResponse struct {
+	Errors []FieldError `json:"errors"`
+}
+
+// FieldError represents a single validation error for a field.
+type FieldError struct {
+	Field string `json:"field"`
+	Msg   string `json:"msg"`
+}
+
 // ErrorDetail contains a single machine-readable request error.
 type ErrorDetail struct {
 	Type    string `json:"type"`
@@ -41,18 +55,35 @@ type ErrorDetail struct {
 // binding failures. It is intentionally small until the central error handler
 // story introduces global customization.
 type RequestError struct {
-	status int
-	detail ErrorDetail
+	status            int
+	detail            ErrorDetail
+	validationErrors  []FieldError
+	isMultiFieldError bool
 }
 
 func newRequestError(status int, code, field, message string) *RequestError {
 	return &RequestError{
-		status: status,
+		status:            status,
+		isMultiFieldError: false,
 		detail: ErrorDetail{
 			Type:    requestErrorType,
 			Message: message,
 			Field:   field,
 			Code:    code,
+		},
+	}
+}
+
+// newMultiFieldValidationError creates a RequestError with multiple validation errors.
+func newMultiFieldValidationError(validationErrors []FieldError) *RequestError {
+	return &RequestError{
+		status:            http.StatusBadRequest,
+		isMultiFieldError: true,
+		validationErrors:  validationErrors,
+		detail: ErrorDetail{
+			Type:    requestErrorType,
+			Code:    codeValidationFailed,
+			Message: "validation failed",
 		},
 	}
 }
@@ -74,6 +105,11 @@ func (e *RequestError) StatusCode() int {
 
 // ResponseBody returns the JSON body to encode for this error.
 func (e *RequestError) ResponseBody() any {
+	if e.isMultiFieldError && len(e.validationErrors) > 0 {
+		// Multi-field validation errors use the new "errors" array format
+		return ValidationErrorResponse{Errors: e.validationErrors}
+	}
+	// Single error keeps the old format for backward compatibility
 	return ErrorResponse{Error: e.detail}
 }
 

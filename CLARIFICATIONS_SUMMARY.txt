@@ -1,0 +1,110 @@
+═══════════════════════════════════════════════════════════════════════════════
+HTTP Layer Documentation Clarifications — Summary
+═══════════════════════════════════════════════════════════════════════════════
+
+DELIVERABLE
+───────────────────────────────────────────────────────────────────────────────
+File: HTTP_LAYER_CLARIFICATIONS.md (631 lines)
+Location: /Users/yacoubakone/Documents/dev/helix/
+
+FINDINGS DOCUMENTED: 9 Critical Issues
+───────────────────────────────────────────────────────────────────────────────
+
+1. Handler Return Values (nil, nil) Response Code
+   Impact: HIGH — Handler returns clarification
+   Status: Code behavior verified, documentation recommendation provided
+   
+2. Guard Factory Error Handling — Init-Time vs Request-Time
+   Impact: HIGH — Timing and failure mode documentation
+   Status: Error flow traced through router.go, clarification provided
+   
+3. Query Parameter Binding & Validation — Order and Error Codes
+   Impact: HIGH — Complex behavior requiring full rewrite of section
+   Status: Binding order traced (default→convert→max→validate)
+   Codes: INVALID_QUERY_PARAM vs VALIDATION_FAILED distinction clarified
+   
+4. JSON Body Binding — Emptiness, DisallowUnknownFields, Multiple Values
+   Impact: HIGH — Section expansion with specific error scenarios
+   Status: All edge cases mapped (empty, whitespace, {}, [], unknown fields)
+   
+5. Guard Execution Order — Global, Route, Interceptors Stacking
+   Impact: MEDIUM — Order of guards relative to interceptors
+   Status: Execution flow diagrammed (guards execute BEFORE interceptors)
+   
+6. Error Handlers — Duplicate Type Handling & Signature Requirements
+   Impact: HIGH — Complex signature rules and duplicate behavior
+   Status: Signature validation traced, duplicate detection confirmed
+   Code: Signature must be (any, int) with optional Context param
+   
+7. Nested Struct Binding — Top-Level Fields Only
+   Impact: LOW — Clarification about struct nesting behavior
+   Status: Field iteration traced, nested fields confirmed ignored
+   
+8. Reserved Interceptor Names
+   Impact: LOW — Documentation of reserved names beyond 'cache'
+   Status: Confirmed 'cache' is reserved, other names should be avoided
+   
+9. Directive Syntax Edge Cases — Whitespace & Path Validation
+   Impact: MEDIUM — Parser behavior with whitespace and special paths
+   Status: strings.Fields() behavior confirmed, all paths validated
+
+CONTENT ADDITIONS
+───────────────────────────────────────────────────────────────────────────────
+Total New Documentation: ~154 lines
+- Code examples: 15+ new examples
+- Clarifications: 8 detailed notes
+- Structured tables: 2 (error codes, signature requirements)
+- Diagrams: 1 (execution order flow)
+
+BY IMPACT TIER:
+
+HIGH Impact (6 findings):
+  - Guard factory errors (init-time clarity)
+  - Query param binding order (complete rewrite needed)
+  - JSON body validation (edge cases)
+  - Error handler signatures (complex rules)
+
+MEDIUM Impact (2 findings):
+  - Handler nil,nil responses
+  - Guard execution vs interceptors
+  - Directive syntax edge cases
+
+LOW Impact (1 finding):
+  - Nested struct binding
+  - Reserved names
+
+LANGUAGE CONSISTENCY
+───────────────────────────────────────────────────────────────────────────────
+Status: ✅ CONSISTENT
+- Document is entirely in French (appropriate for target audience)
+- All headers, body text, and examples follow French convention
+- No mixed language issues detected
+
+TEST IMPROVEMENTS RECOMMENDED
+───────────────────────────────────────────────────────────────────────────────
+Current Test: Simple substring matching (TestHTTPLayerGuideDocumentsCoreConcepts)
+
+Proposed Enhancements:
+1. Regex-based pattern validation for complex concepts
+2. Code block syntax validation (balanced braces, imports)
+3. Directive format validation (//helix: syntax checking)
+4. Error code coverage verification (INVALID_QUERY_PARAM, VALIDATION_FAILED, etc.)
+5. Struct tag validation (query:, json:, validate:, default:, max:)
+
+New Assertion Count: 6-8 additional test cases
+Complexity: Regex patterns for multi-line matching
+
+NEXT STEPS
+───────────────────────────────────────────────────────────────────────────────
+1. Review HTTP_LAYER_CLARIFICATIONS.md for accuracy
+2. Apply recommendations to docs/http-layer.md in this order:
+   - Finding 3 (Query params) — largest restructure
+   - Finding 4 (JSON body) — follows query params
+   - Finding 6 (Error handlers) — signature expansion
+   - Finding 2 (Guard factory) — init-time clarity
+   - Findings 1, 5, 7, 8, 9 — add as notes/expansions
+
+3. Update documentation_test.go with enhanced assertions
+4. Run `go test ./...` to validate no regressions
+
+═══════════════════════════════════════════════════════════════════════════════
