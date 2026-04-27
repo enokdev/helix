@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-27 - story 14.1 in-progress
+last_updated: 2026-04-27 - story 14.2 review
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-27 - story 14.1 in-progress
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-27 - all 13 epics closed, framework roadmap complete
+last_updated: 2026-04-27 - story 14.1 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -186,8 +186,8 @@ development_status:
   # Epic 14: Dette Technique v2
   # ─────────────────────────────────────────────
   epic-14: in-progress
-  14-1-panic-recovery-http-robustesse: review
-  14-2-binding-avance-structs-embarquees: backlog
+  14-1-panic-recovery-http-robustesse: done
+  14-2-binding-avance-structs-embarquees: review
   14-3-container-di-scopeprototype-cycles: backlog
   14-4-securite-rbac-injection-sql: backlog
   14-5-starters-erreurs-idempotence: backlog
