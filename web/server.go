@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -118,6 +119,7 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 						"method", normalizedMethod,
 						"path", routePath,
 						"panic", fmt.Sprintf("%v", r),
+						"stack", string(debug.Stack()),
 					)
 					handlerErr = writeErrorResponse(observed, fmt.Errorf("handler panic"))
 				}
