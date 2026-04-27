@@ -9,6 +9,7 @@ import (
 	"github.com/enokdev/helix/starter/internal/starterutil"
 )
 
+
 const (
 	secEnabledKey = "helix.starters.security.enabled"
 	jwtSecretKey  = "security.jwt.secret"
@@ -44,10 +45,42 @@ func (s *Starter) Condition() bool {
 	return ok
 }
 
-// Configure registers security components into the DI container.
-func (s *Starter) Configure(container *core.Container) {
+// ConditionFromContainer evaluates the security starter activation after
+// application components have been registered.
+//
+// Priority (highest to lowest):
+//  1. helix.starters.security.enabled = false → inactive (absolute override)
+//  2. helix.starters.security.enabled = true  → active (absolute override)
+//  3. security.* key present in config        → active (config-key detection)
+//  4. container holds a helixsecurity.Configurer → active (component marker)
+//  5. otherwise                                → inactive
+func (s *Starter) ConditionFromContainer(container *core.Container) bool {
+	if s.cfg != nil {
+		if value, ok := s.cfg.Lookup(secEnabledKey); ok {
+			enabled, parsed := starterutil.ParseBool(value)
+			if parsed {
+				return enabled
+			}
+		}
+
+		all := s.cfg.AllSettings()
+		if _, ok := all["security"]; ok {
+			return true
+		}
+	}
+
 	if container == nil {
-		return
+		return false
+	}
+
+	var cfg helixsecurity.Configurer
+	return container.Resolve(&cfg) == nil
+}
+
+// Configure registers security components into the DI container.
+func (s *Starter) Configure(container *core.Container) error {
+	if container == nil {
+		return nil
 	}
 
 	secret := ""
@@ -71,4 +104,5 @@ func (s *Starter) Configure(container *core.Container) {
 	if svc, err := helixsecurity.NewJWTService(secret, expiry); err == nil {
 		_ = container.Register(svc)
 	}
+	return nil
 }

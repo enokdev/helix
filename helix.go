@@ -119,12 +119,16 @@ func Run(app App) error {
 
 	container := newDefaultContainer(app)
 
+	starterLogger := app.Logger
+	if starterLogger == nil {
+		starterLogger = slog.Default()
+	}
+
+	// Pass 1: structural starters (config, web, data) that use go.mod or config
+	// keys to determine activation. These must be configured before application
+	// components are registered.
 	if len(app.Starters) > 0 {
-		logger := app.Logger
-		if logger == nil {
-			logger = slog.Default()
-		}
-		if err := starter.Configure(container, app.Starters, starter.WithLogger(logger)); err != nil {
+		if err := starter.Configure(container, app.Starters, starter.WithLogger(starterLogger)); err != nil {
 			return fmt.Errorf("helix: configure starters: %w", err)
 		}
 	}
@@ -141,6 +145,14 @@ func Run(app App) error {
 		}
 	} else if err := registerAppComponents(container, app.Components); err != nil {
 		return err
+	}
+
+	// Pass 2: cross-cutting starters (security, scheduling) that inspect the
+	// container for component markers after application components are registered.
+	if len(app.Starters) > 0 {
+		if err := starter.ConfigureMarkerAware(container, app.Starters, starter.WithLogger(starterLogger)); err != nil {
+			return fmt.Errorf("helix: configure marker-aware starters: %w", err)
+		}
 	}
 
 	if err := autoRegisterControllers(container, app.Components); err != nil {

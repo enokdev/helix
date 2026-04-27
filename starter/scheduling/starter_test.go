@@ -359,3 +359,59 @@ func TestScheduledJobRegistrar_AllowsConcurrentWhenOptedIn(t *testing.T) {
 		t.Fatalf("runs = %d, want 2", got)
 	}
 }
+
+// ─── ConditionFromContainer tests ────────────────────────────────────────────
+
+func TestSchedulingStarter_ConditionFromContainer(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     fakeConfig
+		setupFn func(c *core.Container)
+		want    bool
+	}{
+		{
+			name:    "enabled: false overrides provider",
+			cfg:     fakeConfig{values: map[string]any{schedEnabledKey: false}},
+			setupFn: func(c *core.Container) { _ = c.Register(&testScheduledProvider{}) },
+			want:    false,
+		},
+		{
+			name:    "enabled: true without provider",
+			cfg:     fakeConfig{values: map[string]any{schedEnabledKey: true}},
+			setupFn: func(_ *core.Container) {},
+			want:    true,
+		},
+		{
+			name:    "provider present without config override",
+			cfg:     fakeConfig{values: map[string]any{}},
+			setupFn: func(c *core.Container) { _ = c.Register(&testScheduledProvider{}) },
+			want:    true,
+		},
+		{
+			name:    "no provider no config",
+			cfg:     fakeConfig{values: map[string]any{}},
+			setupFn: func(_ *core.Container) {},
+			want:    false,
+		},
+		{
+			name:    "nil container returns false",
+			cfg:     fakeConfig{values: map[string]any{}},
+			setupFn: nil,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := New(tt.cfg)
+			var c *core.Container
+			if tt.setupFn != nil {
+				c = newTestContainer()
+				tt.setupFn(c)
+			}
+			if got := s.ConditionFromContainer(c); got != tt.want {
+				t.Fatalf("ConditionFromContainer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

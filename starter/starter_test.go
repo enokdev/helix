@@ -24,8 +24,9 @@ func (f *fakeStarter) Condition() bool {
 	return f.condition
 }
 
-func (f *fakeStarter) Configure(_ *core.Container) {
+func (f *fakeStarter) Configure(_ *core.Container) error {
 	f.configureCalls++
+	return nil
 }
 
 // recorderStarter appends its name to seq on Configure to track call order.
@@ -34,8 +35,11 @@ type recorderStarter struct {
 	name string
 }
 
-func (r *recorderStarter) Condition() bool             { return true }
-func (r *recorderStarter) Configure(_ *core.Container) { *r.seq = append(*r.seq, r.name) }
+func (r *recorderStarter) Condition() bool                    { return true }
+func (r *recorderStarter) Configure(_ *core.Container) error {
+	*r.seq = append(*r.seq, r.name)
+	return nil
+}
 
 func newContainer() *core.Container {
 	return core.NewContainer(core.WithResolver(core.NewReflectResolver()))
@@ -194,5 +198,136 @@ func TestConfigure_EmptyEntries(t *testing.T) {
 	}
 	if err := starter.Configure(newContainer(), []starter.Entry{}); err != nil {
 		t.Fatalf("unexpected error with empty entries: %v", err)
+	}
+}
+
+// --- MarkerAwareStarter -------------------------------------------------------
+
+// markerAwareFakeStarter implements MarkerAwareStarter for tests.
+type markerAwareFakeStarter struct {
+	conditionRet              bool
+	conditionFromContainerRet bool
+	conditionCalls            int
+	conditionFromContainerCalls int
+	configureCalls            int
+}
+
+func (m *markerAwareFakeStarter) Condition() bool {
+	m.conditionCalls++
+	return m.conditionRet
+}
+
+func (m *markerAwareFakeStarter) Configure(_ *core.Container) error {
+	m.configureCalls++
+	return nil
+}
+
+func (m *markerAwareFakeStarter) ConditionFromContainer(_ *core.Container) bool {
+	m.conditionFromContainerCalls++
+	return m.conditionFromContainerRet
+}
+
+// TestConfigure_SkipsMarkerAwareStarters verifies that Configure (pass 1)
+// skips starters that implement MarkerAwareStarter entirely.
+func TestConfigure_SkipsMarkerAwareStarters(t *testing.T) {
+	mas := &markerAwareFakeStarter{conditionRet: true, conditionFromContainerRet: true}
+	regular := &fakeStarter{condition: true}
+
+	entries := []starter.Entry{
+		{Name: "regular", Order: starter.OrderConfig, Starter: regular},
+		{Name: "marker-aware", Order: starter.OrderSecurity, Starter: mas},
+	}
+
+	if err := starter.Configure(newContainer(), entries); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mas.conditionCalls != 0 {
+		t.Errorf("MarkerAwareStarter.Condition() called %d time(s) in pass 1, want 0", mas.conditionCalls)
+	}
+	if mas.conditionFromContainerCalls != 0 {
+		t.Errorf("MarkerAwareStarter.ConditionFromContainer() called %d time(s) in pass 1, want 0", mas.conditionFromContainerCalls)
+	}
+	if mas.configureCalls != 0 {
+		t.Errorf("MarkerAwareStarter.Configure() called %d time(s) in pass 1, want 0", mas.configureCalls)
+	}
+	if regular.configureCalls != 1 {
+		t.Errorf("regular starter Configure() called %d time(s), want 1", regular.configureCalls)
+	}
+}
+
+// TestConfigureMarkerAware_OnlyProcessesMarkerAwareStarters verifies that
+// ConfigureMarkerAware (pass 2) only processes MarkerAwareStarter entries.
+func TestConfigureMarkerAware_OnlyProcessesMarkerAwareStarters(t *testing.T) {
+	mas := &markerAwareFakeStarter{conditionFromContainerRet: true}
+	regular := &fakeStarter{condition: true}
+
+	entries := []starter.Entry{
+		{Name: "regular", Order: starter.OrderConfig, Starter: regular},
+		{Name: "marker-aware", Order: starter.OrderSecurity, Starter: mas},
+	}
+
+	if err := starter.ConfigureMarkerAware(newContainer(), entries); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if regular.conditionCalls != 0 {
+		t.Errorf("regular Condition() called %d time(s) in pass 2, want 0", regular.conditionCalls)
+	}
+	if regular.configureCalls != 0 {
+		t.Errorf("regular Configure() called %d time(s) in pass 2, want 0", regular.configureCalls)
+	}
+	if mas.conditionFromContainerCalls != 1 {
+		t.Errorf("MarkerAwareStarter.ConditionFromContainer() called %d time(s), want 1", mas.conditionFromContainerCalls)
+	}
+	if mas.configureCalls != 1 {
+		t.Errorf("MarkerAwareStarter.Configure() called %d time(s), want 1", mas.configureCalls)
+	}
+}
+
+// TestConfigureMarkerAware_NilContainerReturnsError verifies that
+// ConfigureMarkerAware returns an error when container is nil.
+func TestConfigureMarkerAware_NilContainerReturnsError(t *testing.T) {
+	mas := &markerAwareFakeStarter{conditionFromContainerRet: true}
+	entries := []starter.Entry{
+		{Name: "marker-aware", Order: starter.OrderSecurity, Starter: mas},
+	}
+
+	err := starter.ConfigureMarkerAware(nil, entries)
+	if err == nil {
+		t.Fatal("expected error with nil container, got nil")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Errorf("error %v does not wrap ErrInvalidStarter", err)
+	}
+}
+
+// TestConfigure_LogsReasonField verifies that the log entry contains the
+// "reason" field for a regular (non-MarkerAware) starter.
+func TestConfigure_LogsReasonField(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger := slog.New(handler)
+
+	fs := &fakeStarter{condition: true}
+	entries := []starter.Entry{
+		{Name: "mymod", Order: starter.OrderConfig, Starter: fs},
+	}
+
+	if err := starter.Configure(newContainer(), entries, starter.WithLogger(logger)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var logEntry map[string]any
+	if err := json.NewDecoder(&buf).Decode(&logEntry); err != nil {
+		t.Fatalf("failed to decode log JSON: %v", err)
+	}
+
+	reason, ok := logEntry["reason"]
+	if !ok {
+		t.Fatal("log entry missing \"reason\" field")
+	}
+	if _, ok := reason.(string); !ok {
+		t.Fatalf("log reason is not a string: %T", reason)
 	}
 }

@@ -7,6 +7,14 @@ import (
 	helixsecurity "github.com/enokdev/helix/security"
 )
 
+// fakeSecurityConfigurer is a minimal helixsecurity.Configurer for testing.
+type fakeSecurityConfigurer struct{}
+
+func (f *fakeSecurityConfigurer) Configure(_ *helixsecurity.HTTPSecurity) {}
+
+// Ensure fakeSecurityConfigurer satisfies the interface.
+var _ helixsecurity.Configurer = (*fakeSecurityConfigurer)(nil)
+
 type fakeConfig struct {
 	values map[string]any
 }
@@ -149,5 +157,67 @@ func TestConfigureRegistersJWTService_InvalidExpiry_UsesDefault(t *testing.T) {
 	}
 	if svc == nil {
 		t.Fatal("JWTService is nil after Configure with invalid expiry")
+	}
+}
+
+// ─── ConditionFromContainer tests ─────────────────────────────────────────────
+
+func TestSecurityStarter_ConditionFromContainer(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       fakeConfig
+		setupFn   func(c *core.Container)
+		want      bool
+	}{
+		{
+			name:    "enabled: false overrides marker",
+			cfg:     fakeConfig{values: map[string]any{secEnabledKey: false}},
+			setupFn: func(c *core.Container) { _ = c.Register(&fakeSecurityConfigurer{}) },
+			want:    false,
+		},
+		{
+			name:    "enabled: true overrides absent marker",
+			cfg:     fakeConfig{values: map[string]any{secEnabledKey: true}},
+			setupFn: func(_ *core.Container) {},
+			want:    true,
+		},
+		{
+			name: "security.* key present without marker",
+			cfg:  fakeConfig{values: map[string]any{"security": map[string]any{"jwt": map[string]any{}}}},
+			setupFn: func(_ *core.Container) {},
+			want:    true,
+		},
+		{
+			name:    "marker present without config key",
+			cfg:     fakeConfig{values: map[string]any{}},
+			setupFn: func(c *core.Container) { _ = c.Register(&fakeSecurityConfigurer{}) },
+			want:    true,
+		},
+		{
+			name:    "no marker no config",
+			cfg:     fakeConfig{values: map[string]any{}},
+			setupFn: func(_ *core.Container) {},
+			want:    false,
+		},
+		{
+			name:    "nil container returns false",
+			cfg:     fakeConfig{values: map[string]any{}},
+			setupFn: nil, // container will be nil
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := New(tt.cfg)
+			var c *core.Container
+			if tt.setupFn != nil {
+				c = newTestContainer()
+				tt.setupFn(c)
+			}
+			if got := s.ConditionFromContainer(c); got != tt.want {
+				t.Fatalf("ConditionFromContainer() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

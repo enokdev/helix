@@ -53,14 +53,41 @@ func (s *Starter) Condition() bool {
 	return true
 }
 
-// Configure registers scheduling components into the DI container.
-func (s *Starter) Configure(container *core.Container) {
+// ConditionFromContainer evaluates the scheduling starter activation after
+// application components have been registered.
+//
+// Priority (highest to lowest):
+//  1. helix.starters.scheduling.enabled = false → inactive (absolute override)
+//  2. helix.starters.scheduling.enabled = true  → active (absolute override)
+//  3. container holds a scheduler.ScheduledJobProvider → active (component marker)
+//  4. otherwise → inactive
+func (s *Starter) ConditionFromContainer(container *core.Container) bool {
+	if s.cfg != nil {
+		if value, ok := s.cfg.Lookup(schedEnabledKey); ok {
+			enabled, parsed := starterutil.ParseBool(value)
+			if parsed {
+				return enabled
+			}
+		}
+	}
+
 	if container == nil {
-		return
+		return false
+	}
+
+	providers, err := core.ResolveAll[scheduler.ScheduledJobProvider](container)
+	return err == nil && len(providers) > 0
+}
+
+// Configure registers scheduling components into the DI container.
+func (s *Starter) Configure(container *core.Container) error {
+	if container == nil {
+		return nil
 	}
 	sched := scheduler.NewScheduler()
 	_ = container.Register(sched)
 	_ = container.Register(newScheduledJobRegistrar(container, sched))
+	return nil
 }
 
 type scheduledJobRegistrar struct {
