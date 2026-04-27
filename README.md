@@ -49,40 +49,47 @@ go get github.com/enokdev/helix
 Helix structure un service backend en trois types de composants :
 
 ```go
-type UserRepository struct {
-	helix.Repository
-}
-
+type UserRepository struct{ helix.Repository }
 type UserService struct {
-	helix.Service
-	repo *UserRepository
+    helix.Service
+    Repo *UserRepository `inject:"true"`
 }
-
 type UserController struct {
-	helix.Controller
-	service *UserService
+    helix.Controller
+    Service *UserService `inject:"true"`
 }
 
-func (c *UserController) Index() []User {
-	return c.service.List()
-}
+func (c *UserController) Index() []User { return c.Service.Repo.FindAll() }
+```
 
+**Mode zero-config** : si Fiber est dans votre `go.mod` et que vous avez un `config/application.yaml`, un simple `helix.Run()` suffit — le framework detecte les starters, câble les composants et gere le lifecycle HTTP.
+
+```go
 func main() {
-	server := web.NewServer()
-	ctrl := NewUserController(NewUserService(NewUserRepository()))
-	if err := web.RegisterController(server, ctrl); err != nil {
-		log.Fatal(err)
-	}
-	if err := helix.Run(helix.App{
-		Components: []any{&appServer{server: server, addr: ":8080"}},
-	}); err != nil {
-		log.Fatal(err)
-	}
+    if err := helix.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+**Mode explicite** : fournissez vos composants via `helix.App{Components: ...}` pour un contrôle total.
+
+```go
+func main() {
+    if err := helix.Run(helix.App{
+        Components: []any{
+            NewUserRepository(),
+            &UserService{},
+            &UserController{},
+        },
+    }); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
 `helix.Run` gere le cycle de vie complet : demarrage, ecoute de SIGTERM/SIGINT et arret propre.
-Copiez la structure de `examples/crud-api` et adaptez les types a votre domaine.
+Consultez `examples/crud-api` pour un exemple complet ou `examples/zero-config` pour le mode zero-config.
 
 ### Explorer l'exemple complet
 
@@ -111,7 +118,8 @@ curl -X DELETE http://localhost:8080/users/1
 ## Fonctionnalites
 
 - Injection de dependances via `helix.Service`, `helix.Controller`, `helix.Repository` et `helix.Component`.
-- Bootstrap applicatif via `helix.Run(helix.App{...})` lorsque l'application assemble ses composants dans le conteneur.
+- Bootstrap zero-config via `helix.Run()` : starters detectes automatiquement (web, security, scheduling) selon les marqueurs de composants et `go.mod`.
+- Bootstrap explicite via `helix.Run(helix.App{Components: ...})` pour un controle total.
 - Resolution DI par reflection par defaut, avec mode wire pour le codegen compile-time.
 - Routing HTTP par conventions `Index`, `Show`, `Create`, `Update`, `Delete` et directives `//helix:route`.
 - Binding type des query params et body JSON, validation automatique et mapping retour vers status HTTP.
@@ -123,13 +131,17 @@ curl -X DELETE http://localhost:8080/users/1
 
 ## Exemples
 
-- [API CRUD users](examples/crud-api/main.go) : service, repository en memoire, controller declaratif et serveur HTTP Helix.
+- [API CRUD users](examples/crud-api/main.go) : service, repository en memoire, controller declaratif et lifecycle HTTP geré par le starter web.
+- [API securisee JWT/RBAC](examples/secured-api/main.go) : authentification JWT, guards RBAC declaratifs et configuration globale de securite.
+- [Zero-config](examples/zero-config/main.go) : `helix.Run()` sans argument — le framework detecte et configure tout automatiquement.
 
 Commandes utiles :
 
 ```bash
-go test ./examples/crud-api
 go run ./examples/crud-api
+go run ./examples/secured-api
+go run ./examples/zero-config
+go test ./...
 ```
 
 ## Guides

@@ -398,7 +398,16 @@ func (CleanupJobs) Cleanup() error {
 
 ## Starters
 
-Le starter security enregistre `*security.JWTService` quand la configuration contient `security.jwt.secret`. Le starter observability configure logging, tracing, `/actuator/health`, `/actuator/info` et `/actuator/metrics` quand il trouve une configuration `observability` ou `helix.starters.observability.enabled`. Le starter scheduling enregistre `scheduler.NewScheduler()` et les providers si `robfig/cron` est present dans `go.mod`.
+Le starter security enregistre `*security.JWTService` quand la configuration contient `security.jwt.secret`. Il s'active automatiquement si un composant embed `helix.SecurityConfigurer` est present dans le container (detection par marker). Le starter observability configure logging, tracing, `/actuator/health`, `/actuator/info` et `/actuator/metrics` quand il trouve une configuration `observability` ou `helix.starters.observability.enabled`. Le starter scheduling enregistre `scheduler.NewScheduler()` et les providers si `robfig/cron` est present dans `go.mod` ; il s'active automatiquement si un composant implementant `scheduler.ScheduledJobProvider` est present dans le container.
+
+Le starter web gere le lifecycle HTTP complet (demarrage et arret gracieux). Le timeout d'arret est configurable :
+
+```yaml
+helix:
+  shutdown-timeout: "30s"   # doit etre une chaine parseable par time.ParseDuration
+```
+
+**Important :** `helix.shutdown-timeout` doit etre une chaine de caracteres (ex: `"30s"`, `"1m"`). Une valeur entiere nue (ex: `30`) serait interpretee comme des nanosecondes, ce qui neutraliserait l'arret gracieux.
 
 ```yaml
 helix:
@@ -407,6 +416,8 @@ helix:
       enabled: true
     scheduling:
       enabled: true
+    security:
+      enabled: true   # remplace la detection automatique par marker
 ```
 
 `helix.starters.scheduling.enabled` controle le starter scheduling, mais la presence de `robfig/cron` dans `go.mod` reste necessaire pour l'activation automatique.

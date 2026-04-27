@@ -2,10 +2,14 @@
 // A single helix.Run() call is sufficient to start the application.
 package main
 
-import helix "github.com/enokdev/helix"
+import (
+	"log"
+
+	helix "github.com/enokdev/helix"
+)
 
 func main() {
 	if err := helix.Run(); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }

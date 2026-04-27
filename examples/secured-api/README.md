@@ -191,7 +191,7 @@ Rules are matched in definition order; the first matching pattern applies.
 The `security.JWTService` handles token generation and validation:
 - Uses HMAC-SHA256 (HS256) for signing
 - Validates token signature and expiration
-- Default expiry: 24 hours (configurable)
+- Expiry is read from `security.jwt.expiry` in config (default `"1h"` for this example); the `expires_in` field in the login response reflects the configured value
 - Secret must be provided via `config/application.yaml` or environment variable
 
 ### Role-Based Guards

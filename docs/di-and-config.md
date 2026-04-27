@@ -127,7 +127,11 @@ Dans un guide ou un outil, utilisez ce graphe comme aide au diagnostic, pas comm
 
 ### Injection de valeurs
 
-Le tag `value:"key"` injecte une valeur scalaire fournie par `core.WithValueLookup`.
+Le tag `value:"key"` injecte une valeur scalaire depuis la configuration.
+
+En **mode zero-config** (`helix.Run()` sans argument), la config auto-chargee est automatiquement branchee au container — les champs `value:"key"` sont resolus sans aucun code supplementaire.
+
+En **mode explicite**, fournissez `core.WithValueLookup(loader.Lookup)` au container :
 
 ```go
 type HTTPConfig struct {
@@ -385,6 +389,6 @@ Helpers utiles :
 - Mettre `inject:"true"` sur un champ non exporte : le resolver ne peut pas l'assigner.
 - Enregistrer deux implementations pour la meme interface et demander cette interface : resolution ambigue, `core.ErrUnresolvable`.
 - Attendre que `helix.App.Scan` instancie les types : le scan detecte, mais les valeurs doivent etre fournies en mode reflection.
-- Utiliser `value:"key"` sans `core.WithValueLookup(loader.Lookup)` : la valeur ne peut pas etre trouvee.
+- Utiliser `value:"key"` sans `core.WithValueLookup(loader.Lookup)` en mode explicite : la valeur ne peut pas etre trouvee. En mode zero-config (`helix.Run()`), ce branchage est automatique.
 - Confondre `Lazy` et `core.ScopePrototype` : `Lazy` retarde un singleton, `core.ScopePrototype` cree une nouvelle instance a chaque resolution.
 - Lire une struct rechargee sans `RLock/RUnlock` pendant que `config.NewReloader` tourne en arriere-plan.
