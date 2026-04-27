@@ -184,7 +184,7 @@ func TestStarterConditionWalkUpDetectsGoMod(t *testing.T) {
 func TestStarterConfigureRegistersLifecycleWithDefaultPort(t *testing.T) {
 	container := newTestContainer()
 
-	New(nil).Configure(container)
+	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	lifecycle := singleLifecycle(t, container)
 	serverLifecycle, ok := lifecycle.(*serverLifecycle)
@@ -200,7 +200,7 @@ func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 	container := newTestContainer()
 	cfg := fakeConfig{values: map[string]any{"server.port": 9090}}
 
-	New(cfg).Configure(container)
+	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	lifecycle := singleLifecycle(t, container)
 	serverLifecycle, ok := lifecycle.(*serverLifecycle)
@@ -215,7 +215,7 @@ func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 func TestStarterConfigureRegistersHTTPServer(t *testing.T) {
 	container := newTestContainer()
 
-	New(nil).Configure(container)
+	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	var server helixweb.HTTPServer
 	if err := container.Resolve(&server); err != nil {
@@ -356,7 +356,9 @@ func TestStarterConfigure_ShutdownTimeoutFromConfig(t *testing.T) {
 			container := newTestContainer()
 			cfg := fakeConfig{values: tt.configValues}
 
-			New(cfg).Configure(container)
+			if err := New(cfg).Configure(container); err != nil {
+				t.Fatalf("Configure() error = %v", err)
+			}
 
 			lifecycle := singleLifecycle(t, container)
 			sl, ok := lifecycle.(*serverLifecycle)

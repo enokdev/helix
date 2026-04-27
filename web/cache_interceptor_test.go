@@ -37,7 +37,7 @@ func (c *cacheTestContext) Context() context.Context           { return context.
 // TestCacheInterceptorSingleFlightPatternColdCache tests AC 1: Multiple concurrent requests on cold cache.
 func TestCacheInterceptorSingleFlightPatternColdCache(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
 
@@ -75,7 +75,7 @@ func TestCacheInterceptorSingleFlightPatternColdCache(t *testing.T) {
 // TestCacheInterceptorSingleFlightWaitGroup tests that requests wait correctly for in-flight result.
 func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
 
@@ -123,7 +123,7 @@ func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 // TestCacheInterceptorHitAndMiss tests basic cache hit/miss metrics.
 func TestCacheInterceptorHitAndMiss(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
 
@@ -151,7 +151,7 @@ func TestCacheInterceptorHitAndMiss(t *testing.T) {
 func TestCacheInterceptorMaxSize(t *testing.T) {
 	maxSize := 10
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	interceptor := store.newInterceptor(5*time.Minute, maxSize, "lru")
 
@@ -172,7 +172,7 @@ func TestCacheInterceptorMaxSize(t *testing.T) {
 // TestCacheInterceptorLRUEviction tests LRU eviction strategy.
 func TestCacheInterceptorLRUEviction(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	handler := func(ctx Context) error {
 		ctx.Status(http.StatusOK)
@@ -206,7 +206,7 @@ func TestCacheInterceptorLRUEviction(t *testing.T) {
 // TestCacheInterceptorFIFOEviction tests FIFO eviction strategy.
 func TestCacheInterceptorFIFOEviction(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	handler := func(ctx Context) error {
 		ctx.Status(http.StatusOK)
@@ -232,7 +232,7 @@ func TestCacheInterceptorFIFOEviction(t *testing.T) {
 // TestCacheInterceptorProactiveSweep tests AC 2: Proactive expiration sweep.
 func TestCacheInterceptorProactiveSweep(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	handler := func(ctx Context) error {
 		ctx.Status(http.StatusOK)
@@ -272,7 +272,7 @@ func TestCacheInterceptorConfigParsing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newCacheStore()
-			defer store.Stop()
+			t.Cleanup(func() { _ = store.Stop() })
 			factory := cacheInterceptorFactory(store)
 			_, err := factory(tt.config)
 			if tt.expectedErr {
@@ -287,7 +287,7 @@ func TestCacheInterceptorConfigParsing(t *testing.T) {
 // TestCacheInterceptorExpirationLazyDeletion tests lazy deletion.
 func TestCacheInterceptorExpirationLazyDeletion(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 
 	ttl := 50 * time.Millisecond
 	interceptor := store.newInterceptor(ttl, 100, "lru")
@@ -319,7 +319,7 @@ func TestCacheInterceptorExpirationLazyDeletion(t *testing.T) {
 // TestCacheInterceptorNonGetMethodsNotCached tests non-GET methods.
 func TestCacheInterceptorNonGetMethodsNotCached(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
 
 	handler := func(ctx Context) error {
@@ -347,7 +347,7 @@ func TestCacheInterceptorSuccessRangeOnlyCached(t *testing.T) {
 
 	for _, tc := range testCases {
 		store := newCacheStore()
-		defer store.Stop()
+		t.Cleanup(func() { _ = store.Stop() })
 		interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
 
 		handler := func(ctx Context) error {
@@ -366,7 +366,7 @@ func TestCacheInterceptorSuccessRangeOnlyCached(t *testing.T) {
 // TestCacheInterceptorConcurrentAccessNoRace tests thread-safety.
 func TestCacheInterceptorConcurrentAccessNoRace(t *testing.T) {
 	store := newCacheStore()
-	defer store.Stop()
+	t.Cleanup(func() { _ = store.Stop() })
 	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
 
 	handler := func(ctx Context) error {

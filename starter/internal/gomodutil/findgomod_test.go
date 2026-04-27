@@ -20,7 +20,7 @@ func TestFindGoModPath(t *testing.T) {
 			setup: func(t *testing.T) (string, func()) {
 				tmpDir := t.TempDir()
 				goModPath := filepath.Join(tmpDir, "go.mod")
-				err := os.WriteFile(goModPath, []byte("module github.com/example/test\n"), 0644)
+				err := os.WriteFile(goModPath, []byte("module github.com/example/test\n"), 0o644)
 				require.NoError(t, err)
 
 				oldCwd, err := os.Getwd()
@@ -40,11 +40,11 @@ func TestFindGoModPath(t *testing.T) {
 			setup: func(t *testing.T) (string, func()) {
 				tmpDir := t.TempDir()
 				goModPath := filepath.Join(tmpDir, "go.mod")
-				err := os.WriteFile(goModPath, []byte("module github.com/example/test\n"), 0644)
+				err := os.WriteFile(goModPath, []byte("module github.com/example/test\n"), 0o644)
 				require.NoError(t, err)
 
 				subDir := filepath.Join(tmpDir, "subdir", "nested")
-				err = os.MkdirAll(subDir, 0755)
+				err = os.MkdirAll(subDir, 0o755)
 				require.NoError(t, err)
 
 				oldCwd, err := os.Getwd()
@@ -64,7 +64,7 @@ func TestFindGoModPath(t *testing.T) {
 			setup: func(t *testing.T) (string, func()) {
 				tmpDir := t.TempDir()
 				subDir := filepath.Join(tmpDir, "isolated")
-				err := os.MkdirAll(subDir, 0755)
+				err := os.MkdirAll(subDir, 0o755)
 				require.NoError(t, err)
 
 				oldCwd, err := os.Getwd()

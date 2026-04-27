@@ -180,13 +180,13 @@ func TestConditionOverrideTrueWhenCronAbsent(t *testing.T) {
 // ─── Configure tests ──────────────────────────────────────────────────────────
 
 func TestConfigureNilContainerIsNoop(_ *testing.T) {
-	New(nil).Configure(nil)
+	_ = New(nil).Configure(nil)
 }
 
 func TestConfigureRegistersLifecycle(t *testing.T) {
 	container := newTestContainer()
 
-	New(nil).Configure(container)
+	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
 	if err != nil {
@@ -221,7 +221,7 @@ func TestStarter_Configure_RegistersScheduledJobProvider(t *testing.T) {
 		t.Fatalf("Register provider error = %v", err)
 	}
 
-	New(nil).Configure(container)
+	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("Start() error = %v, want nil", err)
@@ -250,7 +250,7 @@ func TestStarter_Configure_RegistersScheduledJobProvider(t *testing.T) {
 
 func TestStarter_Configure_NoProviders_NoError(t *testing.T) {
 	container := newTestContainer()
-	New(nil).Configure(container)
+	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	if err := container.Start(); err != nil {
 		t.Fatalf("Start() error = %v, want nil", err)
