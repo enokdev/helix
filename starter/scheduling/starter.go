@@ -59,8 +59,9 @@ func (s *Starter) Condition() bool {
 // Priority (highest to lowest):
 //  1. helix.starters.scheduling.enabled = false → inactive (absolute override)
 //  2. helix.starters.scheduling.enabled = true  → active (absolute override)
-//  3. container holds a scheduler.ScheduledJobProvider → active (component marker)
-//  4. otherwise → inactive
+//  3. robfig/cron absent from go.mod            → inactive (missing runtime dependency)
+//  4. container holds a scheduler.ScheduledJobProvider → active (component marker)
+//  5. otherwise → inactive
 func (s *Starter) ConditionFromContainer(container *core.Container) bool {
 	if s.cfg != nil {
 		if value, ok := s.cfg.Lookup(schedEnabledKey); ok {
@@ -72,6 +73,16 @@ func (s *Starter) ConditionFromContainer(container *core.Container) bool {
 	}
 
 	if container == nil {
+		return false
+	}
+
+	// Keep the same go.mod guard as Condition() for consistency.
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(goModPath)
+	if err != nil || !bytes.Contains(data, []byte("robfig/cron")) {
 		return false
 	}
 

@@ -255,7 +255,7 @@ func TestRun_MarkerAwareStarterLogsReason(t *testing.T) {
 	found := false
 	for {
 		var entry map[string]any
-		if err := decoder.Decode(&entry); errors.Is(err, errors.New("EOF")) || err != nil {
+		if err := decoder.Decode(&entry); err != nil {
 			break
 		}
 		name, _ := entry["starter"].(string)

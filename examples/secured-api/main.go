@@ -126,6 +126,8 @@ func (s *AuthService) Authenticate(username, password string) (map[string]any, e
 	return claims, nil
 }
 
+func (s *AuthService) Expiry() time.Duration { return s.expiry }
+
 func (s *AuthService) GetAllAccounts() []AccountInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,7 +166,7 @@ func (c *AuthController) Login(ctx web.Context, req LoginRequest) (LoginResponse
 		return LoginResponse{}, internalError("failed to generate token")
 	}
 
-	expiresIn := time.Now().Add(time.Hour).Unix() - time.Now().Unix()
+	expiresIn := int64(c.AuthSvc.Expiry().Seconds())
 
 	// Set custom status code for this action endpoint (201 is framework default for POST)
 	ctx.Locals("_helix_custom_status", http.StatusOK)
@@ -333,8 +335,18 @@ func newServer(jwtSvc *security.JWTService, expiry time.Duration) (web.HTTPServe
 }
 
 func main() {
-	cfg, err := loadConfig()
-	if err != nil {
+	loader := config.NewLoader(
+		config.WithConfigPaths("examples/secured-api/config", "config"),
+		config.WithDefaults(map[string]any{
+			"server.port":          8081,
+			"app.name":             "helix-secured-api",
+			"security.jwt.secret":  "dev-only-secured-api-secret-change-me",
+			"security.jwt.expiry":  1 * time.Hour,
+		}),
+	)
+
+	var cfg appConfig
+	if err := loader.Load(&cfg); err != nil {
 		log.Fatal(err)
 	}
 
@@ -342,16 +354,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	loader := config.NewLoader(
-		config.WithConfigPaths("examples/secured-api/config", "config"),
-		config.WithDefaults(map[string]any{
-			"server.port":         8081,
-			"app.name":            "helix-secured-api",
-			"security.jwt.secret": "dev-only-secured-api-secret-change-me",
-			"security.jwt.expiry": 1 * time.Hour,
-		}),
-	)
 
 	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
 

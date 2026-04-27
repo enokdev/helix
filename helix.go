@@ -75,6 +75,9 @@ type App struct {
 	Mode RunMode
 
 	awaitShutdown func() error
+	// valueLookup is populated in zero-config mode to wire the auto-loaded
+	// config into the container for value:"key" tag resolution.
+	valueLookup func(string) (any, bool)
 }
 
 // ConfigReloadable is implemented by components that react after a successful
@@ -138,7 +141,10 @@ func Run(opts ...App) error {
 // isZeroApp reports whether app carries no explicit configuration, meaning the
 // caller wants fully automatic bootstrap.
 func isZeroApp(app App) bool {
-	return len(app.Components) == 0 && len(app.Starters) == 0 && app.Mode == ""
+	return len(app.Components) == 0 &&
+		len(app.Starters) == 0 &&
+		len(app.Scan) == 0 &&
+		app.Mode == ""
 }
 
 // autoLoadConfig creates a config loader that searches for application.yaml in
@@ -191,14 +197,13 @@ func runAutoBootstrap(base App) error {
 	cfg := autoLoadConfig()
 
 	// Trigger a load so that Lookup / AllSettings work during starter conditions.
-	// We load into a struct with mapstructure tags so that unknown keys are silently ignored.
 	var settings map[string]any
 	_ = cfg.Load(&settings)
 
 	base.Starters = autoDetectStarters(cfg)
-
-	// Honour an explicit awaitShutdown injected by tests, but do not overwrite
-	// a non-nil one already set.
+	// Wire the auto-loaded config into the container so that value:"key" tags
+	// on application components are resolved from the config file.
+	base.valueLookup = cfg.Lookup
 	return runWithApp(base)
 }
 
@@ -343,6 +348,9 @@ func newDefaultContainer(app App) *core.Container {
 	}
 	if app.Logger != nil {
 		opts = append(opts, core.WithLogger(app.Logger))
+	}
+	if app.valueLookup != nil {
+		opts = append(opts, core.WithValueLookup(app.valueLookup))
 	}
 	return core.NewContainer(opts...)
 }

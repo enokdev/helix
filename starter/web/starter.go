@@ -60,9 +60,9 @@ func (s *Starter) Condition() bool {
 }
 
 // Configure registers the HTTP server lifecycle in the container.
-func (s *Starter) Configure(container *core.Container) {
+func (s *Starter) Configure(container *core.Container) error {
 	if container == nil {
-		return
+		return nil
 	}
 
 	port := defaultServerPort
@@ -88,8 +88,13 @@ func (s *Starter) Configure(container *core.Container) {
 		addr:            ":" + port,
 		shutdownTimeout: shutdownTimeout,
 	}
-	_ = container.Register(lifecycle)
-	_ = container.Register(lifecycle.server)
+	if err := container.Register(lifecycle); err != nil {
+		return fmt.Errorf("web starter: register lifecycle: %w", err)
+	}
+	if err := container.Register(lifecycle.server); err != nil {
+		return fmt.Errorf("web starter: register server: %w", err)
+	}
+	return nil
 }
 
 type serverLifecycle struct {
@@ -129,12 +134,6 @@ func parseDuration(value any) time.Duration {
 			return 0
 		}
 		return d
-	case int:
-		return time.Duration(v)
-	case int64:
-		return time.Duration(v)
-	case float64:
-		return time.Duration(v)
 	}
 	return 0
 }

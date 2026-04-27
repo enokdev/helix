@@ -137,6 +137,18 @@ func ConfigureMarkerAware(container *core.Container, entries []Entry, opts ...Op
 		opt(o)
 	}
 
+	// Validate all entries up-front — same fail-fast guarantee as Configure.
+	for _, e := range entries {
+		if err := validateEntry(e); err != nil {
+			o.logger.Warn("starter validation failed",
+				slog.String("starter", e.Name),
+				slog.Int("order", int(e.Order)),
+				slog.String("error", err.Error()),
+			)
+			return err
+		}
+	}
+
 	sorted := make([]Entry, len(entries))
 	copy(sorted, entries)
 	slices.SortStableFunc(sorted, func(a, b Entry) int {
@@ -171,11 +183,7 @@ func evaluateCondition(s Starter, container *core.Container) (bool, ActivationRe
 	if container != nil {
 		if mas, ok := s.(MarkerAwareStarter); ok {
 			active := mas.ConditionFromContainer(container)
-			reason := ReasonComponentMarker
-			if !active {
-				reason = ReasonConfigKey
-			}
-			return active, reason
+			return active, ReasonComponentMarker
 		}
 	}
 	return s.Condition(), ReasonConfigKey
