@@ -21,6 +21,9 @@ type HTTPServer interface {
 	// ServeHTTP executes a request against the server without starting a
 	// network listener. Intended for use in tests and tooling.
 	ServeHTTP(req *http.Request) (*http.Response, error)
+	// IsGeneratedOnly returns true if the server is configured to only use
+	// pre-generated route and error handler metadata.
+	IsGeneratedOnly() bool
 }
 
 type server struct {
@@ -34,6 +37,7 @@ type server struct {
 	interceptorFactories map[string]InterceptorFactory
 	cache                *cacheStore
 	routeObserver        RouteObserver
+	generatedOnly        bool
 }
 
 // NewServer creates an HTTP server backed by an internal Fiber adapter.
@@ -54,9 +58,14 @@ func NewServer(opts ...Option) HTTPServer {
 		interceptorFactories: make(map[string]InterceptorFactory),
 		cache:                newCacheStore(),
 		routeObserver:        options.routeObserver,
+		generatedOnly:        options.generatedOnly,
 	}
 	s.interceptorFactories["cache"] = cacheInterceptorFactory(s.cache)
 	return s
+}
+
+func (s *server) IsGeneratedOnly() bool {
+	return s.generatedOnly
 }
 
 func (s *server) Start(addr string) error {
@@ -69,6 +78,10 @@ func (s *server) Start(addr string) error {
 func (s *server) Stop(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("web: stop: nil context")
+	}
+	// Stop the cache sweep goroutine gracefully.
+	if err := s.cache.Stop(); err != nil {
+		return fmt.Errorf("web: stop cache: %w", err)
 	}
 	if err := s.adapter.Stop(ctx); err != nil {
 		return fmt.Errorf("web: stop: %w", err)
@@ -147,7 +160,7 @@ func (o *observingContext) Send(body []byte) error {
 }
 
 func (s *server) registerErrorHandler(handler any) error {
-	handlers, err := buildErrorHandlers(handler)
+	handlers, err := buildErrorHandlers(s, handler)
 	if err != nil {
 		return err
 	}
