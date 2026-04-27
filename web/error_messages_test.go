@@ -70,12 +70,8 @@ type NoPublicMethodsController struct {
 	helix.Controller
 }
 
-func (c *NoPublicMethodsController) index() {}
-
 // NoMarkerController is missing the helix.Controller embed
-type NoMarkerController struct {
-	called bool
-}
+type NoMarkerController struct{}
 
 func (c *NoMarkerController) Index() {}
 

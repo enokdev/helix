@@ -19,20 +19,20 @@ type cacheTestContext struct {
 	statusCode  int
 }
 
-func (c *cacheTestContext) Path() string        { return "/" }
-func (c *cacheTestContext) Param(key string) string { return "" }
-func (c *cacheTestContext) Query(key string) string { return "" }
-func (c *cacheTestContext) Header(key string) string { return "" }
-func (c *cacheTestContext) IP() string          { return "" }
-func (c *cacheTestContext) Body() []byte        { return nil }
-func (c *cacheTestContext) OriginalURL() string { return c.originalURL }
+func (c *cacheTestContext) Path() string             { return "/" }
+func (c *cacheTestContext) Param(_ string) string    { return "" }
+func (c *cacheTestContext) Query(_ string) string    { return "" }
+func (c *cacheTestContext) Header(_ string) string   { return "" }
+func (c *cacheTestContext) IP() string               { return "" }
+func (c *cacheTestContext) Body() []byte             { return nil }
+func (c *cacheTestContext) OriginalURL() string      { return c.originalURL }
 func (c *cacheTestContext) Status(code int) {
 	c.statusCode = code
 	c.mockContext.Status(code)
 }
-func (c *cacheTestContext) Locals(key string, value ...any) any { return nil }
-func (c *cacheTestContext) Send(body []byte) error             { return nil }
-func (c *cacheTestContext) Context() context.Context           { return context.Background() }
+func (c *cacheTestContext) Locals(_ string, value ...any) any { return nil }
+func (c *cacheTestContext) Send(_ []byte) error               { return nil }
+func (c *cacheTestContext) Context() context.Context          { return context.Background() }
 
 // TestCacheInterceptorSingleFlightPatternColdCache tests AC 1: Multiple concurrent requests on cold cache.
 func TestCacheInterceptorSingleFlightPatternColdCache(t *testing.T) {

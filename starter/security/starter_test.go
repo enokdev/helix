@@ -109,7 +109,7 @@ func TestConditionNilConfig(t *testing.T) {
 // ─── Configure tests ──────────────────────────────────────────────────────────
 
 func TestConfigureNilContainerIsNoop(_ *testing.T) {
-	New(nil).Configure(nil)
+	_ = New(nil).Configure(nil)
 }
 
 func TestConfigureRegistersJWTService(t *testing.T) {
@@ -119,7 +119,7 @@ func TestConfigureRegistersJWTService(t *testing.T) {
 		jwtSecretKey: "my-secret",
 		jwtExpiryKey: "1h",
 	}}
-	New(cfg).Configure(container)
+	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	var svc *helixsecurity.JWTService
 	if err := container.Resolve(&svc); err != nil {
@@ -134,7 +134,7 @@ func TestConfigureRegistersJWTService_DefaultsWithNilConfig(t *testing.T) {
 	container := newTestContainer()
 
 	// Empty secret (nil config) means no JWTService is registered — Configure must not panic.
-	New(nil).Configure(container)
+	if err := New(nil).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	var svc *helixsecurity.JWTService
 	if err := container.Resolve(&svc); err == nil {
@@ -149,7 +149,7 @@ func TestConfigureRegistersJWTService_InvalidExpiry_UsesDefault(t *testing.T) {
 		jwtSecretKey: "my-secret",
 		jwtExpiryKey: "not-a-duration",
 	}}
-	New(cfg).Configure(container)
+	if err := New(cfg).Configure(container); err != nil { t.Fatalf("Configure() error = %v", err) }
 
 	var svc *helixsecurity.JWTService
 	if err := container.Resolve(&svc); err != nil {

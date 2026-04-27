@@ -172,6 +172,7 @@ func (r *ReflectResolver) resolveByType(requestedType reflect.Type) (reflect.Val
 	state := newResolutionState()
 	return r.resolveByTypeWithState(requestedType, state)
 }
+
 func (r *ReflectResolver) resolveAllAssignable(targetType reflect.Type) ([]reflect.Value, error) {
 	if targetType == nil || (targetType.Kind() != reflect.Interface && targetType.Kind() != reflect.Ptr) {
 		return nil, ErrUnresolvable

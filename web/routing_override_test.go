@@ -84,11 +84,11 @@ type routeHandler struct {
 	handler web.HandlerFunc
 }
 
-func (m *mockHTTPServer) Start(addr string) error {
+func (m *mockHTTPServer) Start(_ string) error {
 	return nil
 }
 
-func (m *mockHTTPServer) Stop(ctx context.Context) error {
+func (m *mockHTTPServer) Stop(_ context.Context) error {
 	return nil
 }
 
@@ -101,7 +101,7 @@ func (m *mockHTTPServer) IsGeneratedOnly() bool {
 	return false
 }
 
-func (m *mockHTTPServer) ServeHTTP(req *http.Request) (*http.Response, error) {
+func (m *mockHTTPServer) ServeHTTP(_ *http.Request) (*http.Response, error) {
 	// Stub for testing
 	return nil, nil
 }
