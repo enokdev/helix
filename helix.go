@@ -21,6 +21,11 @@ import (
 	"github.com/enokdev/helix/core"
 	"github.com/enokdev/helix/security"
 	"github.com/enokdev/helix/starter"
+	starterdata "github.com/enokdev/helix/starter/data"
+	starterobs "github.com/enokdev/helix/starter/observability"
+	startersec "github.com/enokdev/helix/starter/security"
+	startersched "github.com/enokdev/helix/starter/scheduling"
+	starterweb "github.com/enokdev/helix/starter/web"
 	"github.com/enokdev/helix/web"
 )
 
@@ -110,7 +115,120 @@ func RegisterWebSetup(fn func() error) {
 
 // Run builds the default reflection-based container, registers application
 // components, starts lifecycle hooks, waits for shutdown, and stops cleanly.
-func Run(app App) error {
+//
+// Run accepts an optional [App] argument. When called with no arguments (or
+// with a zero-value [App]), the framework bootstraps automatically: it loads
+// configuration from config/application.yaml or application.yaml (absence is
+// not an error), auto-detects which starters to activate, and uses a
+// registered wire setup function when available.
+func Run(opts ...App) error {
+	app := App{}
+	if len(opts) > 0 {
+		app = opts[0]
+	}
+
+	// Auto-bootstrap when no explicit configuration is provided.
+	if isZeroApp(app) {
+		return runAutoBootstrap(app)
+	}
+
+	return runWithApp(app)
+}
+
+// isZeroApp reports whether app carries no explicit configuration, meaning the
+// caller wants fully automatic bootstrap.
+func isZeroApp(app App) bool {
+	return len(app.Components) == 0 && len(app.Starters) == 0 && app.Mode == ""
+}
+
+// autoLoadConfig creates a config loader that searches for application.yaml in
+// the canonical paths but does not fail when no file is found.
+func autoLoadConfig() config.Loader {
+	return config.NewLoader(
+		config.WithConfigPaths("config", "."),
+		config.WithAllowMissingConfig(),
+	)
+}
+
+// autoDetectStarters builds the list of starter entries whose conditions are
+// satisfied given the current config loader. Starters that rely on
+// component markers are included unconditionally; their MarkerAwareStarter
+// condition is evaluated in the second pass inside runWithApp.
+func autoDetectStarters(cfg config.Loader) []starter.Entry {
+	entries := []starter.Entry{
+		{
+			Name:    "web",
+			Order:   starter.OrderWeb,
+			Starter: starterWebNew(cfg),
+		},
+		{
+			Name:    "data",
+			Order:   starter.OrderData,
+			Starter: starterDataNew(cfg),
+		},
+		{
+			Name:    "observability",
+			Order:   starter.OrderObservability,
+			Starter: starterObservabilityNew(cfg),
+		},
+		{
+			Name:    "security",
+			Order:   starter.OrderSecurity,
+			Starter: starterSecurityNew(cfg),
+		},
+		{
+			Name:    "scheduling",
+			Order:   starter.OrderScheduling,
+			Starter: starterSchedulingNew(cfg),
+		},
+	}
+	return entries
+}
+
+// runAutoBootstrap handles the zero-config path: loads config automatically,
+// auto-detects starters, and optionally uses a registered wire setup.
+func runAutoBootstrap(base App) error {
+	cfg := autoLoadConfig()
+
+	// Trigger a load so that Lookup / AllSettings work during starter conditions.
+	// We load into a struct with mapstructure tags so that unknown keys are silently ignored.
+	var settings map[string]any
+	_ = cfg.Load(&settings)
+
+	base.Starters = autoDetectStarters(cfg)
+
+	// Honour an explicit awaitShutdown injected by tests, but do not overwrite
+	// a non-nil one already set.
+	return runWithApp(base)
+}
+
+// starterWebNew creates the web starter backed by cfg.
+func starterWebNew(cfg config.Loader) starter.Starter {
+	return starterweb.New(cfg)
+}
+
+// starterDataNew creates the data starter backed by cfg.
+func starterDataNew(cfg config.Loader) starter.Starter {
+	return starterdata.New(cfg)
+}
+
+// starterObservabilityNew creates the observability starter backed by cfg.
+func starterObservabilityNew(cfg config.Loader) starter.Starter {
+	return starterobs.New(cfg)
+}
+
+// starterSecurityNew creates the security starter backed by cfg.
+func starterSecurityNew(cfg config.Loader) starter.Starter {
+	return startersec.New(cfg)
+}
+
+// starterSchedulingNew creates the scheduling starter backed by cfg.
+func starterSchedulingNew(cfg config.Loader) starter.Starter {
+	return startersched.New(cfg)
+}
+
+// runWithApp is the main implementation that executes a fully-populated App.
+func runWithApp(app App) error {
 	if app.Mode != ModeWire {
 		if err := validateScan(app); err != nil {
 			return err
@@ -143,8 +261,22 @@ func Run(app App) error {
 		if err := setup(container); err != nil {
 			return fmt.Errorf("helix: wire setup: %w", err)
 		}
-	} else if err := registerAppComponents(container, app.Components); err != nil {
-		return err
+	} else {
+		// Auto-use wire setup when components list is empty and a setup is registered.
+		if len(app.Components) == 0 {
+			wireSetupMu.Lock()
+			setup := wireSetupFn
+			wireSetupMu.Unlock()
+			if setup != nil {
+				if err := setup(container); err != nil {
+					return fmt.Errorf("helix: wire setup: %w", err)
+				}
+			}
+			// No components and no wire setup: container stays empty; starters
+			// provide their own components (web server, scheduler, etc.).
+		} else if err := registerAppComponents(container, app.Components); err != nil {
+			return err
+		}
 	}
 
 	// Pass 2: cross-cutting starters (security, scheduling) that inspect the

@@ -37,7 +37,7 @@ last_updated: 2026-04-27 - story 7.7 implemented and moved to review
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-26 - story 1.8 promoted to ready-for-dev
+last_updated: 2026-04-27 - story 1.8 implemented and moved to review
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -56,7 +56,7 @@ development_status:
   1-5-scope-prototype-lazy-loading: done
   1-6-hooks-de-cycle-de-vie-graceful-shutdown: done
   1-7-point-dentree-helix-run-marqueurs-de-composants: done
-  1-8-helix-run-zero-parametre-bootstrap-complet-automatique: ready-for-dev
+  1-8-helix-run-zero-parametre-bootstrap-complet-automatique: review
   epic-1-retrospective: optional
 
   # ─────────────────────────────────────────────
