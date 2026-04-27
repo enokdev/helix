@@ -17,27 +17,53 @@ type GenerateResult struct {
 
 // WebGenerator generates Go code for the web layer.
 type WebGenerator struct {
+	dir     string
 	scanner *WebScanner
 }
 
 // NewWebGenerator creates a new WebGenerator.
-func NewWebGenerator() *WebGenerator {
+func NewWebGenerator(dir string) *WebGenerator {
 	return &WebGenerator{
+		dir:     dir,
 		scanner: NewWebScanner(),
 	}
 }
 
 // Generate scans for web directives and generates registration code.
 func (g *WebGenerator) Generate(ctx context.Context) (GenerateResult, error) {
+	if ctx == nil {
+		return GenerateResult{}, fmt.Errorf("cli/codegen: web generate: nil context")
+	}
+
+	root := g.dir
+	if root == "" {
+		root = "."
+	}
+
 	// Find all .go files recursively
 	var files []string
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() && strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") && !strings.HasSuffix(path, "_gen.go") {
-			files = append(files, path)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
+
+		if info.IsDir() {
+			// Skip vendor, test data, generated files
+			if info.Name() == "vendor" || info.Name() == "testdata" || strings.HasPrefix(info.Name(), "_") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") {
+			return nil
+		}
+		files = append(files, path)
 		return nil
 	})
 	if err != nil {
@@ -48,6 +74,12 @@ func (g *WebGenerator) Generate(ctx context.Context) (GenerateResult, error) {
 	handlersByFile := make(map[string][]handlerInfo)
 
 	for _, file := range files {
+		select {
+		case <-ctx.Done():
+			return GenerateResult{}, ctx.Err()
+		default:
+		}
+
 		routes, err := g.scanner.ScanControllerDirectives(file)
 		if err != nil {
 			return GenerateResult{}, err
@@ -68,7 +100,7 @@ func (g *WebGenerator) Generate(ctx context.Context) (GenerateResult, error) {
 	var generatedFiles []string
 
 	if len(routesByFile) > 0 {
-		outputPath := "helix_web_gen.go"
+		outputPath := filepath.Join(root, "helix_web_gen.go")
 		if err := g.generateRoutesFile(outputPath, routesByFile); err != nil {
 			return GenerateResult{}, err
 		}
@@ -76,7 +108,7 @@ func (g *WebGenerator) Generate(ctx context.Context) (GenerateResult, error) {
 	}
 
 	if len(handlersByFile) > 0 {
-		outputPath := "helix_error_handlers_gen.go"
+		outputPath := filepath.Join(root, "helix_error_handlers_gen.go")
 		if err := g.generateHandlersFile(outputPath, handlersByFile); err != nil {
 			return GenerateResult{}, err
 		}

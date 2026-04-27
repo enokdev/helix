@@ -82,6 +82,11 @@ func TestControllerRoutePrefixAcronyms(t *testing.T) {
 			expectedRoute:  "/api-clients",
 		},
 		{
+			name:           "UserHTTP controller",
+			controllerName: "UserHTTPController",
+			expectedRoute:  "/users",
+		},
+		{
 			name:           "HTTPS config controller",
 			controllerName: "HTTPSConfigController",
 			expectedRoute:  "/https-configs",

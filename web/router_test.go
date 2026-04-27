@@ -158,6 +158,12 @@ func TestRegisterController_RejectsInvalidController(t *testing.T) {
 			t.Parallel()
 
 			err := web.RegisterController(newTestServer(t), tt.controller)
+			if tt.name == "no conventional methods" {
+				if err == nil || !strings.Contains(err.Error(), "no routable methods found") {
+					t.Fatalf("RegisterController() error = %v, want error containing 'no routable methods found'", err)
+				}
+				return
+			}
 			if !errors.Is(err, web.ErrInvalidController) {
 				t.Fatalf("RegisterController() error = %v, want ErrInvalidController", err)
 			}

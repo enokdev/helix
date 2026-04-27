@@ -105,7 +105,7 @@ func (e *RequestError) StatusCode() int {
 
 // ResponseBody returns the JSON body to encode for this error.
 func (e *RequestError) ResponseBody() any {
-	if e.isMultiFieldError {
+	if e.isMultiFieldError && len(e.validationErrors) > 0 {
 		// Multi-field validation errors use the new "errors" array format
 		return ValidationErrorResponse{Errors: e.validationErrors}
 	}

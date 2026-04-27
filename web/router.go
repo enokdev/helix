@@ -91,7 +91,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	if prefix == "" {
 		prefix, err = controllerRoutePrefix(controllerType.Name())
 		if err != nil {
-			return err
+			return fmt.Errorf("web: register controller %s derivation failure: %w — ensure name follows PascalCase and ends with 'Controller'", controllerType.Name(), err)
 		}
 	}
 
@@ -106,7 +106,7 @@ func RegisterController(server HTTPServer, controller any) error {
 
 	if !hasGenerated {
 		if generatedOnly {
-			return fmt.Errorf("web: register controller %s: generated registry empty and GeneratedOnly mode enabled", controllerType.Name())
+			return fmt.Errorf("web: register controller %s: generated registry empty and GeneratedOnly mode enabled — run 'helix generate web' to sync", controllerType.Name())
 		}
 
 		// Fall back to AST parsing if no generated routes are found
@@ -197,7 +197,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	}
 
 	if len(routes) == 0 {
-		return fmt.Errorf("web: register controller %s: %w", controllerType.Name(), ErrInvalidController)
+		return fmt.Errorf("web: register controller %s: no routable methods found — add public methods like Index, Show, Create, Update, or Delete, or use //helix:route directives", controllerType.Name())
 	}
 
 	sortControllerRoutes(routes)
@@ -574,19 +574,26 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 			}
 			
 			// Parse helix tag - expecting format like: helix:"route:/path"
-			if !strings.HasPrefix(tagValue, "route:") {
-				return "", fmt.Errorf("web: invalid controller %s tag format: %w", controllerType.Name(), ErrInvalidController)
+			// Split by semicolon to allow future extensibility without hard failure
+			parts := strings.Split(tagValue, ";")
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if strings.HasPrefix(part, "route:") {
+					route := strings.TrimSpace(strings.TrimPrefix(part, "route:"))
+					if route == "" {
+						return "", fmt.Errorf("web: invalid controller %s tag: route value cannot be empty — use helix:\"route:/v1/path\"", controllerType.Name())
+					}
+					if !strings.HasPrefix(route, "/") {
+						return "", fmt.Errorf("web: invalid controller %s tag: route must start with '/' — found %q", controllerType.Name(), route)
+					}
+					if strings.Contains(route, "..") {
+						return "", fmt.Errorf("web: invalid controller %s tag: route contains illegal '..' sequence", controllerType.Name())
+					}
+					return route, nil
+				}
 			}
 			
-			route := strings.TrimPrefix(tagValue, "route:")
-			if route == "" {
-				return "", fmt.Errorf("web: invalid controller %s tag: route value cannot be empty: %w", controllerType.Name(), ErrInvalidController)
-			}
-			if !strings.HasPrefix(route, "/") {
-				return "", fmt.Errorf("web: invalid controller %s tag: route must start with '/': %w", controllerType.Name(), ErrInvalidController)
-			}
-			
-			return route, nil
+			return "", nil
 		}
 	}
 	return "", nil
@@ -595,16 +602,35 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 func controllerRoutePrefix(controllerName string) (string, error) {
 	baseName := strings.TrimSuffix(controllerName, "Controller")
 	if baseName == "" {
-		return "", fmt.Errorf("web: derive route prefix %s: %w", controllerName, ErrInvalidController)
+		return "", fmt.Errorf("web: derive route prefix %s: name must have a prefix before 'Controller'", controllerName)
 	}
 
 	segments := pascalWords(baseName)
 	if len(segments) == 0 {
-		return "", fmt.Errorf("web: derive route prefix %s: %w", controllerName, ErrInvalidController)
+		return "", fmt.Errorf("web: derive route prefix %s: no segments found", controllerName)
 	}
+
+	// Filter out common technical acronym suffixes if they are redundant
+	// e.g. UserHTTP -> User (pluralized: Users)
+	if len(segments) > 1 {
+		last := segments[len(segments)-1]
+		if isTechnicalAcronym(last) {
+			segments = segments[:len(segments)-1]
+		}
+	}
+
 	segments[len(segments)-1] = pluralize(segments[len(segments)-1])
 
 	return "/" + strings.Join(segments, "-"), nil
+}
+
+func isTechnicalAcronym(word string) bool {
+	switch strings.ToUpper(word) {
+	case "HTTP", "HTTPS", "API", "JSON", "XML", "URL", "ID":
+		return true
+	default:
+		return false
+	}
 }
 
 func pascalWords(value string) []string {

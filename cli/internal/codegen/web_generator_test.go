@@ -12,7 +12,7 @@ import (
 
 func TestWebGenerator_GenerateRoutesFile(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator()
+	gen := NewWebGenerator(tempDir)
 
 	routesByFile := map[string][]routeInfo{
 		"user_controller.go": {
@@ -51,7 +51,7 @@ func TestWebGenerator_GenerateRoutesFile(t *testing.T) {
 
 func TestWebGenerator_GenerateErrorHandlersFile(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator()
+	gen := NewWebGenerator(tempDir)
 
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {
@@ -92,7 +92,7 @@ func TestWebGenerator_GenerateWithNoDirectives(t *testing.T) {
 	os.Chdir(tempDir)
 	defer os.Chdir(oldWd)
 
-	gen := NewWebGenerator()
+	gen := NewWebGenerator(tempDir)
 
 	result, err := gen.Generate(context.Background())
 	assert.NoError(t, err)
@@ -145,7 +145,7 @@ func TestWebGenerator_ConvertScannerHandlers(t *testing.T) {
 
 func TestWebGenerator_GeneratedRouteFileIsValid(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator()
+	gen := NewWebGenerator(tempDir)
 
 	routesByFile := map[string][]routeInfo{
 		"controller.go": {
@@ -176,7 +176,7 @@ func TestWebGenerator_GeneratedRouteFileIsValid(t *testing.T) {
 
 func TestWebGenerator_GeneratedHandlerFileIsValid(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator()
+	gen := NewWebGenerator(tempDir)
 
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {

@@ -22,8 +22,8 @@ func TestErrorMessagesForInvalidController(t *testing.T) {
 			controller: &NoPublicMethodsController{},
 			shouldContain: []string{
 				"NoPublicMethodsController",
-				"invalid",
-				// Ideally we'd suggest adding a public method
+				"no routable methods found",
+				"add public methods",
 			},
 		},
 		{
@@ -31,8 +31,7 @@ func TestErrorMessagesForInvalidController(t *testing.T) {
 			controller: &NoMarkerController{},
 			shouldContain: []string{
 				"NoMarkerController",
-				"invalid",
-				// Could suggest adding helix.Controller embed
+				"marker",
 			},
 		},
 		{
@@ -40,8 +39,9 @@ func TestErrorMessagesForInvalidController(t *testing.T) {
 			controller: &InvalidRouteTagController{},
 			shouldContain: []string{
 				"InvalidRouteTagController",
-				"invalid",
+				"tag",
 				"route",
+				"illegal '..' sequence",
 			},
 		},
 	}
@@ -81,7 +81,7 @@ func (c *NoMarkerController) Index() {}
 
 // InvalidRouteTagController has an invalid route tag
 type InvalidRouteTagController struct {
-	helix.Controller `helix:"route:invalid-no-slash"`
+	helix.Controller `helix:"route:/../invalid"`
 }
 
 func (c *InvalidRouteTagController) Index() {}
