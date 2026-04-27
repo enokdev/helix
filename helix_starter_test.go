@@ -24,6 +24,7 @@ func (m *markerAwareStarter) Configure(_ *core.Container) error {
 	m.configureCalls++
 	return nil
 }
+
 func (m *markerAwareStarter) ConditionFromContainer(_ *core.Container) bool {
 	m.conditionFromContainerCalls++
 	return m.conditionFromContainerRet

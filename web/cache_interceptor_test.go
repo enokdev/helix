@@ -30,7 +30,7 @@ func (c *cacheTestContext) Status(code int) {
 	c.statusCode = code
 	c.mockContext.Status(code)
 }
-func (c *cacheTestContext) Locals(_ string, value ...any) any { return nil }
+func (c *cacheTestContext) Locals(_ string, _ ...any) any { return nil }
 func (c *cacheTestContext) Send(_ []byte) error               { return nil }
 func (c *cacheTestContext) Context() context.Context          { return context.Background() }
 
