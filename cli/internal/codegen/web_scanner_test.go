@@ -17,30 +17,30 @@ func TestParseRouteDirective(t *testing.T) {
 	}{
 		{
 			name:       "valid route directive",
-			text:       "helix:route GET /users",
+			text:       "//helix:route GET /users",
 			wantMethod: "GET",
 			wantPath:   "/users",
 		},
 		{
 			name:       "method with lowercase",
-			text:       "helix:route post /users",
+			text:       "//helix:route post /users",
 			wantMethod: "POST",
 			wantPath:   "/users",
 		},
 		{
 			name:       "complex path",
-			text:       "helix:route GET /api/v1/users/:id/posts",
+			text:       "//helix:route GET /api/v1/users/:id/posts",
 			wantMethod: "GET",
 			wantPath:   "/api/v1/users/:id/posts",
 		},
 		{
 			name:    "missing path",
-			text:    "helix:route GET",
+			text:    "//helix:route GET",
 			wantErr: true,
 		},
 		{
 			name:    "path without leading slash",
-			text:    "helix:route GET users",
+			text:    "//helix:route GET users",
 			wantErr: true,
 		},
 	}
@@ -68,27 +68,27 @@ func TestParseHandlesDirective(t *testing.T) {
 	}{
 		{
 			name:      "single error type",
-			text:      "helix:handles NotFoundError",
+			text:      "//helix:handles NotFoundError",
 			wantTypes: []string{"NotFoundError"},
 		},
 		{
 			name:      "multiple error types",
-			text:      "helix:handles ValidationError,BadRequestError,NotFoundError",
+			text:      "//helix:handles ValidationError,BadRequestError,NotFoundError",
 			wantTypes: []string{"ValidationError", "BadRequestError", "NotFoundError"},
 		},
 		{
 			name:      "spaces around commas",
-			text:      "helix:handles Error1 , Error2 , Error3",
+			text:      "//helix:handles Error1 , Error2 , Error3",
 			wantTypes: []string{"Error1", "Error2", "Error3"},
 		},
 		{
 			name:    "empty error types",
-			text:    "helix:handles",
+			text:    "//helix:handles",
 			wantErr: true,
 		},
 		{
 			name:    "empty error type in list",
-			text:    "helix:handles Error1,,Error2",
+			text:    "//helix:handles Error1,,Error2",
 			wantErr: true,
 		},
 	}

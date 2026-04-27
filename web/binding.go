@@ -218,8 +218,22 @@ func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
 func validationRequestError(err error) error {
 	var validationErrors validator.ValidationErrors
 	if errors.As(err, &validationErrors) && len(validationErrors) > 0 {
-		field := validationErrors[0].Field()
-		return newRequestError(http.StatusBadRequest, codeValidationFailed, field, fmt.Sprintf("%s failed validation", field))
+		// If multiple validation errors, use multi-field format
+		if len(validationErrors) > 1 {
+			fieldErrors := make([]FieldError, 0, len(validationErrors))
+			for _, ve := range validationErrors {
+				fieldErrors = append(fieldErrors, FieldError{
+					Field: ve.Field(),
+					Msg:   fmt.Sprintf("%s failed validation", ve.Field()),
+				})
+			}
+			return newMultiFieldValidationError(fieldErrors)
+		}
+		
+		// Single validation error - use old format for backward compatibility
+		ve := validationErrors[0]
+		return newRequestError(http.StatusBadRequest, codeValidationFailed, ve.Field(),
+			fmt.Sprintf("%s failed validation", ve.Field()))
 	}
 	return newRequestError(http.StatusBadRequest, codeValidationFailed, "", "request validation failed")
 }

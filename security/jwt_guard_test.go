@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -38,6 +39,7 @@ func (m *mockCtx) Status(_ int)             {}
 func (m *mockCtx) SetHeader(_, _ string)    {}
 func (m *mockCtx) Send(_ []byte) error      { return nil }
 func (m *mockCtx) JSON(_ any) error         { return nil }
+func (m *mockCtx) Context() context.Context { return context.Background() }
 func (m *mockCtx) Locals(key string, value ...any) any {
 	if len(value) > 0 {
 		m.locals[key] = value[0]

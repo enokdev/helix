@@ -4,134 +4,113 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"go/format"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
-// WebGenerator creates compile-time route and error handler registrations for Helix web layer.
-type WebGenerator struct {
-	dir string
-}
-
-// NewWebGenerator creates a web route/handler generator rooted at dir.
-func NewWebGenerator(dir string) *WebGenerator {
-	return &WebGenerator{dir: dir}
-}
-
-// GenerateResult describes the outcome of web generation.
+// GenerateResult contains information about the generation process.
 type GenerateResult struct {
-	RoutesFile        string // Path to generated helix_web_gen.go, or "" if not generated
-	ErrorHandlersFile string // Path to generated helix_error_handlers_gen.go, or "" if not generated
-	FileCount         int    // Number of generated files
+	Files []string
 }
 
-// Generate scans the directory for //helix:route and //helix:handles directives,
-// then generates helix_web_gen.go with registration code.
+// WebGenerator generates Go code for the web layer.
+type WebGenerator struct {
+	scanner *WebScanner
+}
+
+// NewWebGenerator creates a new WebGenerator.
+func NewWebGenerator() *WebGenerator {
+	return &WebGenerator{
+		scanner: NewWebScanner(),
+	}
+}
+
+// Generate scans for web directives and generates registration code.
 func (g *WebGenerator) Generate(ctx context.Context) (GenerateResult, error) {
-	if ctx == nil {
-		return GenerateResult{}, fmt.Errorf("cli/codegen: web generate: nil context: %w", errInvalidPackage)
-	}
-
-	root := g.dir
-	if root == "" {
-		root = "."
-	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("cli/codegen: web generate: resolve root %s: %w", root, err)
-	}
-
-	// Scan for web directives
-	scanner := NewWebScanner()
-	routesByFile := make(map[string][]routeInfo)
-	handlersByFile := make(map[string][]handlerInfo)
-
-	if err := filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
+	// Find all .go files recursively
+	var files []string
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			// Skip vendor, test data, generated files
-			if info.Name() == "vendor" || info.Name() == "testdata" || strings.HasPrefix(info.Name(), "_") {
-				return filepath.SkipDir
-			}
-			return nil
+		if !info.IsDir() && strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") && !strings.HasSuffix(path, "_gen.go") {
+			files = append(files, path)
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_gen.go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
+		return nil
+	})
+	if err != nil {
+		return GenerateResult{}, err
+	}
 
-		// Scan the file for directives
-		routes, err := scanner.ScanControllerDirectives(path)
+	routesByFile := make(map[string][]routeInfo)
+	handlersByFile := make(map[string][]handlerInfo)
+
+	for _, file := range files {
+		routes, err := g.scanner.ScanControllerDirectives(file)
 		if err != nil {
-			// Log but don't fail on scan errors
-			return nil
+			return GenerateResult{}, err
 		}
 		if len(routes) > 0 {
-			routesByFile[path] = convertScannerRoutes(routes)
+			routesByFile[file] = convertScannerRoutes(routes)
 		}
 
-		handlers, err := scanner.ScanErrorHandlerDirectives(path)
+		handlers, err := g.scanner.ScanErrorHandlerDirectives(file)
 		if err != nil {
-			return nil
+			return GenerateResult{}, err
 		}
 		if len(handlers) > 0 {
-			handlersByFile[path] = convertScannerHandlers(handlers)
+			handlersByFile[file] = convertScannerHandlers(handlers)
 		}
-
-		return nil
-	}); err != nil {
-		return GenerateResult{}, fmt.Errorf("cli/codegen: web generate: scan directives: %w", err)
 	}
 
-	result := GenerateResult{}
+	var generatedFiles []string
 
-	// Generate routes file if we found any routes
 	if len(routesByFile) > 0 {
-		routesPath := filepath.Join(absRoot, "helix_web_gen.go")
-		if err := g.generateRoutesFile(routesPath, routesByFile); err != nil {
+		outputPath := "helix_web_gen.go"
+		if err := g.generateRoutesFile(outputPath, routesByFile); err != nil {
 			return GenerateResult{}, err
 		}
-		result.RoutesFile = routesPath
-		result.FileCount++
+		generatedFiles = append(generatedFiles, outputPath)
 	}
 
-	// Generate error handlers file if we found any handlers
 	if len(handlersByFile) > 0 {
-		handlersPath := filepath.Join(absRoot, "helix_error_handlers_gen.go")
-		if err := g.generateHandlersFile(handlersPath, handlersByFile); err != nil {
+		outputPath := "helix_error_handlers_gen.go"
+		if err := g.generateHandlersFile(outputPath, handlersByFile); err != nil {
 			return GenerateResult{}, err
 		}
-		result.ErrorHandlersFile = handlersPath
-		result.FileCount++
+		generatedFiles = append(generatedFiles, outputPath)
 	}
 
-	return result, nil
+	return GenerateResult{Files: generatedFiles}, nil
 }
 
 type routeInfo struct {
-	Controller  string
-	HandlerName string
-	Method      string
-	Path        string
+	Controller   string
+	HandlerName  string
+	Method       string
+	Path         string
+	Guards       []string
+	Interceptors []string
 }
 
 type handlerInfo struct {
-	Handler     string
-	MethodName  string
-	ErrorType   string
+	Controller string
+	MethodName string
+	ErrorType  string
 }
 
 func convertScannerRoutes(scannerRoutes []RouteDirective) []routeInfo {
 	var routes []routeInfo
 	for _, sr := range scannerRoutes {
 		routes = append(routes, routeInfo{
-			HandlerName: sr.MethodName,
-			Method:      sr.Method,
-			Path:        sr.Path,
+			Controller:   sr.ControllerName,
+			HandlerName:  sr.MethodName,
+			Method:       sr.Method,
+			Path:         sr.Path,
+			Guards:       sr.Guards,
+			Interceptors: sr.Interceptors,
 		})
 	}
 	return routes
@@ -140,9 +119,9 @@ func convertScannerRoutes(scannerRoutes []RouteDirective) []routeInfo {
 func convertScannerHandlers(scannerHandlers []ErrorHandlerDirective) []handlerInfo {
 	var handlers []handlerInfo
 	for _, sh := range scannerHandlers {
-		// Each error handler method can handle multiple error types
 		for _, errorType := range sh.ErrorTypes {
 			handlers = append(handlers, handlerInfo{
+				Controller: sh.ControllerName,
 				MethodName: sh.MethodName,
 				ErrorType:  errorType,
 			})
@@ -152,139 +131,125 @@ func convertScannerHandlers(scannerHandlers []ErrorHandlerDirective) []handlerIn
 }
 
 func (g *WebGenerator) generateRoutesFile(outputPath string, routesByFile map[string][]routeInfo) error {
-	// Collect all unique routes with their controller names
-	type routeWithController struct {
-		Controller  string
-		HandlerName string
-		Method      string
-		Path        string
-	}
-	var allRoutes []routeWithController
+	var allRoutes []routeInfo
 	for _, routes := range routesByFile {
-		for _, route := range routes {
-			allRoutes = append(allRoutes, routeWithController{
-				Controller:  route.Controller,
-				HandlerName: route.HandlerName,
-				Method:      route.Method,
-				Path:        route.Path,
-			})
-		}
+		allRoutes = append(allRoutes, routes...)
 	}
 
-	// Sort for deterministic output
 	sort.Slice(allRoutes, func(i, j int) bool {
 		if allRoutes[i].Controller != allRoutes[j].Controller {
 			return allRoutes[i].Controller < allRoutes[j].Controller
 		}
-		if allRoutes[i].HandlerName != allRoutes[j].HandlerName {
-			return allRoutes[i].HandlerName < allRoutes[j].HandlerName
+		if allRoutes[i].Path != allRoutes[j].Path {
+			return allRoutes[i].Path < allRoutes[j].Path
 		}
-		return allRoutes[i].Path < allRoutes[j].Path
+		return allRoutes[i].Method < allRoutes[j].Method
 	})
 
-	buf := &bytes.Buffer{}
-	buf.WriteString(`// Code generated by helix generate; DO NOT EDIT.
-
+	var buf bytes.Buffer
+	buf.WriteString(`// Code generated by helix generate. DO NOT EDIT.
 package main
 
 import (
-	"github.com/enokdev/helix/web"
+	"github.com/enokdev/helix"
 	"github.com/enokdev/helix/web/internal"
 )
 
-// initGeneratedRoutes registers pre-generated routes from compile-time directive scanning.
-// This function is called during app initialization to avoid runtime AST parsing.
+func init() {
+	helix.RegisterWebSetup(func() error {
+		if err := initGeneratedRoutes(); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 func initGeneratedRoutes() error {
 	registry := internal.GlobalRouteRegistry()
-
-	// Register all scanned routes in the registry
 `)
 
-	// Group routes by controller
-	routesByController := make(map[string][]routeWithController)
+	routesByController := make(map[string][]routeInfo)
 	for _, r := range allRoutes {
 		routesByController[r.Controller] = append(routesByController[r.Controller], r)
 	}
 
-	// Sort controllers for deterministic output
-	controllers := make([]string, 0, len(routesByController))
-	for controller := range routesByController {
-		controllers = append(controllers, controller)
+	var controllers []string
+	for c := range routesByController {
+		controllers = append(controllers, c)
 	}
 	sort.Strings(controllers)
 
 	for _, controller := range controllers {
 		routes := routesByController[controller]
-		buf.WriteString(fmt.Sprintf("\t// Routes for %s\n", controller))
-		buf.WriteString(fmt.Sprintf("\tif err := registry.RegisterGeneratedRoutes(\"%s\",\n", controller))
-
+		buf.WriteString(fmt.Sprintf("\n\tif err := registry.RegisterGeneratedRoutes(\"%s\",\n", controller))
 		for i, route := range routes {
 			if i > 0 {
 				buf.WriteString(",\n")
 			}
+
+			guards := "nil"
+			if len(route.Guards) > 0 {
+				guards = fmt.Sprintf("[]string{%s}", formatStringSlice(route.Guards))
+			}
+
+			interceptors := "nil"
+			if len(route.Interceptors) > 0 {
+				interceptors = fmt.Sprintf("[]string{%s}", formatStringSlice(route.Interceptors))
+			}
+
 			buf.WriteString(fmt.Sprintf("\t\tinternal.RouteInfo{\n"+
-				"\t\t\tMethod:      \"%s\",\n"+
-				"\t\t\tPath:        \"%s\",\n"+
-				"\t\t\tController:  \"%s\",\n"+
-				"\t\t\tHandlerName: \"%s\",\n"+
-				"\t\t\t// Handler will be populated by router registration\n"+
-				"\t\t\tHandler:     nil,\n"+
+				"\t\t\tMethod:       %#v,\n"+
+				"\t\t\tPath:         %#v,\n"+
+				"\t\t\tController:   %#v,\n"+
+				"\t\t\tHandlerName:  %#v,\n"+
+				"\t\t\tHandler:      (*%s).%s,\n"+
+				"\t\t\tGuards:       %s,\n"+
+				"\t\t\tInterceptors: %s,\n"+
 				"\t\t}",
-				route.Method, route.Path, route.Controller, route.HandlerName))
+				route.Method, route.Path, route.Controller, route.HandlerName, route.Controller, route.HandlerName, guards, interceptors))
 		}
-		buf.WriteString(",\n\t); err != nil {\n")
-		buf.WriteString(fmt.Sprintf("\t\treturn err\n"))
-		buf.WriteString("\t}\n\n")
+		buf.WriteString(",\n\t); err != nil {\n\t\treturn err\n\t}\n")
 	}
 
-	buf.WriteString(`	return nil
-}
-`)
+	buf.WriteString("\n\treturn nil\n}\n")
 
-	// Format the code
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return fmt.Errorf("cli/codegen: format routes file: %w", err)
-	}
-
-	// Write to file
-	if err := os.WriteFile(outputPath, formatted, 0644); err != nil {
-		return fmt.Errorf("cli/codegen: write routes file %s: %w", outputPath, err)
-	}
-
-	return nil
+	return os.WriteFile(outputPath, buf.Bytes(), 0644)
 }
 
 func (g *WebGenerator) generateHandlersFile(outputPath string, handlersByFile map[string][]handlerInfo) error {
-	// Collect all unique handlers
 	var allHandlers []handlerInfo
 	for _, handlers := range handlersByFile {
 		allHandlers = append(allHandlers, handlers...)
 	}
 
-	// Sort for deterministic output
 	sort.Slice(allHandlers, func(i, j int) bool {
-		if allHandlers[i].Handler != allHandlers[j].Handler {
-			return allHandlers[i].Handler < allHandlers[j].Handler
+		if allHandlers[i].Controller != allHandlers[j].Controller {
+			return allHandlers[i].Controller < allHandlers[j].Controller
+		}
+		if allHandlers[i].MethodName != allHandlers[j].MethodName {
+			return allHandlers[i].MethodName < allHandlers[j].MethodName
 		}
 		return allHandlers[i].ErrorType < allHandlers[j].ErrorType
 	})
 
-	buf := &bytes.Buffer{}
-	buf.WriteString(`// Code generated by helix generate; DO NOT EDIT.
-
+	var buf bytes.Buffer
+	buf.WriteString(`// Code generated by helix generate. DO NOT EDIT.
 package main
 
 import (
+	"github.com/enokdev/helix"
 	"github.com/enokdev/helix/web/internal"
 )
 
-// initGeneratedErrorHandlers registers pre-generated error handlers from compile-time directive scanning.
-// This function is called during app initialization to avoid runtime AST parsing.
+func init() {
+	helix.RegisterWebSetup(func() error {
+		return initGeneratedErrorHandlers()
+	})
+}
+
 func initGeneratedErrorHandlers() error {
 	registry := internal.GlobalErrorHandlerRegistry()
 
-	// Register all scanned error handlers in the registry
 	if err := registry.RegisterGeneratedErrorHandlers(
 `)
 
@@ -293,29 +258,26 @@ func initGeneratedErrorHandlers() error {
 			buf.WriteString(",\n")
 		}
 		buf.WriteString(fmt.Sprintf("\t\tinternal.ErrorHandlerInfo{\n"+
-			"\t\t\tErrorType:  \"%s\",\n"+
-			"\t\t\tMethodName: \"%s\",\n"+
-			"\t\t\t// Handler will be populated by error handler registration\n"+
-			"\t\t\tHandler:    nil,\n"+
+			"\t\t\tErrorType:  %#v,\n"+
+			"\t\t\tController: %#v,\n"+
+			"\t\t\tMethodName: %#v,\n"+
+			"\t\t\tHandler:    (*%s).%s,\n"+
 			"\t\t}",
-			handler.ErrorType, handler.MethodName))
+			handler.ErrorType, handler.Controller, handler.MethodName, handler.Controller, handler.MethodName))
 	}
 
-	buf.WriteString(",\n\t); err != nil {\n")
-	buf.WriteString("\t\treturn err\n")
-	buf.WriteString("\t}\n\n")
-	buf.WriteString("\treturn nil\n}\n")
+	buf.WriteString(",\n\t); err != nil {\n\t\treturn err\n\t}\n\n\treturn nil\n}\n")
 
-	// Format the code
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return fmt.Errorf("cli/codegen: format handlers file: %w", err)
+	return os.WriteFile(outputPath, buf.Bytes(), 0644)
+}
+
+func formatStringSlice(slice []string) string {
+	if len(slice) == 0 {
+		return ""
 	}
-
-	// Write to file
-	if err := os.WriteFile(outputPath, formatted, 0644); err != nil {
-		return fmt.Errorf("cli/codegen: write handlers file %s: %w", outputPath, err)
+	var quoted []string
+	for _, s := range slice {
+		quoted = append(quoted, fmt.Sprintf("%#v", s))
 	}
-
-	return nil
+	return strings.Join(quoted, ", ")
 }

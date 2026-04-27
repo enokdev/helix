@@ -1,0 +1,1235 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index be0d00d..7968c58 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -1,5 +1,5 @@
+ # generated: 2026-04-14
+-last_updated: 2026-04-26 - story 13.4 COMPLETE
++last_updated: 2026-04-27 - story 13.5 REVIEW
+ # project: helix
+ # project_key: NOKEY
+ # tracking_system: file-system
+@@ -37,7 +37,7 @@ last_updated: 2026-04-26 - story 13.4 COMPLETE
+ # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
+ 
+ generated: 2026-04-14
+-last_updated: 2026-04-26 - story 13.4 COMPLETE
++last_updated: 2026-04-26 - story 13.4 VALIDATED
+ project_key: NOKEY
+ tracking_system: file-system
+ story_location: _bmad-output/implementation-artifacts
+@@ -174,6 +174,6 @@ development_status:
+   13-2-thread-safety-container-di-resolver: done
+   13-3-robustesse-starters-detection-gomod-walkup: done
+   13-4-compatibilite-binaires-deployes-suppression-ast-runtime: done
+-  13-5-cache-interceptor-production-grade: backlog
++  13-5-cache-interceptor-production-grade: review
+   13-6-qualite-ux-developpeur-validation-routing-erreurs: backlog
+   epic-13-retrospective: optional
+diff --git a/web/cache_interceptor.go b/web/cache_interceptor.go
+index 260fa2b..440c5a9 100644
+--- a/web/cache_interceptor.go
++++ b/web/cache_interceptor.go
+@@ -1,29 +1,220 @@
+ package web
+ 
+ import (
++	"context"
+ 	"encoding/json"
+ 	"fmt"
++	"log/slog"
+ 	"net/http"
++	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ )
+ 
++const (
++	// DefaultMaxCacheEntries is the default maximum number of entries in the cache.
++	DefaultMaxCacheEntries = 1000
++	// DefaultEvictionStrategy is the default eviction strategy (LRU).
++	DefaultEvictionStrategy = "lru"
++	// DefaultSweepInterval is the default interval for proactive cache sweep.
++	DefaultSweepInterval = 30 * time.Second
++)
++
+ type cacheEntry struct {
+ 	status    int
+ 	body      []byte // JSON-encoded response body; stored as bytes to prevent mutation by the caller.
+ 	expiresAt time.Time
++	timestamp time.Time // For LRU tracking.
++}
++
++type flightResult struct {
++	status int
++	body   []byte
++	err    error
++}
++
++type flightKey struct {
++	method string
++	url    string
+ }
+ 
++// cacheStore implements a production-grade cache with:
++// - Single-flight pattern (AC 1): N concurrent requests on cold cache key execute handler once
++// - Max size + proactive sweep (AC 2): Cache never exceeds maxSize; expired entries swept proactively
++// - Flexible configuration (AC 3): Supports "ttl:max=N:strategy" parsing and metrics
+ type cacheStore struct {
++	// Entries: main cache storage, protected by mu.
+ 	mu      sync.RWMutex
+ 	entries map[string]cacheEntry
++
++	// Single-flight pattern: track in-flight requests by (method, url).
++	flightMu      sync.RWMutex
++	inflight      map[flightKey]*flightRequest
++	flightResults map[flightKey]flightResult
++
++	// Cache configuration.
++	maxSize             int
++	evictionStrategy    string
++	sweepInterval       time.Duration
++	lastAccessTimes     map[string]time.Time // For LRU tracking.
++	lastAccessTimesMu   sync.RWMutex
++	sweepTicker         *time.Ticker
++	sweepCtx            context.Context
++	sweepCancel         context.CancelFunc
++	sweepDone           chan struct{}
++
++	// Metrics.
++	hits      atomic.Uint64
++	misses    atomic.Uint64
++	evictions atomic.Uint64
++}
++
++// flightRequest tracks a single in-flight request result.
++type flightRequest struct {
++	done   chan struct{}
++	result flightResult
+ }
+ 
+ func newCacheStore() *cacheStore {
+-	return &cacheStore{entries: make(map[string]cacheEntry)}
++	sweepCtx, sweepCancel := context.WithCancel(context.Background())
++	store := &cacheStore{
++		entries:           make(map[string]cacheEntry),
++		inflight:          make(map[flightKey]*flightRequest),
++		flightResults:     make(map[flightKey]flightResult),
++		maxSize:           DefaultMaxCacheEntries,
++		evictionStrategy:  DefaultEvictionStrategy,
++		sweepInterval:     DefaultSweepInterval,
++		lastAccessTimes:   make(map[string]time.Time),
++		sweepTicker:       time.NewTicker(DefaultSweepInterval),
++		sweepCtx:          sweepCtx,
++		sweepCancel:       sweepCancel,
++		sweepDone:         make(chan struct{}),
++	}
++	go store.sweepRoutine()
++	return store
++}
++
++// sweepRoutine periodically evicts expired entries and enforces max size.
++func (s *cacheStore) sweepRoutine() {
++	defer close(s.sweepDone)
++	for {
++		select {
++		case <-s.sweepCtx.Done():
++			return
++		case <-s.sweepTicker.C:
++			s.sweep()
++		}
++	}
++}
++
++// sweep removes expired entries and evicts oldest entries if cache exceeds maxSize.
++func (s *cacheStore) sweep() {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++
++	now := time.Now()
++	expiredCount := 0
++
++	// Remove expired entries.
++	for key, entry := range s.entries {
++		if now.After(entry.expiresAt) {
++			delete(s.entries, key)
++			s.lastAccessTimesMu.Lock()
++			delete(s.lastAccessTimes, key)
++			s.lastAccessTimesMu.Unlock()
++			expiredCount++
++		}
++	}
++
++	if expiredCount > 0 {
++		slog.Debug("cache sweep: removed expired entries", "count", expiredCount, "size", len(s.entries))
++	}
++
++	// Enforce max size with eviction if necessary.
++	if len(s.entries) > s.maxSize {
++		toEvict := len(s.entries) - s.maxSize
++		evicted := s.evictEntries(toEvict, now)
++		if evicted > 0 {
++			slog.Debug("cache sweep: evicted entries", "count", evicted, "strategy", s.evictionStrategy, "size", len(s.entries))
++			s.evictions.Add(uint64(evicted))
++		}
++	}
++}
++
++// evictEntries removes toEvict entries using the configured strategy (LRU or FIFO).
++func (s *cacheStore) evictEntries(toEvict int, now time.Time) int {
++	if len(s.entries) == 0 {
++		return 0
++	}
++
++	evicted := 0
++	if s.evictionStrategy == "lru" {
++		// LRU: remove least recently accessed entries.
++		type keyTime struct {
++			key       string
++			timestamp time.Time
++		}
++		var candidates []keyTime
++
++		s.lastAccessTimesMu.RLock()
++		for key, accessTime := range s.lastAccessTimes {
++			candidates = append(candidates, keyTime{key, accessTime})
++		}
++		s.lastAccessTimesMu.RUnlock()
++
++		// Sort by access time (ascending = least recent first).
++		for i := 0; i < len(candidates)-1; i++ {
++			for j := i + 1; j < len(candidates); j++ {
++				if candidates[i].timestamp.After(candidates[j].timestamp) {
++					candidates[i], candidates[j] = candidates[j], candidates[i]
++				}
++			}
++		}
++
++		for i := 0; i < toEvict && i < len(candidates); i++ {
++			key := candidates[i].key
++			delete(s.entries, key)
++			s.lastAccessTimesMu.Lock()
++			delete(s.lastAccessTimes, key)
++			s.lastAccessTimesMu.Unlock()
++			evicted++
++		}
++	} else {
++		// FIFO: remove oldest entries by insertion time.
++		type keyTime struct {
++			key       string
++			timestamp time.Time
++		}
++		var candidates []keyTime
++
++		for key, entry := range s.entries {
++			candidates = append(candidates, keyTime{key, entry.timestamp})
++		}
++
++		// Sort by insertion time (ascending = oldest first).
++		for i := 0; i < len(candidates)-1; i++ {
++			for j := i + 1; j < len(candidates); j++ {
++				if candidates[i].timestamp.After(candidates[j].timestamp) {
++					candidates[i], candidates[j] = candidates[j], candidates[i]
++				}
++			}
++		}
++
++		for i := 0; i < toEvict && i < len(candidates); i++ {
++			key := candidates[i].key
++			delete(s.entries, key)
++			s.lastAccessTimesMu.Lock()
++			delete(s.lastAccessTimes, key)
++			s.lastAccessTimesMu.Unlock()
++			evicted++
++		}
++	}
++
++	return evicted
+ }
+ 
+-func (s *cacheStore) newInterceptor(ttl time.Duration) Interceptor {
++func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy string) Interceptor {
+ 	return InterceptorFunc(func(ctx Context, next HandlerFunc) error {
+ 		if ctx.Method() != http.MethodGet {
+ 			return next(ctx)
+@@ -31,7 +222,10 @@ func (s *cacheStore) newInterceptor(ttl time.Duration) Interceptor {
+ 
+ 		key := ctx.Method() + " " + ctx.OriginalURL()
+ 		now := time.Now()
+-		if entry, ok := s.get(key, now); ok {
++
++		// Check cache first.
++		if entry, ok := s.getCached(key, now); ok {
++			s.hits.Add(1)
+ 			ctx.Status(entry.status)
+ 			var body any
+ 			if err := json.Unmarshal(entry.body, &body); err != nil {
+@@ -40,58 +234,208 @@ func (s *cacheStore) newInterceptor(ttl time.Duration) Interceptor {
+ 			return ctx.JSON(body)
+ 		}
+ 
++		s.misses.Add(1)
++
++		// Single-flight: try to register as the handler for this request.
++		fk := flightKey{method: ctx.Method(), url: ctx.OriginalURL()}
++		flight, isInflight := s.tryRegisterInflight(fk)
++		if isInflight {
++			// Another request is already fetching this key. Wait for its result.
++			<-flight.done
++			if flight.result.err != nil {
++				return flight.result.err
++			}
++			ctx.Status(flight.result.status)
++			var body any
++			if err := json.Unmarshal(flight.result.body, &body); err != nil {
++				return fmt.Errorf("web: cache interceptor unmarshal (flight): %w", err)
++			}
++			return ctx.JSON(body)
++		}
++
++		// We own this flight. Execute the handler.
++		defer s.unregisterInflight(fk)
+ 		recorder := &responseRecorder{Context: ctx}
+-		if err := next(recorder); err != nil {
++		err := next(recorder)
++		if err != nil {
++			flight.result.err = err
++			close(flight.done)
+ 			return err
+ 		}
++
++		// Cache the response if it's successful.
+ 		if recorder.wroteJSON && recorder.status >= http.StatusOK && recorder.status < http.StatusMultipleChoices {
+-			s.set(key, cacheEntry{
++			s.setCached(key, cacheEntry{
+ 				status:    recorder.status,
+ 				body:      recorder.body,
+ 				expiresAt: now.Add(ttl),
++				timestamp: now,
+ 			})
++			flight.result.status = recorder.status
++			flight.result.body = recorder.body
+ 		}
++
++		close(flight.done)
+ 		return nil
+ 	})
+ }
+ 
+-func (s *cacheStore) get(key string, now time.Time) (cacheEntry, bool) {
++// getCached retrieves an entry from the cache, updating access time for LRU.
++func (s *cacheStore) getCached(key string, now time.Time) (cacheEntry, bool) {
+ 	s.mu.RLock()
+ 	entry, ok := s.entries[key]
+ 	s.mu.RUnlock()
+ 	if !ok {
+ 		return cacheEntry{}, false
+ 	}
++
+ 	if now.After(entry.expiresAt) {
+ 		s.mu.Lock()
+-		// Re-read under write lock: a concurrent goroutine may have refreshed this entry.
++		// Re-check under write lock.
+ 		if current, ok := s.entries[key]; ok && now.After(current.expiresAt) {
+ 			delete(s.entries, key)
+ 		}
+ 		s.mu.Unlock()
+ 		return cacheEntry{}, false
+ 	}
++
++	// Update access time for LRU tracking.
++	s.lastAccessTimesMu.Lock()
++	s.lastAccessTimes[key] = now
++	s.lastAccessTimesMu.Unlock()
++
+ 	return entry, true
+ }
+ 
+-func (s *cacheStore) set(key string, entry cacheEntry) {
++// setCached stores an entry in the cache, enforcing maxSize.
++func (s *cacheStore) setCached(key string, entry cacheEntry) {
+ 	s.mu.Lock()
++	defer s.mu.Unlock()
++
++	// If cache is at max size, evict before inserting.
++	if len(s.entries) >= s.maxSize {
++		toEvict := 1
++		if evicted := s.evictEntries(toEvict, time.Now()); evicted > 0 {
++			slog.Debug("cache set: evicted entry before insert", "strategy", s.evictionStrategy)
++			s.evictions.Add(uint64(evicted))
++		}
++	}
++
+ 	s.entries[key] = entry
+-	s.mu.Unlock()
++
++	s.lastAccessTimesMu.Lock()
++	s.lastAccessTimes[key] = entry.timestamp
++	s.lastAccessTimesMu.Unlock()
++}
++
++// tryRegisterInflight atomically checks if a flight exists and registers if not.
++// Returns (flight, isInflight) where if isInflight=true, another request is already processing.
++// If isInflight=false, this request owns the flight and must call unregisterInflight when done.
++func (s *cacheStore) tryRegisterInflight(fk flightKey) (*flightRequest, bool) {
++	s.flightMu.Lock()
++	defer s.flightMu.Unlock()
++	if existing, ok := s.inflight[fk]; ok {
++		return existing, true // Another request is in flight
++	}
++	// Register ourselves
++	flight := &flightRequest{done: make(chan struct{})}
++	s.inflight[fk] = flight
++	return flight, false // We own this flight
++}
++
++// unregisterInflight removes a request from the in-flight tracking.
++func (s *cacheStore) unregisterInflight(fk flightKey) {
++	s.flightMu.Lock()
++	defer s.flightMu.Unlock()
++	delete(s.inflight, fk)
++}
++
++// Stop gracefully stops the cache sweep goroutine.
++// Size returns the current number of entries in the cache under lock.
++func (s *cacheStore) Size() int {
++	s.mu.RLock()
++	defer s.mu.RUnlock()
++	return len(s.entries)
++}
++
++func (s *cacheStore) Stop() error {
++	s.sweepTicker.Stop()
++	s.sweepCancel()
++	<-s.sweepDone
++	return nil
+ }
+ 
+ // cacheInterceptorFactory returns a factory for the built-in "cache" interceptor.
++//
+ // The cache is shared across all requests: responses are keyed only by HTTP method
+ // and URL, not by authenticated user or session. Register this factory under a
+ // per-user key scheme or disable it for endpoints that return user-scoped data.
++//
++// Configuration syntax: "duration[:max=N[:strategy]]"
++// - duration: Required. Example: "5m", "1h", "30s"
++// - max: Optional. Maximum cache entries (default: 1000)
++// - strategy: Optional. Eviction strategy: "lru" (default) or "fifo"
++//
++// Examples:
++// - "5m" → 5 minute TTL, 1000 entry max, LRU eviction
++// - "5m:max=500" → 5 minute TTL, 500 entry max, LRU eviction
++// - "5m:max=2000:fifo" → 5 minute TTL, 2000 entry max, FIFO eviction
+ func cacheInterceptorFactory(store *cacheStore) InterceptorFactory {
+ 	return func(argument string) (Interceptor, error) {
+-		ttl, err := time.ParseDuration(argument)
++		parts := strings.Split(argument, ":")
++		if len(parts) == 0 || parts[0] == "" {
++			return nil, fmt.Errorf("web: parse cache config %q: empty config", argument)
++		}
++
++		// Parse TTL from first part.
++		ttl, err := time.ParseDuration(parts[0])
+ 		if err != nil || ttl <= 0 {
+-			return nil, fmt.Errorf("web: parse cache duration %q: %w", argument, ErrInvalidDirective)
++			return nil, fmt.Errorf("web: parse cache duration %q: %w", parts[0], ErrInvalidDirective)
++		}
++
++		// Parse optional max size and strategy.
++		maxSize := store.maxSize
++		strategy := store.evictionStrategy
++
++		for i := 1; i < len(parts); i++ {
++			kv := strings.SplitN(parts[i], "=", 2)
++			if len(kv) != 2 {
++				return nil, fmt.Errorf("web: parse cache config: invalid key=value pair %q", parts[i])
++			}
++
++			key, value := kv[0], kv[1]
++			switch key {
++			case "max":
++				n, err := parseIntValue(value)
++				if err != nil || n <= 0 {
++					return nil, fmt.Errorf("web: parse cache max %q: %w", value, ErrInvalidDirective)
++				}
++				maxSize = n
++			case "strategy":
++				if value != "lru" && value != "fifo" {
++					return nil, fmt.Errorf("web: parse cache strategy %q: must be 'lru' or 'fifo'", value)
++				}
++				strategy = value
++			default:
++				return nil, fmt.Errorf("web: parse cache config: unknown key %q", key)
++			}
++		}
++
++		slog.Debug("cache interceptor configured", "ttl", ttl, "max_size", maxSize, "strategy", strategy)
++		return store.newInterceptor(ttl, maxSize, strategy), nil
++	}
++}
++
++// parseIntValue parses an integer from a string.
++func parseIntValue(s string) (int, error) {
++	n := 0
++	for _, ch := range s {
++		if ch < '0' || ch > '9' {
++			return 0, fmt.Errorf("invalid integer: %s", s)
+ 		}
+-		return store.newInterceptor(ttl), nil
++		n = n*10 + int(ch-'0')
+ 	}
++	return n, nil
+ }
+ 
+ type responseRecorder struct {
+diff --git a/web/cache_interceptor_test.go b/web/cache_interceptor_test.go
+new file mode 100644
+index 0000000..0d989ae
+--- /dev/null
++++ b/web/cache_interceptor_test.go
+@@ -0,0 +1,685 @@
++package web
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/assert"
++)
++
++// TestCacheInterceptorSingleFlightPatternColdCache tests AC 1: Multiple concurrent requests on cold cache.
++func TestCacheInterceptorSingleFlightPatternColdCache(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
++
++	handlerCalls := atomic.Int32{}
++	handler := func(ctx Context) error {
++		handlerCalls.Add(1)
++		time.Sleep(10 * time.Millisecond) // Simulate slow handler.
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "value"})
++	}
++
++	// Launch N concurrent requests on the same cold cache key.
++	const numConcurrent = 50
++	wg := sync.WaitGroup{}
++	wg.Add(numConcurrent)
++
++	for i := 0; i < numConcurrent; i++ {
++		go func() {
++			defer wg.Done()
++			mockCtx := &mockContext{method: "GET"}
++			// Use a wrapper to provide OriginalURL and Status methods.
++			wrappedCtx := &cacheTestContext{
++				mockContext: mockCtx,
++				originalURL: "/api/data",
++			}
++			// All requests use the SAME interceptor instance.
++			err := interceptor.Intercept(wrappedCtx, handler)
++			assert.NoError(t, err)
++			assert.Equal(t, http.StatusOK, wrappedCtx.statusCode)
++		}()
++	}
++
++	wg.Wait()
++
++	// AC 1: Verify only one handler call was made.
++	calls := handlerCalls.Load()
++	assert.Equal(t, int32(1), calls, "Expected handler to be called once, but was called %d times", calls)
++
++	// Verify cache has one entry.
++	assert.Equal(t, 1, store.Size())
++}
++
++// cacheTestContext wraps mockContext and adds required methods for cache interceptor tests.
++type cacheTestContext struct {
++	*mockContext
++	originalURL string
++	statusCode  int
++}
++
++func (c *cacheTestContext) Path() string {
++	return "/"
++}
++
++func (c *cacheTestContext) Param(key string) string {
++	return ""
++}
++
++func (c *cacheTestContext) Query(key string) string {
++	return ""
++}
++
++func (c *cacheTestContext) Header(key string) string {
++	return ""
++}
++
++func (c *cacheTestContext) IP() string {
++	return ""
++}
++
++func (c *cacheTestContext) Body() []byte {
++	return nil
++}
++
++func (c *cacheTestContext) OriginalURL() string {
++	return c.originalURL
++}
++
++func (c *cacheTestContext) Status(code int) {
++	c.statusCode = code
++	c.mockContext.Status(code)
++}
++
++func (c *cacheTestContext) GetHeader(key string) string {
++	return ""
++}
++
++func (c *cacheTestContext) FormValue(key string) string {
++	return ""
++}
++
++func (c *cacheTestContext) Locals(key string, value ...any) any {
++	return nil
++}
++
++func (c *cacheTestContext) SetLocals(key string, value interface{}) {
++	// no-op
++}
++
++func (c *cacheTestContext) Send(body []byte) error {
++	return nil
++}
++
++// TestCacheInterceptorSingleFlightWaitGroup tests that requests wait correctly for in-flight result.
++func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
++
++	handlerCalls := atomic.Int32{}
++	handlerDone := make(chan struct{})
++	handler := func(ctx Context) error {
++		handlerCalls.Add(1)
++		<-handlerDone // Block handler until signaled.
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "test"})
++	}
++
++	results := make(chan struct {
++		err    error
++		status int
++	}, 50)
++
++	// Launch requests in goroutines; they'll block on handler.
++	for i := 0; i < 10; i++ {
++		go func() {
++			mockCtx := &mockContext{method: "GET"}
++			wrappedCtx := &cacheTestContext{
++				mockContext: mockCtx,
++				originalURL: "/api/test",
++			}
++			err := interceptor.Intercept(wrappedCtx, handler)
++			results <- struct {
++				err    error
++				status int
++			}{err, wrappedCtx.statusCode}
++		}()
++	}
++
++	// Allow handler to complete.
++	time.Sleep(50 * time.Millisecond)
++	close(handlerDone)
++
++	// Collect results.
++	for i := 0; i < 10; i++ {
++		result := <-results
++		assert.NoError(t, result.err)
++		assert.Equal(t, http.StatusOK, result.status)
++	}
++
++	// Only 1 handler call.
++	assert.Equal(t, int32(1), handlerCalls.Load())
++}
++
++// TestCacheInterceptorHitAndMiss tests basic cache hit/miss metrics.
++func TestCacheInterceptorHitAndMiss(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
++
++	handlerCalls := atomic.Int32{}
++	handler := func(ctx Context) error {
++		handlerCalls.Add(1)
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "cached"})
++	}
++
++	// First request: miss.
++	mockCtx := &mockContext{method: "GET"}
++	wrappedCtx := &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/test",
++	}
++	err := interceptor.Intercept(wrappedCtx, handler)
++	assert.NoError(t, err)
++	assert.Equal(t, uint64(1), store.misses.Load())
++	assert.Equal(t, uint64(0), store.hits.Load())
++
++	// Second request: hit.
++	mockCtx = &mockContext{method: "GET"}
++	wrappedCtx = &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/test",
++	}
++	err = interceptor.Intercept(wrappedCtx, handler)
++	assert.NoError(t, err)
++	assert.Equal(t, uint64(1), store.misses.Load())
++	assert.Equal(t, uint64(1), store.hits.Load())
++	assert.Equal(t, int32(1), handlerCalls.Load())
++}
++
++// TestCacheInterceptorMaxSize tests AC 2: Cache size limit enforcement.
++func TestCacheInterceptorMaxSize(t *testing.T) {
++	maxSize := 10
++	store := newCacheStore()
++	store.maxSize = maxSize
++	store.evictionStrategy = "lru"
++	defer store.Stop()
++
++	interceptor := store.newInterceptor(5*time.Minute, maxSize, "lru")
++
++	handler := func(ctx Context) error {
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "test"})
++	}
++
++	// Fill cache beyond maxSize.
++	for i := 0; i < 15; i++ {
++		url := fmt.Sprintf("/api/item%d", i)
++		mockCtx := &mockContext{method: "GET"}
++		wrappedCtx := &cacheTestContext{
++			mockContext: mockCtx,
++			originalURL: url,
++		}
++		err := interceptor.Intercept(wrappedCtx, handler)
++		assert.NoError(t, err)
++	}
++
++	// AC 2: Cache size should not exceed max.
++	assert.LessOrEqual(t, len(store.entries), maxSize, "Cache size should not exceed max")
++	assert.Greater(t, len(store.entries), 0, "Cache should not be empty")
++}
++
++// TestCacheInterceptorLRUEviction tests LRU eviction strategy.
++func TestCacheInterceptorLRUEviction(t *testing.T) {
++	store := newCacheStore()
++	store.maxSize = 3
++	store.evictionStrategy = "lru"
++	defer store.Stop()
++
++	handler := func(ctx Context) error {
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "test"})
++	}
++
++	// Populate cache with 3 entries.
++	for i := 1; i <= 3; i++ {
++		mockCtx := &mockContext{method: "GET"}
++		wrappedCtx := &cacheTestContext{
++			mockContext: mockCtx,
++			originalURL: fmt.Sprintf("/item%d", i),
++		}
++		_ = store.newInterceptor(5*time.Minute, 3, "lru").Intercept(wrappedCtx, handler)
++	}
++
++	assert.Equal(t, 3, len(store.entries))
++
++	// Access /item1 to update its access time.
++	mockCtx := &mockContext{method: "GET"}
++	wrappedCtx := &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/item1",
++	}
++	_ = store.newInterceptor(5*time.Minute, 3, "lru").Intercept(wrappedCtx, handler)
++
++	// Add a 4th entry; LRU should evict /item2 (least recently used).
++	mockCtx = &mockContext{method: "GET"}
++	wrappedCtx = &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/item4",
++	}
++	_ = store.newInterceptor(5*time.Minute, 3, "lru").Intercept(wrappedCtx, handler)
++
++	// Cache should still be at max size.
++	assert.Equal(t, 3, len(store.entries))
++
++	// /item1 should still be in cache (recently accessed).
++	_, hasItem1 := store.entries["GET /item1"]
++	assert.True(t, hasItem1, "/item1 should not be evicted (recently accessed)")
++
++	// /item4 should be in cache (newly added).
++	_, hasItem4 := store.entries["GET /item4"]
++	assert.True(t, hasItem4, "/item4 should be in cache")
++}
++
++// TestCacheInterceptorFIFOEviction tests FIFO eviction strategy.
++func TestCacheInterceptorFIFOEviction(t *testing.T) {
++	store := newCacheStore()
++	store.maxSize = 3
++	store.evictionStrategy = "fifo"
++	defer store.Stop()
++
++	handler := func(ctx Context) error {
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "test"})
++	}
++
++	// Populate cache with 3 entries.
++	for i := 1; i <= 3; i++ {
++		mockCtx := &mockContext{method: "GET"}
++		wrappedCtx := &cacheTestContext{
++			mockContext: mockCtx,
++			originalURL: fmt.Sprintf("/item%d", i),
++		}
++		_ = store.newInterceptor(5*time.Minute, 3, "fifo").Intercept(wrappedCtx, handler)
++		time.Sleep(10 * time.Millisecond) // Ensure different timestamps.
++	}
++
++	assert.Equal(t, 3, len(store.entries))
++
++	// Add a 4th entry; FIFO should evict /item1 (oldest by insertion time).
++	mockCtx := &mockContext{method: "GET"}
++	wrappedCtx := &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/item4",
++	}
++	_ = store.newInterceptor(5*time.Minute, 3, "fifo").Intercept(wrappedCtx, handler)
++
++	assert.Equal(t, 3, len(store.entries))
++
++	// /item1 should be evicted.
++	_, hasItem1 := store.entries["GET /item1"]
++	assert.False(t, hasItem1, "/item1 should be evicted (oldest insertion)")
++
++	// /item4 should be in cache.
++	_, hasItem4 := store.entries["GET /item4"]
++	assert.True(t, hasItem4, "/item4 should be in cache")
++}
++
++// TestCacheInterceptorProactiveSweep tests AC 2: Proactive expiration sweep.
++func TestCacheInterceptorProactiveSweep(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	handler := func(ctx Context) error {
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "test"})
++	}
++
++	// Add entries with short TTL.
++	ttl := 100 * time.Millisecond
++	for i := 0; i < 5; i++ {
++		mockCtx := &mockContext{method: "GET"}
++		wrappedCtx := &cacheTestContext{
++			mockContext: mockCtx,
++			originalURL: fmt.Sprintf("/item%d", i),
++		}
++		_ = store.newInterceptor(ttl, 100, "lru").Intercept(wrappedCtx, handler)
++	}
++
++	assert.Equal(t, 5, store.Size(), "Should have 5 entries initially")
++
++	// Wait for entries to expire and sweep to remove them.
++	// DefaultSweepInterval is 30s, so we need to manually trigger sweep for the test.
++	time.Sleep(150 * time.Millisecond) // Wait for entries to expire
++	store.sweep()                        // Manually trigger sweep
++
++	// Sweep should have removed expired entries.
++	assert.Less(t, store.Size(), 5, "Sweep should have removed expired entries")
++}
++
++// TestCacheInterceptorConfigParsing tests AC 3: Config parsing for cache duration, max, strategy.
++func TestCacheInterceptorConfigParsing(t *testing.T) {
++	tests := []struct {
++		name        string
++		config      string
++		expectedErr bool
++	}{
++		{"Basic duration", "5m", false},
++		{"Duration with max", "5m:max=500", false},
++		{"Duration with max and LRU", "5m:max=500:strategy=lru", false},
++		{"Duration with max and FIFO", "5m:max=200:strategy=fifo", false},
++		{"Invalid duration", "invalid", true},
++		{"Invalid max", "5m:max=abc", true},
++		{"Invalid strategy", "5m:max=500:strategy=invalid", true},
++		{"Zero TTL", "0s", true},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			store := newCacheStore()
++			defer store.Stop()
++
++			factory := cacheInterceptorFactory(store)
++			interceptor, err := factory(tt.config)
++
++			if tt.expectedErr {
++				assert.Error(t, err, "Expected error for config: %s", tt.config)
++				return
++			}
++
++			assert.NoError(t, err, "Unexpected error for config: %s", tt.config)
++			assert.NotNil(t, interceptor)
++		})
++	}
++}
++
++// TestCacheInterceptorExpirationLazyDeletion tests that expired entries are cleaned on access.
++func TestCacheInterceptorExpirationLazyDeletion(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	ttl := 50 * time.Millisecond
++	interceptor := store.newInterceptor(ttl, 100, "lru")
++
++	handler := func(ctx Context) error {
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "test"})
++	}
++
++	// Add entry.
++	mockCtx := &mockContext{method: "GET"}
++	wrappedCtx := &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/test",
++	}
++	_ = interceptor.Intercept(wrappedCtx, handler)
++	assert.Equal(t, 1, len(store.entries))
++
++	// Wait for expiration.
++	time.Sleep(100 * time.Millisecond)
++
++	// Access the expired entry; it should be lazily deleted.
++	mockCtx = &mockContext{method: "GET"}
++	wrappedCtx = &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/test",
++	}
++	handlerCallCount := atomic.Int32{}
++	err := interceptor.Intercept(wrappedCtx, func(ctx Context) error {
++		handlerCallCount.Add(1)
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "new"})
++	})
++
++	assert.NoError(t, err)
++	// Handler should have been called (cache miss due to expiration).
++	assert.Equal(t, int32(1), handlerCallCount.Load())
++}
++
++// TestCacheInterceptorNonGetMethodsNotCached tests that only GET methods are cached.
++func TestCacheInterceptorNonGetMethodsNotCached(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
++
++	handlerCalls := atomic.Int32{}
++	handler := func(ctx Context) error {
++		handlerCalls.Add(1)
++		ctx.Status(http.StatusCreated)
++		return ctx.JSON(map[string]string{"id": "123"})
++	}
++
++	// POST request should not be cached.
++	mockCtx := &mockContext{method: "POST"}
++	wrappedCtx := &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/api/items",
++	}
++	err := interceptor.Intercept(wrappedCtx, handler)
++	assert.NoError(t, err)
++	assert.Equal(t, int32(1), handlerCalls.Load())
++
++	// Repeat POST; should not be cached.
++	mockCtx = &mockContext{method: "POST"}
++	wrappedCtx = &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/api/items",
++	}
++	err = interceptor.Intercept(wrappedCtx, handler)
++	assert.NoError(t, err)
++	assert.Equal(t, int32(2), handlerCalls.Load(), "POST should not be cached")
++
++	// Cache should be empty.
++	assert.Equal(t, 0, len(store.entries), "Cache should be empty for non-GET methods")
++}
++
++// TestCacheInterceptorErrorResponsesNotCached tests that error responses (5xx, 4xx) are not cached.
++func TestCacheInterceptorErrorResponsesNotCached(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
++
++	handlerCalls := atomic.Int32{}
++	handler := func(ctx Context) error {
++		handlerCalls.Add(1)
++		ctx.Status(http.StatusInternalServerError)
++		return ctx.JSON(map[string]string{"error": "server error"})
++	}
++
++	// First request.
++	mockCtx := &mockContext{method: "GET"}
++	wrappedCtx := &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/api/error",
++	}
++	err := interceptor.Intercept(wrappedCtx, handler)
++	assert.NoError(t, err)
++	assert.Equal(t, int32(1), handlerCalls.Load())
++
++	// Second request; should not hit cache.
++	mockCtx = &mockContext{method: "GET"}
++	wrappedCtx = &cacheTestContext{
++		mockContext: mockCtx,
++		originalURL: "/api/error",
++	}
++	err = interceptor.Intercept(wrappedCtx, handler)
++	assert.NoError(t, err)
++	assert.Equal(t, int32(2), handlerCalls.Load(), "Error responses should not be cached")
++
++	// Cache should be empty.
++	assert.Equal(t, 0, len(store.entries), "Error responses should not be cached")
++}
++
++// TestCacheInterceptorSuccessRangeOnlyCached tests that only 2xx responses are cached.
++func TestCacheInterceptorSuccessRangeOnlyCached(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	// Test that 2xx responses are cached.
++	testCases := []struct {
++		statusCode  int
++		shouldCache bool
++	}{
++		{http.StatusOK, true},
++		{http.StatusCreated, true},
++		{http.StatusAccepted, true},
++		{http.StatusNoContent, true},
++		{http.StatusMultipleChoices, false},
++		{http.StatusBadRequest, false},
++		{http.StatusNotFound, false},
++		{http.StatusInternalServerError, false},
++	}
++
++	for _, tc := range testCases {
++		store.entries = make(map[string]cacheEntry) // Clear cache for each test.
++
++		interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
++
++		handler := func(ctx Context) error {
++			ctx.Status(tc.statusCode)
++			if tc.statusCode < 300 {
++				return ctx.JSON(map[string]string{"data": "test"})
++			}
++			return ctx.JSON(map[string]string{"error": "error"})
++		}
++
++		mockCtx := &mockContext{method: "GET"}
++		wrappedCtx := &cacheTestContext{
++			mockContext: mockCtx,
++			originalURL: "/test",
++		}
++		_ = interceptor.Intercept(wrappedCtx, handler)
++
++		shouldCache := tc.statusCode >= 200 && tc.statusCode < 300
++		isCached := len(store.entries) > 0
++
++		assert.Equal(t, shouldCache, isCached, "Status %d: shouldCache=%v, isCached=%v", tc.statusCode, shouldCache, isCached)
++	}
++}
++
++// TestCacheInterceptorConcurrentAccessNoRace tests that concurrent cache access is race-free.
++// Run with -race flag: go test -race ./web -run TestCacheInterceptorConcurrentAccessNoRace
++func TestCacheInterceptorConcurrentAccessNoRace(t *testing.T) {
++	store := newCacheStore()
++	defer store.Stop()
++
++	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
++
++	handler := func(ctx Context) error {
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "test"})
++	}
++
++	// Concurrent reads and writes.
++	wg := sync.WaitGroup{}
++	for i := 0; i < 20; i++ {
++		wg.Add(1)
++		go func(n int) {
++			defer wg.Done()
++			for j := 0; j < 10; j++ {
++				url := fmt.Sprintf("/item%d", n%5)
++				mockCtx := &mockContext{method: "GET"}
++				wrappedCtx := &cacheTestContext{
++					mockContext: mockCtx,
++					originalURL: url,
++				}
++				_ = interceptor.Intercept(wrappedCtx, handler)
++			}
++		}(i)
++	}
++	wg.Wait()
++
++	// Should complete without race detector errors.
++	assert.Greater(t, len(store.entries), 0)
++}
++
++// TestCacheStoreStop tests graceful shutdown of cache sweep goroutine.
++func TestCacheStoreStop(t *testing.T) {
++	store := newCacheStore()
++
++	// Verify sweep goroutine is running.
++	assert.NotNil(t, store.sweepTicker)
++
++	// Stop should not panic and should complete quickly.
++	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
++	defer cancel()
++
++	err := store.Stop()
++	assert.NoError(t, err)
++
++	// Verify ticker is stopped.
++	select {
++	case <-store.sweepDone:
++		// Good: sweep routine exited.
++	case <-ctx.Done():
++		t.Fatal("Sweep routine did not exit")
++	}
++}
++
++// TestCacheInterceptorResponseRecorderCapture tests that responseRecorder properly captures responses.
++func TestCacheInterceptorResponseRecorderCapture(t *testing.T) {
++	mockCtx := &mockContext{method: "GET", jsonErr: nil}
++	recorder := &responseRecorder{
++		Context: mockCtx,
++		status:  0,
++	}
++
++	// Set status.
++	recorder.Status(http.StatusOK)
++	assert.Equal(t, http.StatusOK, recorder.status)
++
++	// Write JSON.
++	data := map[string]string{"key": "value"}
++	err := recorder.JSON(data)
++	assert.NoError(t, err)
++	assert.True(t, recorder.wroteJSON)
++
++	// Verify body is properly marshaled.
++	assert.NotEmpty(t, recorder.body)
++	var parsed map[string]string
++	err = json.Unmarshal(recorder.body, &parsed)
++	assert.NoError(t, err)
++	assert.Equal(t, "value", parsed["key"])
++}
++
++// TestCacheInterceptorCacheSizeThreshold tests that cache respects 1.1x max size margin.
++func TestCacheInterceptorCacheSizeThreshold(t *testing.T) {
++	store := newCacheStore()
++	store.maxSize = 100
++	store.evictionStrategy = "lru"
++	defer store.Stop()
++
++	handler := func(ctx Context) error {
++		ctx.Status(http.StatusOK)
++		return ctx.JSON(map[string]string{"data": "value"})
++	}
++
++	// Add many entries beyond max.
++	for i := 0; i < 200; i++ {
++		mockCtx := &mockContext{method: "GET"}
++		wrappedCtx := &cacheTestContext{
++			mockContext: mockCtx,
++			originalURL: fmt.Sprintf("/item%d", i),
++		}
++		_ = store.newInterceptor(5*time.Minute, 100, "lru").Intercept(wrappedCtx, handler)
++	}
++
++	// Cache size should not exceed max * 1.1 (110).
++	upperBound := int(float64(store.maxSize) * 1.1)
++	assert.LessOrEqual(t, len(store.entries), upperBound, "Cache size exceeded threshold")
++	assert.Greater(t, len(store.entries), 0, "Cache should not be empty")
++}
+diff --git a/web/server.go b/web/server.go
+index f7f3b82..70aadd3 100644
+--- a/web/server.go
++++ b/web/server.go
+@@ -21,6 +21,9 @@ type HTTPServer interface {
+ 	// ServeHTTP executes a request against the server without starting a
+ 	// network listener. Intended for use in tests and tooling.
+ 	ServeHTTP(req *http.Request) (*http.Response, error)
++	// IsGeneratedOnly returns true if the server is configured to only use
++	// pre-generated route and error handler metadata.
++	IsGeneratedOnly() bool
+ }
+ 
+ type server struct {
+@@ -34,6 +37,7 @@ type server struct {
+ 	interceptorFactories map[string]InterceptorFactory
+ 	cache                *cacheStore
+ 	routeObserver        RouteObserver
++	generatedOnly        bool
+ }
+ 
+ // NewServer creates an HTTP server backed by an internal Fiber adapter.
+@@ -54,11 +58,16 @@ func NewServer(opts ...Option) HTTPServer {
+ 		interceptorFactories: make(map[string]InterceptorFactory),
+ 		cache:                newCacheStore(),
+ 		routeObserver:        options.routeObserver,
++		generatedOnly:        options.generatedOnly,
+ 	}
+ 	s.interceptorFactories["cache"] = cacheInterceptorFactory(s.cache)
+ 	return s
+ }
+ 
++func (s *server) IsGeneratedOnly() bool {
++	return s.generatedOnly
++}
++
+ func (s *server) Start(addr string) error {
+ 	if err := s.adapter.Start(addr); err != nil {
+ 		return fmt.Errorf("web: start %s: %w", addr, err)
+@@ -70,6 +79,10 @@ func (s *server) Stop(ctx context.Context) error {
+ 	if ctx == nil {
+ 		return fmt.Errorf("web: stop: nil context")
+ 	}
++	// Stop the cache sweep goroutine gracefully.
++	if err := s.cache.Stop(); err != nil {
++		return fmt.Errorf("web: stop cache: %w", err)
++	}
+ 	if err := s.adapter.Stop(ctx); err != nil {
+ 		return fmt.Errorf("web: stop: %w", err)
+ 	}
+@@ -147,7 +160,7 @@ func (o *observingContext) Send(body []byte) error {
+ }
+ 
+ func (s *server) registerErrorHandler(handler any) error {
+-	handlers, err := buildErrorHandlers(handler)
++	handlers, err := buildErrorHandlers(s, handler)
+ 	if err != nil {
+ 		return err
+ 	}

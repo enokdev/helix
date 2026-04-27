@@ -1529,6 +1529,10 @@ func (s *recordingServer) ServeHTTP(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
 
+func (s *recordingServer) IsGeneratedOnly() bool {
+	return false
+}
+
 func TestRegisterController_UsesRegistryWhenAvailable(t *testing.T) {
 	t.Parallel()
 
@@ -1568,3 +1572,4 @@ func TestRegisterController_FallsBackToASTWhenNoRegistry(t *testing.T) {
 		t.Fatalf("ServeHTTP() status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }
+

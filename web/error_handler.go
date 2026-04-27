@@ -74,7 +74,7 @@ func tryGetGeneratedErrorHandlers(handlerName string) (map[string]handlesDirecti
 	return directives, true
 }
 
-func buildErrorHandlers(handler any) (map[string]errorHandlerInvoker, error) {
+func buildErrorHandlers(server HTTPServer, handler any) (map[string]errorHandlerInvoker, error) {
 	handlerValue, handlerType, err := validateErrorHandler(handler)
 	if err != nil {
 		return nil, err
@@ -82,7 +82,18 @@ func buildErrorHandlers(handler any) (map[string]errorHandlerInvoker, error) {
 
 	// First, try to get directives from the generated registry
 	directives, hasGenerated := tryGetGeneratedErrorHandlers(handlerType.Name())
+	
+	// Check if server enforces generated only mode
+	generatedOnly := false
+	if srv, ok := server.(interface{ IsGeneratedOnly() bool }); ok {
+		generatedOnly = srv.IsGeneratedOnly()
+	}
+
 	if !hasGenerated {
+		if generatedOnly {
+			return nil, fmt.Errorf("web: build error handler %s: generated registry empty and GeneratedOnly mode enabled", handlerType.Name())
+		}
+
 		// Fall back to AST parsing if no generated handlers are found
 		var err error
 		directives, err = errorHandlerDirectives(handlerValue.Type(), handlerType.Name())

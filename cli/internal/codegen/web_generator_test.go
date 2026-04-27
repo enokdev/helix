@@ -12,7 +12,7 @@ import (
 
 func TestWebGenerator_GenerateRoutesFile(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator(tempDir)
+	gen := NewWebGenerator()
 
 	routesByFile := map[string][]routeInfo{
 		"user_controller.go": {
@@ -51,17 +51,17 @@ func TestWebGenerator_GenerateRoutesFile(t *testing.T) {
 
 func TestWebGenerator_GenerateErrorHandlersFile(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator(tempDir)
+	gen := NewWebGenerator()
 
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {
 			{
-				Handler:     "AppErrorHandler",
+				Controller:  "AppErrorHandler",
 				MethodName:  "HandleValidationError",
 				ErrorType:   "ValidationError",
 			},
 			{
-				Handler:     "AppErrorHandler",
+				Controller:  "AppErrorHandler",
 				MethodName:  "HandleNotFound",
 				ErrorType:   "NotFoundError",
 			},
@@ -87,13 +87,16 @@ func TestWebGenerator_GenerateErrorHandlersFile(t *testing.T) {
 
 func TestWebGenerator_GenerateWithNoDirectives(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator(tempDir)
+	// Change to temp dir to avoid scanning actual project
+	oldWd, _ := os.Getwd()
+	os.Chdir(tempDir)
+	defer os.Chdir(oldWd)
+
+	gen := NewWebGenerator()
 
 	result, err := gen.Generate(context.Background())
 	assert.NoError(t, err)
-	assert.Equal(t, 0, result.FileCount)
-	assert.Empty(t, result.RoutesFile)
-	assert.Empty(t, result.ErrorHandlersFile)
+	assert.Equal(t, 0, len(result.Files))
 }
 
 func TestWebGenerator_ConvertScannerRoutes(t *testing.T) {
@@ -142,7 +145,7 @@ func TestWebGenerator_ConvertScannerHandlers(t *testing.T) {
 
 func TestWebGenerator_GeneratedRouteFileIsValid(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator(tempDir)
+	gen := NewWebGenerator()
 
 	routesByFile := map[string][]routeInfo{
 		"controller.go": {
@@ -173,12 +176,12 @@ func TestWebGenerator_GeneratedRouteFileIsValid(t *testing.T) {
 
 func TestWebGenerator_GeneratedHandlerFileIsValid(t *testing.T) {
 	tempDir := t.TempDir()
-	gen := NewWebGenerator(tempDir)
+	gen := NewWebGenerator()
 
 	handlersByFile := map[string][]handlerInfo{
 		"error_handler.go": {
 			{
-				Handler:     "ErrorHandler",
+				Controller:  "ErrorHandler",
 				MethodName:  "HandleError",
 				ErrorType:   "CustomError",
 			},

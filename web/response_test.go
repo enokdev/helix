@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -29,6 +30,7 @@ func (m *mockContext) SetHeader(_, _ string)         {}
 func (m *mockContext) Send(_ []byte) error           { return nil }
 func (m *mockContext) JSON(_ any) error              { return m.jsonErr }
 func (m *mockContext) Locals(_ string, _ ...any) any { return nil }
+func (m *mockContext) Context() context.Context       { return context.Background() }
 
 func TestWriteSuccessResponse_JSONError_IsLoggedWithWebNamespace(t *testing.T) {
 	orig := slog.Default()

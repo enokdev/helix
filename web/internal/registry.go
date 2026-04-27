@@ -8,18 +8,21 @@ import (
 
 // RouteInfo contains metadata about a generated route registration.
 type RouteInfo struct {
-	Method      string // HTTP method (GET, POST, etc.)
-	Path        string // URL path
-	Handler     interface{}
-	Controller  string // Name of the controller type
-	HandlerName string // Name of the handler method
+	Method       string   // HTTP method (GET, POST, etc.)
+	Path         string   // URL path
+	Handler      interface{}
+	Controller   string   // Name of the controller type
+	HandlerName  string   // Name of the handler method
+	Guards       []string // Names of guards to apply
+	Interceptors []string // Names of interceptors to apply
 }
 
 // ErrorHandlerInfo contains metadata about a generated error handler registration.
 type ErrorHandlerInfo struct {
 	ErrorType  string      // Name of the error type
-	Handler    interface{} // Handler function
+	Controller string      // Name of the handler/controller type
 	MethodName string      // Name of the handler method
+	Handler    interface{} // Handler function
 }
 
 // RouteRegistry stores generated route registrations.
@@ -31,7 +34,7 @@ type RouteRegistry struct {
 // ErrorHandlerRegistry stores generated error handler registrations.
 type ErrorHandlerRegistry struct {
 	mu       sync.RWMutex
-	handlers map[string]ErrorHandlerInfo // errorType → handler
+	handlers map[string][]ErrorHandlerInfo // controllerName → handlers
 }
 
 var (
@@ -42,7 +45,7 @@ var (
 
 	// globalErrorHandlerRegistry holds all generated error handlers.
 	globalErrorHandlerRegistry = &ErrorHandlerRegistry{
-		handlers: make(map[string]ErrorHandlerInfo),
+		handlers: make(map[string][]ErrorHandlerInfo),
 	}
 )
 
@@ -129,24 +132,19 @@ func (r *ErrorHandlerRegistry) RegisterGeneratedErrorHandlers(handlers ...ErrorH
 		if handler.ErrorType == "" {
 			return fmt.Errorf("web/internal: register generated error handler: empty error type")
 		}
+		if handler.Controller == "" {
+			return fmt.Errorf("web/internal: register generated error handler for %s: empty controller", handler.ErrorType)
+		}
 		if handler.Handler == nil {
 			return fmt.Errorf("web/internal: register generated error handler for %s: nil handler", handler.ErrorType)
 		}
 	}
 
 	for _, handler := range handlers {
-		r.handlers[handler.ErrorType] = handler
+		r.handlers[handler.Controller] = append(r.handlers[handler.Controller], handler)
 	}
 	slog.Debug("registered generated error handlers", "count", len(handlers))
 	return nil
-}
-
-// GetGeneratedErrorHandler retrieves an error handler from the registry.
-func (r *ErrorHandlerRegistry) GetGeneratedErrorHandler(errorType string) (ErrorHandlerInfo, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	handler, ok := r.handlers[errorType]
-	return handler, ok
 }
 
 // HasGeneratedErrorHandlers checks if any error handlers are registered.
@@ -157,19 +155,18 @@ func (r *ErrorHandlerRegistry) HasGeneratedErrorHandlers() bool {
 }
 
 // GetErrorHandlersForHandler retrieves all error handlers for a handler.
-// This returns a slice since a handler can have multiple methods.
 func (r *ErrorHandlerRegistry) GetErrorHandlersForHandler(handlerName string) ([]ErrorHandlerInfo, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	// For now, return all handlers (they're shared globally)
-	// This can be enhanced later if we need per-handler scoping
-	if len(r.handlers) == 0 {
+	
+	handlers, ok := r.handlers[handlerName]
+	if !ok || len(handlers) == 0 {
 		return nil, false
 	}
-	result := make([]ErrorHandlerInfo, 0, len(r.handlers))
-	for _, handler := range r.handlers {
-		result = append(result, handler)
-	}
+	
+	// Return a copy to prevent external mutation
+	result := make([]ErrorHandlerInfo, len(handlers))
+	copy(result, handlers)
 	return result, true
 }
 

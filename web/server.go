@@ -100,7 +100,7 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 
 	err = s.adapter.RegisterRoute(normalizedMethod, path, func(ctx fiberinternal.Context) error {
 		start := time.Now()
-		observed := &observingContext{Context: ctx}
+		observed := &observingContext{BaseContext: ctx}
 
 		// Run global guards before the handler.
 		for _, g := range s.globalGuards {
@@ -142,21 +142,42 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 // observingContext wraps a Context to intercept Status calls and record the
 // final status code set during handler execution.
 type observingContext struct {
-	fiberinternal.Context
-	statusCode int // 0 means no explicit Status call; interpret as 200
+	BaseContext fiberinternal.Context
+	statusCode  int // 0 means no explicit Status call; interpret as 200
 }
 
+func (o *observingContext) Method() string      { return o.BaseContext.Method() }
+func (o *observingContext) Path() string        { return o.BaseContext.Path() }
+func (o *observingContext) OriginalURL() string { return o.BaseContext.OriginalURL() }
+func (o *observingContext) Param(key string) string {
+	return o.BaseContext.Param(key)
+}
+func (o *observingContext) Query(key string) string {
+	return o.BaseContext.Query(key)
+}
+func (o *observingContext) Header(key string) string {
+	return o.BaseContext.Header(key)
+}
+func (o *observingContext) IP() string   { return o.BaseContext.IP() }
+func (o *observingContext) Body() []byte { return o.BaseContext.Body() }
 func (o *observingContext) Status(code int) {
 	o.statusCode = code
-	o.Context.Status(code)
+	o.BaseContext.Status(code)
 }
-
 func (o *observingContext) SetHeader(key, value string) {
-	o.Context.SetHeader(key, value)
+	o.BaseContext.SetHeader(key, value)
 }
-
 func (o *observingContext) Send(body []byte) error {
-	return o.Context.Send(body)
+	return o.BaseContext.Send(body)
+}
+func (o *observingContext) JSON(body any) error {
+	return o.BaseContext.JSON(body)
+}
+func (o *observingContext) Context() context.Context {
+	return o.BaseContext.Context()
+}
+func (o *observingContext) Locals(key string, value ...any) any {
+	return o.BaseContext.Locals(key, value...)
 }
 
 func (s *server) registerErrorHandler(handler any) error {

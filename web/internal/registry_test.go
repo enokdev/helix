@@ -123,46 +123,54 @@ func TestErrorHandlerRegistry_RegisterGeneratedErrorHandlers(t *testing.T) {
 			name: "register valid handlers",
 			setup: func(r *ErrorHandlerRegistry) {
 				handlers := []ErrorHandlerInfo{
-					{ErrorType: "UserNotFoundError", Handler: func() {}},
+					{ErrorType: "UserNotFoundError", Controller: "AppErrorHandler", Handler: func() {}},
 				}
 				err := r.RegisterGeneratedErrorHandlers(handlers...)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, r *ErrorHandlerRegistry) {
-				handler, ok := r.GetGeneratedErrorHandler("UserNotFoundError")
+				handlers, ok := r.GetErrorHandlersForHandler("AppErrorHandler")
 				assert.True(t, ok)
-				assert.NotNil(t, handler.Handler)
+				assert.Equal(t, 1, len(handlers))
+				assert.NotNil(t, handlers[0].Handler)
 			},
 		},
 		{
-			name: "multiple error handlers",
+			name: "multiple error handlers for same controller",
 			setup: func(r *ErrorHandlerRegistry) {
 				handlers := []ErrorHandlerInfo{
-					{ErrorType: "NotFoundError", Handler: func() {}},
-					{ErrorType: "ValidationError", Handler: func() {}},
+					{ErrorType: "NotFoundError", Controller: "AppErrorHandler", Handler: func() {}},
+					{ErrorType: "ValidationError", Controller: "AppErrorHandler", Handler: func() {}},
 				}
 				err := r.RegisterGeneratedErrorHandlers(handlers...)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, r *ErrorHandlerRegistry) {
-				_, ok1 := r.GetGeneratedErrorHandler("NotFoundError")
-				_, ok2 := r.GetGeneratedErrorHandler("ValidationError")
-				assert.True(t, ok1)
-				assert.True(t, ok2)
+				handlers, ok := r.GetErrorHandlersForHandler("AppErrorHandler")
+				assert.True(t, ok)
+				assert.Equal(t, 2, len(handlers))
 			},
 		},
 		{
 			name: "empty error type error",
 			setup: func(r *ErrorHandlerRegistry) {
-				err := r.RegisterGeneratedErrorHandlers(ErrorHandlerInfo{ErrorType: "", Handler: func() {}})
+				err := r.RegisterGeneratedErrorHandlers(ErrorHandlerInfo{ErrorType: "", Controller: "AppErrorHandler", Handler: func() {}})
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "empty error type")
 			},
 		},
 		{
+			name: "empty controller error",
+			setup: func(r *ErrorHandlerRegistry) {
+				err := r.RegisterGeneratedErrorHandlers(ErrorHandlerInfo{ErrorType: "NotFoundError", Controller: "", Handler: func() {}})
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "empty controller")
+			},
+		},
+		{
 			name: "nil handler error",
 			setup: func(r *ErrorHandlerRegistry) {
-				err := r.RegisterGeneratedErrorHandlers(ErrorHandlerInfo{ErrorType: "NotFoundError", Handler: nil})
+				err := r.RegisterGeneratedErrorHandlers(ErrorHandlerInfo{ErrorType: "NotFoundError", Controller: "AppErrorHandler", Handler: nil})
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "nil handler")
 			},
@@ -172,7 +180,7 @@ func TestErrorHandlerRegistry_RegisterGeneratedErrorHandlers(t *testing.T) {
 			setup: func(r *ErrorHandlerRegistry) {
 				assert.False(t, r.HasGeneratedErrorHandlers())
 				handlers := []ErrorHandlerInfo{
-					{ErrorType: "NotFoundError", Handler: func() {}},
+					{ErrorType: "NotFoundError", Controller: "AppErrorHandler", Handler: func() {}},
 				}
 				_ = r.RegisterGeneratedErrorHandlers(handlers...)
 				assert.True(t, r.HasGeneratedErrorHandlers())
@@ -192,7 +200,7 @@ func TestErrorHandlerRegistry_RegisterGeneratedErrorHandlers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			registry := &ErrorHandlerRegistry{handlers: make(map[string]ErrorHandlerInfo)}
+			registry := &ErrorHandlerRegistry{handlers: make(map[string][]ErrorHandlerInfo)}
 			tt.setup(registry)
 			if tt.verify != nil {
 				tt.verify(t, registry)

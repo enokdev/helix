@@ -44,6 +44,10 @@ func (f *fakeHTTPServer) RegisterRoute(string, string, helixweb.HandlerFunc) err
 	return nil
 }
 
+func (f *fakeHTTPServer) IsGeneratedOnly() bool {
+	return false
+}
+
 func (f *fakeHTTPServer) ServeHTTP(*http.Request) (*http.Response, error) {
 	return nil, nil
 }
