@@ -110,9 +110,10 @@ func TestReflectResolver_Register(t *testing.T) {
 	type nonStruct int
 
 	tests := []struct {
-		name      string
-		component any
-		wantErr   error
+		name            string
+		component       any
+		wantErr         error
+		wantErrContains []string
 	}{
 		{
 			name:      "nil component",
@@ -140,13 +141,17 @@ func TestReflectResolver_Register(t *testing.T) {
 			wantErr:   nil,
 		},
 		{
-			name: "valid component registration metadata",
+			name: "prototype registration cannot be lazy",
 			component: ComponentRegistration{
 				Component: &testDependency{Name: "registered"},
 				Scope:     ScopePrototype,
 				Lazy:      true,
 			},
-			wantErr: nil,
+			wantErr: ErrUnresolvable,
+			wantErrContains: []string{
+				"ScopePrototype",
+				"Lazy",
+			},
 		},
 		{
 			name: "component registration with invalid scope",
@@ -164,6 +169,11 @@ func TestReflectResolver_Register(t *testing.T) {
 			err := resolver.Register(tt.component)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Register() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			for _, want := range tt.wantErrContains {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("Register() error = %v, want substring %q", err, want)
+				}
 			}
 
 			if tt.wantErr != nil {

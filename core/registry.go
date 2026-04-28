@@ -1,6 +1,9 @@
 package core
 
-import "reflect"
+import (
+	"fmt"
+	"reflect"
+)
 
 // Scope defines the instantiation strategy for a registered component.
 type Scope string
@@ -49,6 +52,9 @@ func normalizeComponentRegistration(input any) (ComponentRegistration, reflect.T
 
 	if !registration.Scope.isValid() {
 		return ComponentRegistration{}, nil, ErrUnresolvable
+	}
+	if registration.Scope == ScopePrototype && registration.Lazy {
+		return ComponentRegistration{}, nil, fmt.Errorf("ScopePrototype cannot be combined with Lazy: %w", ErrUnresolvable)
 	}
 
 	return registration, componentValue.Type(), nil

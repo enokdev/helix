@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 )
@@ -30,6 +31,16 @@ func TestContainer_Register(t *testing.T) {
 			resolver:  &stubResolver{},
 			component: &struct{}{},
 			wantErr:   nil,
+		},
+		{
+			name:     "prototype lazy registration returns ErrUnresolvable",
+			resolver: NewReflectResolver(),
+			component: ComponentRegistration{
+				Component: &testDependency{},
+				Scope:     ScopePrototype,
+				Lazy:      true,
+			},
+			wantErr: ErrUnresolvable,
 		},
 	}
 	for _, tt := range tests {
@@ -109,6 +120,54 @@ func TestNewContainer(t *testing.T) {
 	})
 }
 
+func TestContainer_Graph(t *testing.T) {
+	t.Run("nil resolver returns writable empty graph", func(t *testing.T) {
+		container := NewContainer()
+
+		graph := container.Graph()
+		if graph.Edges == nil {
+			t.Fatal("Graph().Edges should be initialized")
+		}
+
+		graph.Edges["caller-owned"] = nil
+	})
+
+	t.Run("delegates to resolver with defensive copy", func(t *testing.T) {
+		container := NewContainer(WithResolver(NewReflectResolver()))
+		dependency := &testDependency{Name: "graph"}
+		service := &testService{}
+		if err := container.Register(dependency); err != nil {
+			t.Fatalf("Register(dependency) error = %v", err)
+		}
+		if err := container.Register(service); err != nil {
+			t.Fatalf("Register(service) error = %v", err)
+		}
+
+		var resolved *testService
+		if err := container.Resolve(&resolved); err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+
+		graph := container.Graph()
+		serviceType := reflect.TypeOf(service).String()
+		dependencyType := reflect.TypeOf(dependency).String()
+		if !reflect.DeepEqual(graph.Edges[serviceType], []string{dependencyType}) {
+			t.Fatalf("Graph().Edges[%q] = %v, want [%s]", serviceType, graph.Edges[serviceType], dependencyType)
+		}
+
+		graph.Nodes = append(graph.Nodes, "mutated")
+		graph.Edges[serviceType] = append(graph.Edges[serviceType], "mutated")
+
+		freshGraph := container.Graph()
+		if reflect.DeepEqual(freshGraph.Nodes, graph.Nodes) {
+			t.Fatal("Graph() should return a defensive copy of nodes")
+		}
+		if reflect.DeepEqual(freshGraph.Edges[serviceType], graph.Edges[serviceType]) {
+			t.Fatal("Graph() should return a defensive copy of edges")
+		}
+	})
+}
+
 func TestContainerConcurrentResolveUsesRegisteredGraph(t *testing.T) {
 	t.Parallel()
 
@@ -166,7 +225,7 @@ func TestContainerConcurrentRegisterResolveAndGraphDoesNotRace(t *testing.T) {
 			for j := 0; j < 50; j++ {
 				var service *testService
 				_ = container.Resolve(&service)
-				_ = resolver.Graph()
+				_ = container.Graph()
 			}
 		}()
 	}

@@ -51,6 +51,21 @@ func (c *Container) Resolve(target any) error {
 	return c.resolver.Resolve(target)
 }
 
+// Graph returns a defensive copy of the dependency graph.
+// If no resolver is configured, it returns an empty graph with initialized fields.
+func (c *Container) Graph() DependencyGraph {
+	c.resolverMu.RLock()
+	defer c.resolverMu.RUnlock()
+
+	if c.resolver == nil {
+		return DependencyGraph{
+			Nodes: make([]string, 0),
+			Edges: make(map[string][]string),
+		}
+	}
+	return c.resolver.Graph()
+}
+
 // NewContainer creates a new Container and applies the provided options.
 // Without WithResolver, Register and Resolve will return ErrUnresolvable.
 func NewContainer(opts ...Option) *Container {
