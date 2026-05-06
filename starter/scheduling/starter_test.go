@@ -48,7 +48,7 @@ func (s *recordingScheduler) OnStart() error {
 	return nil
 }
 
-func (s *recordingScheduler) OnStop() error {
+func (s *recordingScheduler) OnStop(_ context.Context) error {
 	return nil
 }
 
@@ -203,7 +203,7 @@ func TestConfigureRegistersLifecycle(t *testing.T) {
 		if err := lifecycle.OnStart(); err != nil {
 			t.Fatalf("OnStart() error = %v, want nil", err)
 		}
-		if err := lifecycle.OnStop(); err != nil {
+		if err := lifecycle.OnStop(context.Background()); err != nil {
 			t.Fatalf("OnStop() error = %v, want nil", err)
 		}
 	}

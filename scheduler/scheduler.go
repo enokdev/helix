@@ -19,7 +19,8 @@ type Scheduler interface {
 	// OnStart implements core.Lifecycle — starts the scheduler on application start.
 	OnStart() error
 	// OnStop implements core.Lifecycle — stops the scheduler on application shutdown.
-	OnStop() error
+	// Calling Stop(ctx) before OnStop(ctx) is safe: robfig/cron.Stop() is idempotent.
+	OnStop(ctx context.Context) error
 }
 
 // Compile-time assertions
@@ -51,8 +52,8 @@ func (w *adapterWrapper) OnStart() error {
 	return w.inner.OnStart()
 }
 
-func (w *adapterWrapper) OnStop() error {
-	return w.inner.OnStop()
+func (w *adapterWrapper) OnStop(ctx context.Context) error {
+	return w.inner.OnStop(ctx)
 }
 
 var (

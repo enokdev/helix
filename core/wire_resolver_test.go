@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -20,7 +21,7 @@ func (l *wireResolverLifecycle) OnStart() error {
 	return nil
 }
 
-func (l *wireResolverLifecycle) OnStop() error {
+func (l *wireResolverLifecycle) OnStop(_ context.Context) error {
 	l.started = false
 	return nil
 }

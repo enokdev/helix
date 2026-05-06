@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -163,6 +164,6 @@ func (r *scheduledJobRegistrar) doStart() error {
 	return nil
 }
 
-func (r *scheduledJobRegistrar) OnStop() error {
+func (r *scheduledJobRegistrar) OnStop(_ context.Context) error {
 	return nil
 }

@@ -127,15 +127,15 @@ func (l *serverLifecycle) OnStart() error {
 	return nil
 }
 
-func (l *serverLifecycle) OnStop() error {
+func (l *serverLifecycle) OnStop(ctx context.Context) error {
 	timeout := l.shutdownTimeout
 	if timeout <= 0 {
 		timeout = defaultShutdownTimeout
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	stopCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	if err := l.server.Stop(ctx); err != nil {
+	if err := l.server.Stop(stopCtx); err != nil {
 		return fmt.Errorf("web starter: stop: %w", err)
 	}
 	return nil

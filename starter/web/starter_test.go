@@ -309,7 +309,7 @@ func TestServerLifecycleStartStop(t *testing.T) {
 		t.Fatalf("start addr = %q, want %q", server.startAddr, ":9090")
 	}
 
-	if err := lifecycle.OnStop(); err != nil {
+	if err := lifecycle.OnStop(context.Background()); err != nil {
 		t.Fatalf("OnStop() error = %v", err)
 	}
 	if server.stopCtx == nil {
@@ -344,7 +344,7 @@ func TestServerLifecycle_ShutdownTimeout(t *testing.T) {
 				shutdownTimeout: tt.shutdownTimeout,
 			}
 
-			if err := lifecycle.OnStop(); err != nil {
+			if err := lifecycle.OnStop(context.Background()); err != nil {
 				t.Fatalf("OnStop() error = %v", err)
 			}
 			if server.stopCtx == nil {

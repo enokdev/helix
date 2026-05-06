@@ -1,6 +1,7 @@
 package helix
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -657,7 +658,7 @@ func (s *runLifecycleService) OnStart() error {
 	return nil
 }
 
-func (s *runLifecycleService) OnStop() error {
+func (s *runLifecycleService) OnStop(_ context.Context) error {
 	s.stopped <- "stop"
 	return nil
 }
@@ -671,7 +672,7 @@ func (s *failingRunLifecycleService) OnStart() error {
 	return s.startErr
 }
 
-func (s *failingRunLifecycleService) OnStop() error {
+func (s *failingRunLifecycleService) OnStop(_ context.Context) error {
 	return nil
 }
 
@@ -685,7 +686,7 @@ func (c *lazyRunLifecycleComponent) OnStart() error {
 	return nil
 }
 
-func (c *lazyRunLifecycleComponent) OnStop() error {
+func (c *lazyRunLifecycleComponent) OnStop(_ context.Context) error {
 	c.events <- "stop"
 	return nil
 }
@@ -696,7 +697,7 @@ type shutdownVerifyService struct {
 }
 
 func (s *shutdownVerifyService) OnStart() error { return nil }
-func (s *shutdownVerifyService) OnStop() error {
+func (s *shutdownVerifyService) OnStop(_ context.Context) error {
 	if s.onStop != nil {
 		s.onStop()
 	}

@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -78,7 +79,9 @@ func TestLifecycleStartStop(t *testing.T) {
 		t.Fatalf("OnStart() failed: %v", err)
 	}
 
-	if err := s.OnStop(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop() failed: %v", err)
 	}
 }
@@ -109,7 +112,9 @@ func TestGracefulShutdown(t *testing.T) {
 	// wait for at least one execution (1s interval + buffer)
 	time.Sleep(1200 * time.Millisecond)
 
-	if err := s.OnStop(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop() failed: %v", err)
 	}
 
@@ -139,11 +144,34 @@ func TestJobExecutes(t *testing.T) {
 
 	time.Sleep(1200 * time.Millisecond)
 
-	if err := s.OnStop(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop() failed: %v", err)
 	}
 
 	if atomic.LoadInt32(&counter) == 0 {
 		t.Error("job never executed")
+	}
+}
+
+// TestSchedulerDoubleStopIsIdempotent verifies AC3: calling Stop(ctx) then
+// OnStop(ctx) in sequence produces no error or panic. robfig/cron.Stop() is
+// idempotent and returns an already-done context on the second call.
+func TestSchedulerDoubleStopIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	s := NewScheduler()
+	if err := s.OnStart(); err != nil {
+		t.Fatalf("OnStart() failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.Stop(ctx)
+
+	if err := s.OnStop(ctx); err != nil {
+		t.Fatalf("OnStop() after Stop() returned unexpected error: %v", err)
 	}
 }

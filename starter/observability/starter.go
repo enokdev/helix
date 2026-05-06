@@ -150,12 +150,10 @@ func (l *observabilityLifecycle) OnStart() error {
 	return l.startErr
 }
 
-func (l *observabilityLifecycle) OnStop() error {
+func (l *observabilityLifecycle) OnStop(ctx context.Context) error {
 	if l.shutdown == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	if err := l.shutdown(ctx); err != nil {
 		return fmt.Errorf("observability starter: shutdown: %w", err)
 	}

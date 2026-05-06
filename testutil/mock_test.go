@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -26,7 +27,7 @@ func (r *realMockBeanRepository) OnStart() error {
 	return nil
 }
 
-func (r *realMockBeanRepository) OnStop() error {
+func (r *realMockBeanRepository) OnStop(_ context.Context) error {
 	return nil
 }
 
@@ -46,7 +47,7 @@ func (m *mockMockBeanRepository) OnStart() error {
 	return nil
 }
 
-func (m *mockMockBeanRepository) OnStop() error {
+func (m *mockMockBeanRepository) OnStop(_ context.Context) error {
 	return nil
 }
 

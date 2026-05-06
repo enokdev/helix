@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"errors"
 	"go/build"
 	"os"
@@ -319,7 +320,7 @@ func TestLifecycleOnStartWithError(t *testing.T) {
 
 func TestLifecycleOnStopNilDB(t *testing.T) {
 	lc := &databaseLifecycle{}
-	if err := lc.OnStop(); err != nil {
+	if err := lc.OnStop(context.Background()); err != nil {
 		t.Fatalf("OnStop() with nil db error = %v", err)
 	}
 }

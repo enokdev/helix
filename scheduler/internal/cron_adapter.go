@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/robfig/cron/v3"
 )
@@ -52,10 +51,9 @@ func (a *CronAdapter) OnStart() error {
 }
 
 // OnStop implements core.Lifecycle — stops the scheduler on application shutdown.
-// Returns an error if jobs do not complete within 30 seconds.
-func (a *CronAdapter) OnStop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+// Calling Stop(ctx) before OnStop(ctx) is safe: robfig/cron.Stop() is idempotent
+// and returns an already-done context when called a second time.
+func (a *CronAdapter) OnStop(ctx context.Context) error {
 	stopCtx := a.cron.Stop()
 	select {
 	case <-stopCtx.Done():

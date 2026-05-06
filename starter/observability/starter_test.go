@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/enokdev/helix/core"
 	helixweb "github.com/enokdev/helix/web"
@@ -218,15 +219,13 @@ func TestLifecycleOnStopCallsShutdown(t *testing.T) {
 	lc := &observabilityLifecycle{
 		shutdown: func(ctx context.Context) error {
 			called = true
-			// Verify a deadline is set (timeout context from OnStop).
-			if _, ok := ctx.Deadline(); !ok {
-				t.Error("OnStop() passed context.Background() without deadline, want timeout context")
-			}
 			return nil
 		},
 	}
 
-	if err := lc.OnStop(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := lc.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop() error = %v, want nil", err)
 	}
 	if !called {
@@ -236,7 +235,7 @@ func TestLifecycleOnStopCallsShutdown(t *testing.T) {
 
 func TestLifecycleOnStopNilShutdownIsNoop(t *testing.T) {
 	lc := &observabilityLifecycle{}
-	if err := lc.OnStop(); err != nil {
+	if err := lc.OnStop(context.Background()); err != nil {
 		t.Fatalf("OnStop() error = %v, want nil", err)
 	}
 }
@@ -247,7 +246,7 @@ func TestLifecycleOnStopWrapsShutdownError(t *testing.T) {
 		shutdown: func(_ context.Context) error { return sentinel },
 	}
 
-	err := lc.OnStop()
+	err := lc.OnStop(context.Background())
 	if err == nil {
 		t.Fatal("OnStop() = nil, want error")
 	}

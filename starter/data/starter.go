@@ -161,7 +161,7 @@ func (l *databaseLifecycle) OnStart() error {
 	return nil
 }
 
-func (l *databaseLifecycle) OnStop() error {
+func (l *databaseLifecycle) OnStop(_ context.Context) error {
 	if l.db == nil {
 		return nil
 	}

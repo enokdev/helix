@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -202,7 +203,7 @@ func (c *lifecycleDependency) OnStart() error {
 	return nil
 }
 
-func (c *lifecycleDependency) OnStop() error {
+func (c *lifecycleDependency) OnStop(_ context.Context) error {
 	c.recorder.add("dependency:stop")
 	return nil
 }
@@ -218,7 +219,7 @@ func (c *lifecycleService) OnStart() error {
 	return nil
 }
 
-func (c *lifecycleService) OnStop() error {
+func (c *lifecycleService) OnStop(_ context.Context) error {
 	c.recorder.add("service:stop")
 	return c.stopErr
 }
@@ -234,7 +235,7 @@ func (c *failingLifecycleService) OnStart() error {
 	return c.startErr
 }
 
-func (c *failingLifecycleService) OnStop() error {
+func (c *failingLifecycleService) OnStop(_ context.Context) error {
 	c.recorder.add("failing:stop")
 	return nil
 }
@@ -248,7 +249,7 @@ func (c *lazyLifecycleComponent) OnStart() error {
 	return nil
 }
 
-func (c *lazyLifecycleComponent) OnStop() error {
+func (c *lazyLifecycleComponent) OnStop(_ context.Context) error {
 	c.recorder.add("lazy:stop")
 	return nil
 }
@@ -264,9 +265,12 @@ func (c *blockingLifecycleService) OnStart() error {
 	return nil
 }
 
-func (c *blockingLifecycleService) OnStop() error {
+func (c *blockingLifecycleService) OnStop(ctx context.Context) error {
 	c.recorder.add("blocking:stop")
-	<-c.stopBlock
+	select {
+	case <-c.stopBlock:
+	case <-ctx.Done():
+	}
 	return nil
 }
 
@@ -307,4 +311,64 @@ func equalStringSlices(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+// TestContainerShutdownContextCancelsOnStop verifies AC1: when a component's OnStop
+// exceeds the shutdown budget, the context passed to OnStop is cancelled, allowing
+// well-behaved implementations to detect the signal via ctx.Done().
+func TestContainerShutdownContextCancelsOnStop(t *testing.T) {
+	t.Parallel()
+
+	ctxCancelled := make(chan struct{})
+	stopBlock := make(chan struct{})
+
+	lc := &ctxCancelProbeLifecycle{
+		block:       stopBlock,
+		ctxDoneSeen: ctxCancelled,
+	}
+
+	resolver := NewReflectResolver()
+	if err := resolver.Register(lc); err != nil {
+		t.Fatalf("Register error = %v", err)
+	}
+
+	container := NewContainer(
+		WithResolver(resolver),
+		WithLogger(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))),
+		WithShutdownTimeout(20*time.Millisecond),
+	)
+
+	if err := container.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Shutdown will timeout after 20ms; the goroutine inside OnStop should
+	// observe ctx.Done() and signal ctxCancelled.
+	if err := container.Shutdown(); !errors.Is(err, ErrShutdownTimeout) {
+		t.Fatalf("Shutdown() error = %v, want %v", err, ErrShutdownTimeout)
+	}
+
+	select {
+	case <-ctxCancelled:
+		// ctx.Done() was observed — goroutine received cancellation signal
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("OnStop goroutine did not observe ctx.Done() after timeout")
+	}
+
+	close(stopBlock) // let goroutine exit cleanly
+}
+
+type ctxCancelProbeLifecycle struct {
+	block       <-chan struct{}
+	ctxDoneSeen chan<- struct{}
+}
+
+func (l *ctxCancelProbeLifecycle) OnStart() error { return nil }
+func (l *ctxCancelProbeLifecycle) OnStop(ctx context.Context) error {
+	select {
+	case <-l.block:
+	case <-ctx.Done():
+		close(l.ctxDoneSeen)
+	}
+	return nil
 }

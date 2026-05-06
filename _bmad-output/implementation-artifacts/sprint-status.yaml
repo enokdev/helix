@@ -193,7 +193,7 @@ development_status:
   14-5-starters-erreurs-idempotence: done
   14-6-repository-pagination-findall-bornee: done
   14-7-cli-migrations-concurrence-annulation: done
-  14-8-lifecycle-goroutine-leaks-onstop: backlog
+  14-8-lifecycle-goroutine-leaks-onstop: review
   14-9-mockbean-testapp-edge-cases: backlog
   14-10-guards-context-nettoyage-sentinelles: backlog
   epic-14-retrospective: optional
