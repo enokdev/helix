@@ -217,7 +217,7 @@ func TestConfigureWithServerRegistersLifecycle(t *testing.T) {
 func TestLifecycleOnStopCallsShutdown(t *testing.T) {
 	called := false
 	lc := &observabilityLifecycle{
-		shutdown: func(ctx context.Context) error {
+		shutdown: func(_ context.Context) error {
 			called = true
 			return nil
 		},
