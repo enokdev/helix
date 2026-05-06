@@ -358,6 +358,30 @@ func TestServerLifecycle_ShutdownTimeout(t *testing.T) {
 	}
 }
 
+func TestServerLifecycleOnStopPropagatesParentContextCancellation(t *testing.T) {
+	server := &fakeHTTPServer{}
+	lifecycle := &serverLifecycle{
+		server:          server,
+		shutdownTimeout: 10 * time.Second,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := lifecycle.OnStop(ctx); err != nil {
+		t.Fatalf("OnStop() error = %v", err)
+	}
+	if server.stopCtx == nil {
+		t.Fatal("OnStop() did not pass a context to server.Stop")
+	}
+
+	select {
+	case <-server.stopCtx.Done():
+	default:
+		t.Fatal("server.Stop context was not cancelled with parent context")
+	}
+}
+
 func TestWebStarter_IntegratedLifecycle(t *testing.T) {
 	container := newTestContainer()
 	fakeServer := &fakeHTTPServer{}

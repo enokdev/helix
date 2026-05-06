@@ -132,7 +132,7 @@ func (l *serverLifecycle) OnStop(ctx context.Context) error {
 	if timeout <= 0 {
 		timeout = defaultShutdownTimeout
 	}
-	stopCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	stopCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	if err := l.server.Stop(stopCtx); err != nil {

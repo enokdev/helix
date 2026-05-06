@@ -313,9 +313,9 @@ func equalStringSlices(got, want []string) bool {
 	return true
 }
 
-// TestContainerShutdownContextCancelsOnStop verifies AC1: when a component's OnStop
-// exceeds the shutdown budget, the context passed to OnStop is cancelled, allowing
-// well-behaved implementations to detect the signal via ctx.Done().
+// TestContainerShutdownContextCancelsOnStop verifies that when a component's
+// OnStop exceeds the shutdown budget, the context passed to OnStop is cancelled,
+// allowing well-behaved implementations to detect the signal via ctx.Done().
 func TestContainerShutdownContextCancelsOnStop(t *testing.T) {
 	t.Parallel()
 
