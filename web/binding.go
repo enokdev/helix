@@ -183,7 +183,6 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 	return nil
 }
 
-
 func newBindingPlan(target reflect.Type) (*bindingPlan, error) {
 	if target.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("web: adapt handler: %w", ErrUnsupportedHandler)
