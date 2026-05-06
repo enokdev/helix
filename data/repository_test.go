@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -95,6 +96,23 @@ func TestPageCarriesPaginationMetadata(t *testing.T) {
 	}
 	if page.PageSize != 20 {
 		t.Fatalf("expected page size 20, got %d", page.PageSize)
+	}
+}
+
+func TestErrInvalidPaginationIsPublicSentinel(t *testing.T) {
+	if ErrInvalidPagination == nil {
+		t.Fatal("ErrInvalidPagination must be a non-nil sentinel")
+	}
+
+	wrapped := fmt.Errorf("data/gorm: paginate: %w", ErrInvalidPagination)
+	if !errors.Is(wrapped, ErrInvalidPagination) {
+		t.Fatalf("errors.Is on wrapped sentinel failed: %v", wrapped)
+	}
+
+	for _, other := range []error{ErrRecordNotFound, ErrDuplicateKey, ErrInvalidFilter, ErrInvalidCondition} {
+		if errors.Is(ErrInvalidPagination, other) {
+			t.Fatalf("ErrInvalidPagination must be distinct from %v", other)
+		}
 	}
 }
 

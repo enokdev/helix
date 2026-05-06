@@ -105,7 +105,7 @@ func (c Condition) Validate() error {
 	}
 	rv := reflect.ValueOf(c.Value)
 	switch rv.Kind() {
-	case reflect.Ptr, reflect.Chan, reflect.Interface, reflect.Map, reflect.Slice:
+	case reflect.Pointer, reflect.Chan, reflect.Interface, reflect.Map, reflect.Slice:
 		if rv.IsNil() {
 			return fmt.Errorf("data: validate filter condition %s value: %w", c.Field, ErrInvalidFilter)
 		}
