@@ -26,6 +26,9 @@ const (
 	migrationDir    = "db/migrations"
 	migrationDSNEnv = "HELIX_MIGRATION_DSN"
 	timestampForm   = "20060102150405"
+
+	migrationLockName          = "up"
+	migrationLockRetryInterval = 25 * time.Millisecond
 )
 
 var (
@@ -77,6 +80,26 @@ type migrationTemplateData struct {
 	Name    string
 }
 
+type migrationCancelError struct {
+	cause   error
+	applied []migration
+}
+
+func (e *migrationCancelError) Error() string {
+	if len(e.applied) == 0 {
+		return fmt.Sprintf("migrate: up canceled after applying no migrations: %v", e.cause)
+	}
+	parts := make([]string, 0, len(e.applied))
+	for _, m := range e.applied {
+		parts = append(parts, m.Version+"_"+m.Name)
+	}
+	return fmt.Sprintf("migrate: up canceled after applying %s: %v", strings.Join(parts, ", "), e.cause)
+}
+
+func (e *migrationCancelError) Unwrap() error {
+	return e.cause
+}
+
 // Create creates a timestamped Go migration file under db/migrations.
 func Create(ctx context.Context, opts CreateOptions) error {
 	if err := checkContext(ctx); err != nil {
@@ -118,29 +141,47 @@ func Up(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("migrate: up: %w", err)
 	}
+	defer db.Close()
 
 	migrations, err := discover(root)
 	if err != nil {
-		_ = db.Close()
 		return fmt.Errorf("migrate: up: %w", err)
 	}
+	releaseLock, err := acquireMigrationLock(ctx, db)
+	if err != nil {
+		return fmt.Errorf("migrate: up: %w", err)
+	}
+	defer releaseLock()
+
+	// The db connection remains open throughout subprocess execution.
+	// acquireMigrationLock auto-commits, leaving the connection idle (no active
+	// transaction) while subprocesses run, so there is no write-lock contention.
 	applied, err := appliedMigrations(ctx, db)
 	if err != nil {
-		_ = db.Close()
 		return fmt.Errorf("migrate: up: %w", err)
 	}
-	_ = db.Close() // close journal before spawning subprocess
 
 	pending := 0
+	appliedThisRun := make([]migration, 0)
 	for _, m := range migrations {
 		if _, ok := applied[m.Version]; ok {
 			continue
 		}
+		if err := checkContext(ctx); err != nil {
+			return &migrationCancelError{cause: err, applied: appliedThisRun}
+		}
 		pending++
 		if err := runMigration(ctx, root, target, "up", m); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return &migrationCancelError{cause: ctxErr, applied: appliedThisRun}
+			}
 			return fmt.Errorf("migrate: up %s: %w", m.Version, err)
 		}
+		appliedThisRun = append(appliedThisRun, m)
 		fmt.Fprintf(output(opts.Output), "applied %s %s\n", m.Version, m.Name)
+		if err := checkContext(ctx); err != nil {
+			return &migrationCancelError{cause: err, applied: appliedThisRun}
+		}
 	}
 	if pending == 0 {
 		fmt.Fprintln(output(opts.Output), "no pending migrations")
@@ -347,6 +388,58 @@ func ensureJournal(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func ensureLockTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS helix_migration_locks (
+	name TEXT PRIMARY KEY,
+	acquired_at TIMESTAMP NOT NULL
+)`)
+	if err != nil {
+		return fmt.Errorf("create helix_migration_locks: %w", err)
+	}
+	return nil
+}
+
+func acquireMigrationLock(ctx context.Context, db *sql.DB) (func(), error) {
+	if err := ensureLockTable(ctx, db); err != nil {
+		return nil, err
+	}
+	ticker := time.NewTicker(migrationLockRetryInterval)
+	defer ticker.Stop()
+
+	for {
+		_, err := db.ExecContext(ctx, "INSERT INTO helix_migration_locks (name, acquired_at) VALUES (?, CURRENT_TIMESTAMP)", migrationLockName)
+		if err == nil {
+			released := false
+			return func() {
+				if released {
+					return
+				}
+				released = true
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_, _ = db.ExecContext(releaseCtx, "DELETE FROM helix_migration_locks WHERE name = ?", migrationLockName)
+			}, nil
+		}
+		if !isLockConflict(err) {
+			return nil, fmt.Errorf("acquire migration lock: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func isLockConflict(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unique constraint") ||
+		strings.Contains(message, "constraint failed") ||
+		strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "database table is locked")
+}
+
 func appliedMigrations(ctx context.Context, db *sql.DB) (map[string]string, error) {
 	rows, err := db.QueryContext(ctx, "SELECT version, name FROM helix_migrations ORDER BY version")
 	if err != nil {
@@ -428,6 +521,9 @@ func migrationByVersion(migrations []migration, version string) (migration, bool
 }
 
 func runMigration(ctx context.Context, root string, target databaseTarget, action string, m migration) error {
+	if target.Driver == "sqlite3" && cgoDisabled() {
+		return fmt.Errorf("go-sqlite3 requires CGo for SQLite migrations: set CGO_ENABLED=1 and ensure a C compiler is available")
+	}
 	tempDir, err := os.MkdirTemp("", "helix-migration-*")
 	if err != nil {
 		return fmt.Errorf("create temp runner: %w", err)
@@ -454,9 +550,17 @@ func runMigration(ctx context.Context, root string, target databaseTarget, actio
 	cmd.Env = append(filterEnv("GOFLAGS", "GOWORK", migrationDSNEnv), "GOWORK=off", "GOFLAGS=-mod=mod", migrationDSNEnv+"="+target.DSN)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("run migration %s from %s: %w\n%s", action, filepath.ToSlash(m.Path), ctxErr, strings.TrimSpace(string(output)))
+		}
 		return fmt.Errorf("run migration %s from %s: %w\n%s", action, filepath.ToSlash(m.Path), err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func cgoDisabled() bool {
+	value, ok := os.LookupEnv("CGO_ENABLED")
+	return ok && strings.TrimSpace(value) == "0"
 }
 
 func runnerGoMod(sqlite3Version string) string {
