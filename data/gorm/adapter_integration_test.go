@@ -203,11 +203,22 @@ func TestRepositoryFindWhereTranslatesPortableFilters(t *testing.T) {
 		})
 	}
 
-	unsafeFilter := mustFilter(t, data.LogicalAnd,
-		data.Condition{Field: "Name; DROP TABLE integration_users", Operator: data.OperatorEqual, Value: "Ada"},
-	)
-	if _, err := repo.FindWhere(ctx, unsafeFilter); !errors.Is(err, data.ErrInvalidFilter) {
-		t.Fatalf("unsafe field error = %v, want ErrInvalidFilter", err)
+	unsafeFilter := data.Filter{
+		Logic: data.LogicalAnd,
+		Conditions: []data.Condition{
+			{Field: "Name; DROP TABLE integration_users", Operator: data.OperatorEqual, Value: "Ada"},
+		},
+	}
+	if _, err := repo.FindWhere(ctx, unsafeFilter); !errors.Is(err, data.ErrInvalidCondition) {
+		t.Fatalf("unsafe field error = %v, want ErrInvalidCondition", err)
+	} else if !errors.Is(err, data.ErrInvalidFilter) {
+		t.Fatalf("unsafe field error = %v, want ErrInvalidFilter compatibility", err)
+	}
+
+	if _, err := datagorm.ColumnFor[integrationUser](db, "Name; DROP TABLE integration_users"); !errors.Is(err, data.ErrInvalidCondition) {
+		t.Fatalf("unsafe ColumnFor field error = %v, want ErrInvalidCondition", err)
+	} else if !errors.Is(err, data.ErrInvalidFilter) {
+		t.Fatalf("unsafe ColumnFor field error = %v, want ErrInvalidFilter compatibility", err)
 	}
 }
 

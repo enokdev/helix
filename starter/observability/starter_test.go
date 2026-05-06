@@ -159,6 +159,37 @@ func TestConfigureWithoutServerRegistersFailingLifecycle(t *testing.T) {
 	}
 }
 
+func TestConfigure_PropagatesLifecycleRegisterError(t *testing.T) {
+	container := core.NewContainer()
+
+	err := New(nil).Configure(container)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want register error")
+	}
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Configure() error = %v, want ErrUnresolvable", err)
+	}
+}
+
+func TestConfigure_IdempotentDoesNotReplaceLifecycle(t *testing.T) {
+	container := containerWithServer()
+	starter := New(nil)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("first Configure() error = %v", err)
+	}
+	first := singleLifecycle(t, container)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("second Configure() error = %v", err)
+	}
+	second := singleLifecycle(t, container)
+
+	if first != second {
+		t.Fatalf("second Configure() replaced lifecycle: first=%p second=%p", first, second)
+	}
+}
+
 // ─── Configure with server ───────────────────────────────────────────────────
 
 func TestConfigureWithServerRegistersLifecycle(t *testing.T) {
@@ -233,4 +264,17 @@ func TestLifecycleOnStartReturnsStartErr(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("OnStart() error = %v, want %v", err, sentinel)
 	}
+}
+
+func singleLifecycle(t *testing.T, container *core.Container) core.Lifecycle {
+	t.Helper()
+
+	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
+	if err != nil {
+		t.Fatalf("ResolveAll error = %v", err)
+	}
+	if len(lifecycles) != 1 {
+		t.Fatalf("lifecycle count = %d, want 1", len(lifecycles))
+	}
+	return lifecycles[0]
 }

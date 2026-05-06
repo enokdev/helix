@@ -9,4 +9,6 @@ var (
 	ErrDuplicateKey = errors.New("data: duplicate key")
 	// ErrInvalidFilter is returned when a filter cannot be translated safely.
 	ErrInvalidFilter = errors.New("data: invalid filter")
+	// ErrInvalidCondition is returned when a filter condition cannot be translated safely.
+	ErrInvalidCondition = errors.New("data: invalid condition")
 )

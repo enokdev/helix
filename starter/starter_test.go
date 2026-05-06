@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/enokdev/helix/core"
@@ -15,6 +16,7 @@ import (
 
 type fakeStarter struct {
 	condition      bool
+	configureErr   error
 	conditionCalls int
 	configureCalls int
 }
@@ -26,7 +28,7 @@ func (f *fakeStarter) Condition() bool {
 
 func (f *fakeStarter) Configure(_ *core.Container) error {
 	f.configureCalls++
-	return nil
+	return f.configureErr
 }
 
 // recorderStarter appends its name to seq on Configure to track call order.
@@ -190,6 +192,24 @@ func TestConfigure_DebugLogs(t *testing.T) {
 	}
 }
 
+func TestConfigure_PropagatesStarterConfigureErrorWithName(t *testing.T) {
+	sentinel := errors.New("register failed")
+	entries := []starter.Entry{
+		{Name: "broken", Order: starter.OrderWeb, Starter: &fakeStarter{condition: true, configureErr: sentinel}},
+	}
+
+	err := starter.Configure(newContainer(), entries)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want sentinel")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Configure() error = %v, want sentinel", err)
+	}
+	if got := err.Error(); !strings.Contains(got, `starter: configure "broken"`) {
+		t.Fatalf("Configure() error = %q, want starter name context", got)
+	}
+}
+
 // --- empty entries (no-op) ---------------------------------------------------
 
 func TestConfigure_EmptyEntries(t *testing.T) {
@@ -207,6 +227,7 @@ func TestConfigure_EmptyEntries(t *testing.T) {
 type markerAwareFakeStarter struct {
 	conditionRet                bool
 	conditionFromContainerRet   bool
+	configureErr                error
 	conditionCalls              int
 	conditionFromContainerCalls int
 	configureCalls              int
@@ -219,7 +240,7 @@ func (m *markerAwareFakeStarter) Condition() bool {
 
 func (m *markerAwareFakeStarter) Configure(_ *core.Container) error {
 	m.configureCalls++
-	return nil
+	return m.configureErr
 }
 
 func (m *markerAwareFakeStarter) ConditionFromContainer(_ *core.Container) bool {
@@ -299,6 +320,25 @@ func TestConfigureMarkerAware_NilContainerReturnsError(t *testing.T) {
 	}
 	if !errors.Is(err, starter.ErrInvalidStarter) {
 		t.Errorf("error %v does not wrap ErrInvalidStarter", err)
+	}
+}
+
+func TestConfigureMarkerAware_PropagatesStarterConfigureErrorWithName(t *testing.T) {
+	sentinel := errors.New("marker register failed")
+	mas := &markerAwareFakeStarter{conditionFromContainerRet: true, configureErr: sentinel}
+	entries := []starter.Entry{
+		{Name: "marker-broken", Order: starter.OrderSecurity, Starter: mas},
+	}
+
+	err := starter.ConfigureMarkerAware(newContainer(), entries)
+	if err == nil {
+		t.Fatal("ConfigureMarkerAware() error = nil, want sentinel")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("ConfigureMarkerAware() error = %v, want sentinel", err)
+	}
+	if got := err.Error(); !strings.Contains(got, `starter: configure "marker-broken"`) {
+		t.Fatalf("ConfigureMarkerAware() error = %q, want starter name context", got)
 	}
 }
 

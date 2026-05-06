@@ -18,7 +18,9 @@ const schedEnabledKey = "helix.starters.scheduling.enabled"
 
 // Starter auto-configures the scheduling stack when robfig/cron is available.
 type Starter struct {
-	cfg helixconfig.Loader
+	cfg           helixconfig.Loader
+	mu            sync.Mutex
+	configuredFor *core.Container
 }
 
 // New creates a Starter using the provided configuration loader.
@@ -95,9 +97,19 @@ func (s *Starter) Configure(container *core.Container) error {
 	if container == nil {
 		return nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.configuredFor == container {
+		return nil
+	}
 	sched := scheduler.NewScheduler()
-	_ = container.Register(sched)
-	_ = container.Register(newScheduledJobRegistrar(container, sched))
+	if err := container.Register(sched); err != nil {
+		return fmt.Errorf("scheduling starter: register scheduler: %w", err)
+	}
+	if err := container.Register(newScheduledJobRegistrar(container, sched)); err != nil {
+		return fmt.Errorf("scheduling starter: register scheduled job registrar: %w", err)
+	}
+	s.configuredFor = container
 	return nil
 }
 

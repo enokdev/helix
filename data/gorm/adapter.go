@@ -291,6 +291,10 @@ func (r *Repository[T, ID]) expressionFor(db *gormlib.DB, condition data.Conditi
 
 // ColumnFor resolves field to a validated GORM column for T.
 func ColumnFor[T any](db *gormlib.DB, field string) (clause.Column, error) {
+	if err := data.ValidateFieldName(field); err != nil {
+		return clause.Column{}, err
+	}
+
 	stmt := &gormlib.Statement{DB: db}
 	if err := stmt.Parse(new(T)); err != nil {
 		return clause.Column{}, err
@@ -325,7 +329,7 @@ func wrapError(action string, err error) error {
 	case errors.Is(err, gormlib.ErrDuplicatedKey), errors.Is(err, data.ErrDuplicateKey):
 		return fmt.Errorf("data/gorm: %s: %w", action, data.ErrDuplicateKey)
 	case errors.Is(err, data.ErrInvalidFilter):
-		return fmt.Errorf("data/gorm: %s: %w", action, data.ErrInvalidFilter)
+		return fmt.Errorf("data/gorm: %s: %w", action, err)
 	default:
 		return fmt.Errorf("data/gorm: %s: %w", action, err)
 	}

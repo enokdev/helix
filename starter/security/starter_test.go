@@ -1,6 +1,8 @@
 package security
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/enokdev/helix/core"
@@ -129,6 +131,48 @@ func TestConfigureRegistersJWTService(t *testing.T) {
 	}
 	if svc == nil {
 		t.Fatal("JWTService is nil after Configure")
+	}
+}
+
+func TestConfigure_PropagatesJWTServiceRegisterError(t *testing.T) {
+	container := core.NewContainer()
+	cfg := fakeConfig{values: map[string]any{jwtSecretKey: "my-secret"}}
+
+	err := New(cfg).Configure(container)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want register error")
+	}
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Configure() error = %v, want ErrUnresolvable", err)
+	}
+	if !strings.Contains(err.Error(), "security starter: register JWTService") {
+		t.Fatalf("Configure() error = %q, want JWTService register context", err.Error())
+	}
+}
+
+func TestConfigure_IdempotentDoesNotReplaceJWTService(t *testing.T) {
+	container := newTestContainer()
+	cfg := fakeConfig{values: map[string]any{jwtSecretKey: "my-secret"}}
+	starter := New(cfg)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("first Configure() error = %v", err)
+	}
+	var first *helixsecurity.JWTService
+	if err := container.Resolve(&first); err != nil {
+		t.Fatalf("Resolve first JWTService error = %v", err)
+	}
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("second Configure() error = %v", err)
+	}
+	var second *helixsecurity.JWTService
+	if err := container.Resolve(&second); err != nil {
+		t.Fatalf("Resolve second JWTService error = %v", err)
+	}
+
+	if first != second {
+		t.Fatalf("second Configure() replaced JWTService: first=%p second=%p", first, second)
 	}
 }
 

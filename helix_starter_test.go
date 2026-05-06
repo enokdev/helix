@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/enokdev/helix/core"
@@ -37,10 +38,14 @@ func (m *markerAwareStarter) ConditionFromContainer(_ *core.Container) bool {
 type providerStarter struct {
 	active bool
 	dep    any
+	err    error
 }
 
 func (p *providerStarter) Condition() bool { return p.active }
 func (p *providerStarter) Configure(c *core.Container) error {
+	if p.err != nil {
+		return p.err
+	}
 	_ = c.Register(p.dep)
 	return nil
 }
@@ -164,6 +169,30 @@ func TestRunWrapsStarterError(t *testing.T) {
 	}
 	if !errors.Is(err, starter.ErrInvalidStarter) {
 		t.Errorf("Run() error = %v, want chain containing ErrInvalidStarter", err)
+	}
+}
+
+func TestRunWrapsStarterConfigureError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("starter register failed")
+
+	err := Run(App{
+		Starters: []starter.Entry{
+			{Name: "broken", Order: starter.OrderConfig, Starter: &providerStarter{active: true, err: sentinel}},
+		},
+		awaitShutdown: func() error { return nil },
+	})
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Run() error = %v, want sentinel", err)
+	}
+	if got := err.Error(); !strings.Contains(got, "helix: configure starters") ||
+		!strings.Contains(got, `starter: configure "broken"`) {
+		t.Fatalf("Run() error = %q, want helix and starter context", got)
 	}
 }
 

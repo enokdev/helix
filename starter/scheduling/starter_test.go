@@ -2,8 +2,10 @@ package scheduling
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -203,6 +205,53 @@ func TestConfigureRegistersLifecycle(t *testing.T) {
 		}
 		if err := lifecycle.OnStop(); err != nil {
 			t.Fatalf("OnStop() error = %v, want nil", err)
+		}
+	}
+}
+
+func TestConfigure_PropagatesSchedulerRegisterError(t *testing.T) {
+	container := core.NewContainer()
+
+	err := New(nil).Configure(container)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want register error")
+	}
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Configure() error = %v, want ErrUnresolvable", err)
+	}
+	if !strings.Contains(err.Error(), "scheduling starter: register scheduler") {
+		t.Fatalf("Configure() error = %q, want scheduler register context", err.Error())
+	}
+}
+
+func TestConfigure_IdempotentDoesNotReplaceLifecycles(t *testing.T) {
+	container := newTestContainer()
+	starter := New(nil)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("first Configure() error = %v", err)
+	}
+	first, err := core.ResolveAll[core.Lifecycle](container)
+	if err != nil {
+		t.Fatalf("ResolveAll first error = %v", err)
+	}
+	if len(first) != 2 {
+		t.Fatalf("first lifecycle count = %d, want 2", len(first))
+	}
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("second Configure() error = %v", err)
+	}
+	second, err := core.ResolveAll[core.Lifecycle](container)
+	if err != nil {
+		t.Fatalf("ResolveAll second error = %v", err)
+	}
+	if len(second) != 2 {
+		t.Fatalf("second lifecycle count = %d, want 2", len(second))
+	}
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("second Configure() replaced lifecycle %d: first=%p second=%p", i, first[i], second[i])
 		}
 	}
 }
