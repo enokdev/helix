@@ -2,6 +2,7 @@ package data
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
