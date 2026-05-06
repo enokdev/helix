@@ -74,7 +74,7 @@ func validateMockBeans(mocks []mockBean) error {
 
 func isNilableKind(k reflect.Kind) bool {
 	switch k {
-	case reflect.Ptr, reflect.Map, reflect.Func, reflect.Chan, reflect.Slice:
+	case reflect.Pointer, reflect.Map, reflect.Func, reflect.Chan, reflect.Slice:
 		return true
 	default:
 		return false
@@ -95,7 +95,7 @@ func isReplacedComponent(component any, mocks []mockBean) bool {
 }
 
 func isRegistrableMock(value reflect.Value) bool {
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 	return value.Elem().Kind() == reflect.Struct

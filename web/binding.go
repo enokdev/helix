@@ -98,7 +98,7 @@ func hasJSONTags(t reflect.Type) bool {
 			return true
 		}
 		ft := f.Type
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 		if f.Anonymous && ft.Kind() == reflect.Struct {
@@ -118,7 +118,7 @@ func hasAllowUnknownTag(t reflect.Type) bool {
 			return true
 		}
 		ft := f.Type
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 		if f.Anonymous && ft.Kind() == reflect.Struct {
@@ -144,7 +144,7 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 		currentPath[len(basePath)] = i
 
 		ft := field.Type
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 
@@ -269,7 +269,7 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 func fieldByIndexSafe(v reflect.Value, index []int) reflect.Value {
 	res := v
 	for _, i := range index {
-		if res.Kind() == reflect.Ptr {
+		if res.Kind() == reflect.Pointer {
 			if res.IsNil() {
 				res.Set(reflect.New(res.Type().Elem()))
 			}
@@ -351,7 +351,7 @@ func validationErrorMessage(ve validator.FieldError) string {
 
 func setQueryValue(value reflect.Value, raw string) error {
 	target := value
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		target = reflect.New(value.Type().Elem())
 		value.Set(target)
 		target = target.Elem()
@@ -386,7 +386,7 @@ func setQueryValue(value reflect.Value, raw string) error {
 
 func validateMaxTagValue(maxValue string, fieldType reflect.Type) error {
 	ft := fieldType
-	if ft.Kind() == reflect.Ptr {
+	if ft.Kind() == reflect.Pointer {
 		ft = ft.Elem()
 	}
 	switch ft.Kind() {
@@ -403,7 +403,7 @@ func validateMaxTagValue(maxValue string, fieldType reflect.Type) error {
 
 func exceedsMax(value reflect.Value, maxValue string) bool {
 	target := value
-	if target.Kind() == reflect.Ptr {
+	if target.Kind() == reflect.Pointer {
 		if target.IsNil() {
 			return false
 		}
@@ -423,7 +423,7 @@ func exceedsMax(value reflect.Value, maxValue string) bool {
 }
 
 func isSupportedQueryField(fieldType reflect.Type) bool {
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 	switch fieldType.Kind() {
@@ -436,7 +436,7 @@ func isSupportedQueryField(fieldType reflect.Type) bool {
 }
 
 func isNumericField(fieldType reflect.Type) bool {
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 	switch fieldType.Kind() {

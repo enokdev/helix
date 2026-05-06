@@ -342,3 +342,11 @@
 
 ## Deferred from: code review 14-4-securite-rbac-injection-sql (2026-05-06)
 - RBAC Search Optimization: The current O(N x M) loop in security/rbac.go is inefficient but acceptable for current needs. Consider optimizing with a map if role counts increase.
+
+## Deferred from: code review of 14-6-repository-pagination-findall-bornee (2026-05-07)
+
+- [D-14.6-1] `captureHandler.WithAttrs`/`WithGroup` retournent `h` (même pointeur) — viole le contrat `slog.Handler` qui exige un nouvel handler. Sans conséquence sur les tests actuels car `FindAll` utilise `slog.WarnContext` et non un sub-logger, mais un refactor de l'adaptateur vers un logger scopé casserait silencieusement les assertions. [data/gorm/adapter_integration_test.go:584]
+- [D-14.6-2] `attrValue` suppose une assertion `int64` pour la valeur de limite — si le type de `findAllLimit` change (ex: `int`), le helper retourne `nil` sans erreur visible. Rendre `attrValue` générique ou asserter `int` en fallback. [data/gorm/adapter_integration_test.go]
+- [D-14.6-3] Guard nil-receiver `if r != nil` dans `WithTransaction` est du code défensif inaccessible dans les flux nominaux — `r` ne peut être `nil` qu'avec une variable de type interface non-nulle. À supprimer lors d'un futur nettoyage. [data/gorm/adapter.go:203]
+- [D-14.6-4] `WithTransaction(tx)` sur un repo construit avec `db==nil` (`r.err==errInvalidDB`) réhabilite silencieusement le repo : le champ `r.err` n'est pas propagé dans le repo retourné. Actuellement non-observable car le seul chemin qui définit `r.err` est `NewRepository(nil)`, cas rare. À documenter ou corriger si `r.err` est étendu à d'autres états. [data/gorm/adapter.go:203-215]
+- [D-14.6-5] `clause.Column` passé en `Vars` dans `EscapeLike` repose sur le path interne `Statement.AddVar` de GORM pour rendre une `clause.Column` comme identifiant quoté. Comportement confirmé sur SQLite ; non garanti sur tous les dialectes. À couvrir par un test d'intégration multi-dialecte lors de l'ajout du support PostgreSQL/MySQL. [data/gorm/adapter.go]

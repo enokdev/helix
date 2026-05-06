@@ -733,7 +733,7 @@ func parseFindByMethod(pkg *packageModel, repository repositoryModel, name strin
 			return nil, fmt.Errorf("field %s not found on %s: %w", field, repository.Entity, errInvalidQuery)
 		}
 		if operator == operatorContains && exprString(paramTypes[i]) != "string" {
-			return nil, fmt.Errorf("Containing predicate %s requires string parameter: %w", field, errInvalidQuery)
+			return nil, fmt.Errorf("containing predicate %s requires string parameter: %w", field, errInvalidQuery)
 		}
 		predicates = append(predicates, queryPredicate{
 			Field:    field,

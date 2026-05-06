@@ -404,7 +404,7 @@ func validateAppComponent(component any) error {
 // "not a pointer" from "no marker embed", so callers get an actionable message.
 func componentError(component any) error {
 	if component != nil {
-		if v := reflect.ValueOf(component); v.IsValid() && v.Kind() != reflect.Ptr {
+		if v := reflect.ValueOf(component); v.IsValid() && v.Kind() != reflect.Pointer {
 			return fmt.Errorf("helix: component %T must be a pointer to a struct: %w", component, ErrInvalidComponent)
 		}
 	}
@@ -417,7 +417,7 @@ func hasComponentMarker(component any) bool {
 	}
 
 	value := reflect.ValueOf(component)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 
@@ -439,7 +439,7 @@ func hasComponentMarker(component any) bool {
 }
 
 func isMarkerType(fieldType reflect.Type) bool {
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 	if fieldType.Kind() != reflect.Struct {
@@ -456,7 +456,7 @@ func hasControllerMarker(component any) bool {
 	}
 
 	value := reflect.ValueOf(component)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 
@@ -472,7 +472,7 @@ func hasControllerMarker(component any) bool {
 			continue
 		}
 		ft := field.Type
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 		if ft == controllerType {

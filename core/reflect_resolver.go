@@ -174,7 +174,7 @@ func (r *ReflectResolver) resolveByType(requestedType reflect.Type) (reflect.Val
 }
 
 func (r *ReflectResolver) resolveAllAssignable(targetType reflect.Type) ([]reflect.Value, error) {
-	if targetType == nil || (targetType.Kind() != reflect.Interface && targetType.Kind() != reflect.Ptr) {
+	if targetType == nil || (targetType.Kind() != reflect.Interface && targetType.Kind() != reflect.Pointer) {
 		return nil, ErrUnresolvable
 	}
 
@@ -356,14 +356,14 @@ func (r *ReflectResolver) appendGraphEdge(owner, dependency string) {
 }
 
 func isRegistrableComponent(value reflect.Value) bool {
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 	return value.Elem().Kind() == reflect.Struct
 }
 
 func isResolvableTarget(value reflect.Value) bool {
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 	return value.Elem().CanSet()

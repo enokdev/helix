@@ -394,6 +394,13 @@ func valuesForIN(value any) []any {
 	return values
 }
 
+// EscapeLike escapes SQL LIKE wildcard characters (%, _, \) so that a user-
+// supplied value can be used safely in a LIKE expression. It is intentionally
+// exported for use in generated repository query code.
+func EscapeLike(value string) string {
+	return escapeLike(value)
+}
+
 func escapeLike(value string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }

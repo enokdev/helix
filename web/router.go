@@ -72,7 +72,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	if server == nil {
 		return fmt.Errorf("web: register controller: %w", ErrInvalidController)
 	}
-	if sv := reflect.ValueOf(server); sv.Kind() == reflect.Ptr && sv.IsNil() {
+	if sv := reflect.ValueOf(server); sv.Kind() == reflect.Pointer && sv.IsNil() {
 		return fmt.Errorf("web: register controller: %w", ErrInvalidController)
 	}
 
@@ -513,7 +513,7 @@ func isDirectiveIdentifier(value string) bool {
 
 func validateController(controller any) (reflect.Value, reflect.Type, error) {
 	value := reflect.ValueOf(controller)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return reflect.Value{}, nil, fmt.Errorf("web: validate controller %T: %w", controller, ErrInvalidController)
 	}
 
@@ -538,7 +538,7 @@ func hasControllerMarker(controllerType reflect.Type) bool {
 			continue
 		}
 		fieldType := field.Type
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 		if fieldType.Kind() != reflect.Struct {
@@ -560,7 +560,7 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 			continue
 		}
 		fieldType := field.Type
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 		if fieldType.Kind() != reflect.Struct {
@@ -769,7 +769,7 @@ func newControllerReturnPlan(methodType reflect.Type) (controllerReturnPlan, err
 
 func isNilReflectValue(value reflect.Value) bool {
 	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
 	default:
 		return false

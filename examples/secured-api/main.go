@@ -229,7 +229,7 @@ func NewAdminController() *AdminController {
 
 //helix:route GET /admin/users
 //helix:guard role:admin
-func (c *AdminController) Users(ctx web.Context) (UserList, error) {
+func (c *AdminController) Users(_ web.Context) (UserList, error) {
 	accounts := c.AuthSvc.GetAllAccounts()
 	return UserList{Users: accounts}, nil
 }

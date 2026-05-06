@@ -140,8 +140,8 @@ func normalizeSecurityPath(value string) string {
 func matchSegments(pattern, path []string) bool {
 	pIdx, tIdx := 0, 0
 	for pIdx < len(pattern) && tIdx < len(path) {
-		p := pattern[pIdx]
-		if p == "**" {
+		switch p := pattern[pIdx]; p {
+		case "**":
 			// ** as the last segment matches everything remaining.
 			if pIdx == len(pattern)-1 {
 				return true
@@ -153,10 +153,10 @@ func matchSegments(pattern, path []string) bool {
 				}
 			}
 			return false
-		} else if p == "*" {
+		case "*":
 			pIdx++
 			tIdx++
-		} else {
+		default:
 			if path[tIdx] != p {
 				return false
 			}
