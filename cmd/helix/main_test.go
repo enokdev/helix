@@ -151,6 +151,41 @@ func Down(ctx context.Context, tx *sql.Tx) error {
 	}
 }
 
+func TestRunDBMigrateUpCGODisabledExplainsSQLiteRequirement(t *testing.T) {
+	dir := newCLIGenerateFixture(t)
+	dbPath := filepath.Join(dir, "app.db")
+	writeCLIFile(t, filepath.Join(dir, "db", "migrations"), "20260422143000_create_users.go", `//go:build helixmigration
+
+package main
+
+import (
+	"context"
+	"database/sql"
+)
+
+func Up(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "CREATE TABLE users (id INTEGER PRIMARY KEY)")
+	return err
+}
+
+func Down(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "DROP TABLE users")
+	return err
+}
+`)
+	t.Setenv("CGO_ENABLED", "0")
+
+	err := run([]string{"db", "migrate", "up", "--dir", dir, "--database-url", "sqlite://" + dbPath})
+	if err == nil {
+		t.Fatal("run(db migrate up) error = nil, want CGo diagnostic")
+	}
+	for _, want := range []string{"cli: db migrate up", "go-sqlite3 requires CGo", "CGO_ENABLED=1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("run(db migrate up) error = %q, want %q", err, want)
+		}
+	}
+}
+
 func TestRunDBMigrateErrors(t *testing.T) {
 	t.Parallel()
 
