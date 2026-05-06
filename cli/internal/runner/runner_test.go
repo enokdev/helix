@@ -39,13 +39,13 @@ func TestWatchDebouncesReloadAndRestartsChild(t *testing.T) {
 				mu.Unlock()
 				return nil
 			},
-			buildBinary: func(_ context.Context, _ string, outputPath string, _ io.Writer, _ io.Writer) error {
+			buildBinary: func(_ context.Context, _, outputPath string, _, _ io.Writer) error {
 				mu.Lock()
 				buildCalls++
 				mu.Unlock()
 				return os.WriteFile(outputPath, []byte("binary"), 0o755)
 			},
-			startProcess: func(_ context.Context, _ string, _ []string, _ string, _ io.Writer, _ io.Writer) (process, error) {
+			startProcess: func(_ context.Context, _ string, _ []string, _ string, _, _ io.Writer) (process, error) {
 				mu.Lock()
 				defer mu.Unlock()
 				startCalls++
@@ -126,13 +126,13 @@ func TestWatchKeepsCurrentProcessWhenGenerateFails(t *testing.T) {
 				}
 				return nil
 			},
-			buildBinary: func(_ context.Context, _ string, outputPath string, _ io.Writer, _ io.Writer) error {
+			buildBinary: func(_ context.Context, _, outputPath string, _, _ io.Writer) error {
 				mu.Lock()
 				buildCalls++
 				mu.Unlock()
 				return os.WriteFile(outputPath, []byte("binary"), 0o755)
 			},
-			startProcess: func(_ context.Context, _ string, _ []string, _ string, _ io.Writer, _ io.Writer) (process, error) {
+			startProcess: func(_ context.Context, _ string, _ []string, _ string, _, _ io.Writer) (process, error) {
 				return current, nil
 			},
 		})
