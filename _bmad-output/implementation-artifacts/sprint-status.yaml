@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-04-27 - story 14.2 review
+last_updated: 2026-05-06 - story 14.5 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-04-27 - story 14.2 review
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-04-27 - story 14.1 done
+last_updated: 2026-05-06 - story 14.5 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -187,10 +187,10 @@ development_status:
   # ─────────────────────────────────────────────
   epic-14: in-progress
   14-1-panic-recovery-http-robustesse: done
-  14-2-binding-avance-structs-embarquees: review
-  14-3-container-di-scopeprototype-cycles: backlog
-  14-4-securite-rbac-injection-sql: backlog
-  14-5-starters-erreurs-idempotence: backlog
+  14-2-binding-avance-structs-embarquees: done
+  14-3-container-di-scopeprototype-cycles: done
+  14-4-securite-rbac-injection-sql: done
+  14-5-starters-erreurs-idempotence: done
   14-6-repository-pagination-findall-bornee: backlog
   14-7-cli-migrations-concurrence-annulation: backlog
   14-8-lifecycle-goroutine-leaks-onstop: backlog

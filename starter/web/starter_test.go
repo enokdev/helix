@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -213,6 +214,71 @@ func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 	}
 	if serverLifecycle.addr != ":9090" {
 		t.Fatalf("addr = %q, want %q", serverLifecycle.addr, ":9090")
+	}
+}
+
+func TestStarterConfigure_InvalidPortReturnsErrInvalidPort(t *testing.T) {
+	tests := []struct {
+		name string
+		port any
+	}{
+		{name: "too high string", port: "99999"},
+		{name: "zero int", port: 0},
+		{name: "negative int", port: -1},
+		{name: "non numeric string", port: "abc"},
+		{name: "empty string", port: "  "},
+		{name: "tcp suffix", port: "8080/tcp"},
+		{name: "fractional float", port: float64(8080.5)},
+		{name: "too high uint", port: uint64(65536)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			container := newTestContainer()
+			cfg := fakeConfig{values: map[string]any{"server.port": tt.port}}
+
+			err := New(cfg).Configure(container)
+			if err == nil {
+				t.Fatal("Configure() error = nil, want ErrInvalidPort")
+			}
+			if !errors.Is(err, ErrInvalidPort) {
+				t.Fatalf("Configure() error = %v, want ErrInvalidPort", err)
+			}
+		})
+	}
+}
+
+func TestStarterConfigure_PropagatesRegisterLifecycleError(t *testing.T) {
+	container := core.NewContainer()
+
+	err := New(nil).Configure(container)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want register error")
+	}
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Configure() error = %v, want ErrUnresolvable", err)
+	}
+	if !strings.Contains(err.Error(), "web starter: register server") {
+		t.Fatalf("Configure() error = %q, want server register context", err.Error())
+	}
+}
+
+func TestStarterConfigure_IdempotentDoesNotReplaceLifecycle(t *testing.T) {
+	container := newTestContainer()
+	starter := New(nil)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("first Configure() error = %v", err)
+	}
+	first := singleLifecycle(t, container)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("second Configure() error = %v", err)
+	}
+	second := singleLifecycle(t, container)
+
+	if first != second {
+		t.Fatalf("second Configure() replaced lifecycle: first=%p second=%p", first, second)
 	}
 }
 

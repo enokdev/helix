@@ -1,4 +1,8 @@
 
+## Deferred from: code review of 14-5-starters-erreurs-idempotence (2026-05-06)
+
+- [D-14.5-1] `wrapError` case `ErrInvalidFilter` identique à `default` — dead code après l'ajout de `ErrInvalidCondition`. Les deux branches produisent `fmt.Errorf("data/gorm: %s: %w", action, err)`. Pas de bug, mais le case spécialisé peut être supprimé lors d'un nettoyage futur. [data/gorm/adapter.go:331-332]
+
 ## Deferred from: code review of story-10-5 (2026-04-22)
 
 - [D-10.5-2] Migrations concurrentes non sérialisées — deux appels simultanés `helix db migrate up` peuvent tous deux passer le snapshot `appliedMigrations` et exécuter le même SQL. SQLite DDL est transactionnel donc l'état final reste cohérent, mais ce comportement est une hypothèse implicite non documentée et cassera sur toute DB dont DDL n'est pas transactionnel. [cli/internal/migrate/migrate.go:Up]
@@ -329,3 +333,12 @@
 ## Deferred from: code review of 14-1-panic-recovery-http-robustesse (2026-04-27)
 - Dépendance globale slog : L'usage de slog.Default() limite l'injectabilité du logging.
 - Allocation mémoire inutile : bytes.TrimSpace(ctx.Body()) alloue une nouvelle slice, doublant l'usage mémoire sur de gros payloads.
+
+## Deferred from: code review of story 14.2 (2026-04-27)
+
+- jsonErrorField relies on brittle string matching [web/binding.go:428]
+- No support for slice/list in query params [web/binding.go:340]
+- collectQueryFields lacks recursion depth limit [web/binding.go:121]
+
+## Deferred from: code review 14-4-securite-rbac-injection-sql (2026-05-06)
+- RBAC Search Optimization: The current O(N x M) loop in security/rbac.go is inefficient but acceptable for current needs. Consider optimizing with a map if role counts increase.
