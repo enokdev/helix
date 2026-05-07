@@ -348,6 +348,92 @@ func TestRunMigrationSQLiteCGODisabledReturnsActionableError(t *testing.T) {
 	}
 }
 
+func TestRunMigrationHostModuleImportReturnsActionableSingleLineError(t *testing.T) {
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	writeConfig(t, root, "sqlite://"+dbPath)
+	writeFile(t, root, filepath.Join("db", "migrations", "20260422143000_import_host.go"), `//go:build helixmigration
+
+package main
+
+import (
+	"context"
+	"database/sql"
+
+	"example.test/app/internal/users"
+)
+
+func Up(ctx context.Context, tx *sql.Tx) error {
+	_ = users.User{}
+	return nil
+}
+
+func Down(ctx context.Context, tx *sql.Tx) error {
+	return nil
+}
+`)
+	migrations, err := discover(root)
+	if err != nil {
+		t.Fatalf("discover() error = %v", err)
+	}
+
+	err = runMigration(context.Background(), root, databaseTarget{Driver: "sqlite3", DSN: dbPath}, "up", migrations[0])
+	if err == nil {
+		t.Fatal("runMigration() error = nil, want host import diagnostic")
+	}
+	for _, want := range []string{"host module imports are not supported", "runner module is isolated"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("runMigration() error = %q, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "\n") {
+		t.Fatalf("runMigration() error contains newline: %q", err)
+	}
+}
+
+func TestImportsHostModule(t *testing.T) {
+	t.Parallel()
+
+	root := newProjectFixture(t) // module = "example.test/app"
+
+	cases := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{
+			name:   "sub-package import detected",
+			source: `import "example.test/app/internal/users"`,
+			want:   true,
+		},
+		{
+			name:   "root-package import detected",
+			source: `import "example.test/app"`,
+			want:   true,
+		},
+		{
+			name:   "unrelated import not detected",
+			source: `import "example.test/other"`,
+			want:   false,
+		},
+		{
+			name:   "prefix match does not false-positive",
+			source: `import "example.test/appended/pkg"`,
+			want:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := importsHostModule([]byte(tc.source), root)
+			if got != tc.want {
+				t.Errorf("importsHostModule(%q) = %v, want %v", tc.source, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestStatusRejectsDuplicateMigrationVersions(t *testing.T) {
 	root := newProjectFixture(t)
 	dbPath := filepath.Join(root, "app.db")

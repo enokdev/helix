@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"go/format"
 	"io"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/enokdev/helix/cli/internal/gofmtx"
 	helixconfig "github.com/enokdev/helix/config"
 	_ "github.com/mattn/go-sqlite3" // register sqlite3 driver for journal queries
 )
@@ -42,6 +42,7 @@ var (
 
 	migrationFilePattern = regexp.MustCompile(`^([0-9]{14})_([a-z0-9_]+)\.go$`)
 	sqlite3VersionRE     = regexp.MustCompile(`\bgithub\.com/mattn/go-sqlite3\s+(v\S+)`)
+	modulePathRE         = regexp.MustCompile(`(?m)^\s*module\s+(\S+)\s*$`)
 )
 
 // Options configures migration status and execution commands.
@@ -534,6 +535,9 @@ func runMigration(ctx context.Context, root string, target databaseTarget, actio
 	if err != nil {
 		return fmt.Errorf("read migration file: %w", err)
 	}
+	if importsHostModule(source, root) {
+		return fmt.Errorf("host module imports are not supported in Go migrations because the runner module is isolated; keep migrations self-contained or use standard library/database imports only")
+	}
 	files := map[string]string{
 		"go.mod":       runnerGoMod(sqlite3VersionFromGoMod(root)),
 		"migration.go": string(source),
@@ -551,11 +555,33 @@ func runMigration(ctx context.Context, root string, target databaseTarget, actio
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("run migration %s from %s: %w\n%s", action, filepath.ToSlash(m.Path), ctxErr, strings.TrimSpace(string(output)))
+			return runMigrationSubprocessError(action, m.Path, ctxErr, output)
 		}
-		return fmt.Errorf("run migration %s from %s: %w\n%s", action, filepath.ToSlash(m.Path), err, strings.TrimSpace(string(output)))
+		return runMigrationSubprocessError(action, m.Path, err, output)
 	}
 	return nil
+}
+
+func runMigrationSubprocessError(action, path string, cause error, output []byte) error {
+	message := oneLineOutput(output)
+	if message == "" {
+		return fmt.Errorf("run migration %s from %s: %w", action, filepath.ToSlash(path), cause)
+	}
+	return fmt.Errorf("run migration %s from %s: %w: %s", action, filepath.ToSlash(path), cause, message)
+}
+
+func oneLineOutput(output []byte) string {
+	return strings.Join(strings.Fields(string(output)), " ")
+}
+
+func importsHostModule(source []byte, root string) bool {
+	modulePath := modulePathFromGoMod(root)
+	if modulePath == "" {
+		return false
+	}
+	// Match sub-package imports ("module/pkg") and direct root-package imports ("module").
+	return bytes.Contains(source, []byte(`"`+modulePath+`/`)) ||
+		bytes.Contains(source, []byte(`"`+modulePath+`"`))
 }
 
 func cgoDisabled() bool {
@@ -577,6 +603,18 @@ func sqlite3VersionFromGoMod(root string) string {
 		}
 	}
 	return "v1.14.22"
+}
+
+func modulePathFromGoMod(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	matches := modulePathRE.FindSubmatch(data)
+	if matches == nil {
+		return ""
+	}
+	return string(matches[1])
 }
 
 // filterEnv returns os.Environ() with all entries whose key matches any of the provided keys removed.
@@ -669,7 +707,7 @@ func renderMigrationTemplate(data migrationTemplateData) (string, error) {
 	if err := template.Must(template.New("migration").Parse(migrationTemplate)).Execute(&buf, data); err != nil {
 		return "", err
 	}
-	formatted, err := format.Source(buf.Bytes())
+	formatted, err := gofmtx.Source(buf.Bytes())
 	if err != nil {
 		return "", fmt.Errorf("format migration template: %w", err)
 	}
