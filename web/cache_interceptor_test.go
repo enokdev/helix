@@ -42,8 +42,10 @@ func (c *cacheTestContext) Locals(key string, value ...any) any {
 	}
 	return c.locals[key]
 }
-func (c *cacheTestContext) Send(_ []byte) error      { return nil }
-func (c *cacheTestContext) Context() context.Context { return context.Background() }
+func (c *cacheTestContext) SetHeader(string, string)    {}
+func (c *cacheTestContext) AppendHeader(string, string) {}
+func (c *cacheTestContext) Send(_ []byte) error         { return nil }
+func (c *cacheTestContext) Context() context.Context    { return context.Background() }
 
 // TestCacheInterceptorSingleFlightPatternColdCache tests AC 1: Multiple concurrent requests on cold cache.
 func TestCacheInterceptorSingleFlightPatternColdCache(t *testing.T) {

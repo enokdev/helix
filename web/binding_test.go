@@ -188,13 +188,14 @@ func (tc *testContext) Header(key string) string {
 	}
 	return ""
 }
-func (tc *testContext) IP() string                { return "127.0.0.1" }
-func (tc *testContext) Status(int)                {}
-func (tc *testContext) SetHeader(string, string)  {}
-func (tc *testContext) Send([]byte) error         { return nil }
-func (tc *testContext) JSON(any) error            { return nil }
-func (tc *testContext) Context() context.Context  { return context.Background() }
-func (tc *testContext) Locals(string, ...any) any { return nil }
+func (tc *testContext) IP() string                  { return "127.0.0.1" }
+func (tc *testContext) Status(int)                  {}
+func (tc *testContext) SetHeader(string, string)    {}
+func (tc *testContext) AppendHeader(string, string) {}
+func (tc *testContext) Send([]byte) error           { return nil }
+func (tc *testContext) JSON(any) error              { return nil }
+func (tc *testContext) Context() context.Context    { return context.Background() }
+func (tc *testContext) Locals(string, ...any) any   { return nil }
 
 // ─── Tests Story 14.2 ───────────────────────────────────────────────────────
 

@@ -15,6 +15,7 @@ type Context interface {
 	Body() []byte
 	Status(code int)
 	SetHeader(key, value string)
+	AppendHeader(key, value string)
 	Send(body []byte) error
 	JSON(body any) error
 	// Context returns the request context.

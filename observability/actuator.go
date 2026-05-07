@@ -1,7 +1,6 @@
 package observability
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -26,7 +25,7 @@ func RegisterActuatorRoutes(server web.HTTPServer, checker HealthChecker, info I
 	}
 
 	if err := server.RegisterRoute(http.MethodGet, healthPath, func(ctx web.Context) error {
-		response := checker.Check(context.Background())
+		response := checker.Check(ctx.Context())
 		if response.Status == StatusDown {
 			ctx.Status(http.StatusServiceUnavailable)
 		} else {
@@ -39,7 +38,7 @@ func RegisterActuatorRoutes(server web.HTTPServer, checker HealthChecker, info I
 
 	if err := server.RegisterRoute(http.MethodGet, infoPath, func(ctx web.Context) error {
 		ctx.Status(http.StatusOK)
-		return ctx.JSON(info.Info(context.Background()))
+		return ctx.JSON(info.Info(ctx.Context()))
 	}); err != nil {
 		return fmt.Errorf("observability: register actuator route %s: %w", infoPath, err)
 	}

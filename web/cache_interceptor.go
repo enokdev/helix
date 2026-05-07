@@ -411,6 +411,10 @@ func (r *responseRecorder) SetHeader(key, value string) {
 	r.BaseContext.SetHeader(key, value)
 }
 
+func (r *responseRecorder) AppendHeader(key, value string) {
+	r.BaseContext.AppendHeader(key, value)
+}
+
 func (r *responseRecorder) Send(body []byte) error {
 	return r.BaseContext.Send(body)
 }
