@@ -28,12 +28,16 @@ func prepareTestComponents(components []any, mocks []mockBean) ([]any, []mockBea
 		return nil, nil, err
 	}
 
+	injectedInterfaces := collectInjectedInterfaces(components)
 	filtered := make([]any, 0, len(components))
 	for _, component := range components {
-		if isReplacedComponent(component, mocks) {
+		if !isReplacedComponent(component, mocks) {
+			filtered = append(filtered, component)
 			continue
 		}
-		filtered = append(filtered, component)
+		replacedTargets := replacedTargetsForComponent(component, mocks)
+		usedAtStartup := hasNonTargetInterfaceUse(component, replacedTargets, injectedInterfaces)
+		filtered = append(filtered, componentWithExcludedTargets(component, replacedTargets, usedAtStartup))
 	}
 
 	return filtered, append([]mockBean(nil), mocks...), nil
@@ -82,16 +86,21 @@ func isNilableKind(k reflect.Kind) bool {
 }
 
 func isReplacedComponent(component any, mocks []mockBean) bool {
-	componentType := reflect.TypeOf(component)
+	return len(replacedTargetsForComponent(component, mocks)) > 0
+}
+
+func replacedTargetsForComponent(component any, mocks []mockBean) []reflect.Type {
+	componentType := componentRegistrationType(component)
 	if componentType == nil {
-		return false
+		return nil
 	}
+	replaced := make([]reflect.Type, 0, len(mocks))
 	for _, mock := range mocks {
 		if componentType.AssignableTo(mock.target) {
-			return true
+			replaced = append(replaced, mock.target)
 		}
 	}
-	return false
+	return replaced
 }
 
 func isRegistrableMock(value reflect.Value) bool {
@@ -99,4 +108,95 @@ func isRegistrableMock(value reflect.Value) bool {
 		return false
 	}
 	return value.Elem().Kind() == reflect.Struct
+}
+
+func collectInjectedInterfaces(components []any) []reflect.Type {
+	seen := make(map[reflect.Type]struct{})
+	for _, component := range components {
+		componentType := componentRegistrationType(component)
+		if componentType == nil || componentType.Kind() != reflect.Pointer || componentType.Elem().Kind() != reflect.Struct {
+			continue
+		}
+		structType := componentType.Elem()
+		for i := 0; i < structType.NumField(); i++ {
+			field := structType.Field(i)
+			if field.Tag.Get("inject") != "true" || field.Type.Kind() != reflect.Interface {
+				continue
+			}
+			seen[field.Type] = struct{}{}
+		}
+	}
+
+	interfaces := make([]reflect.Type, 0, len(seen))
+	for typ := range seen {
+		interfaces = append(interfaces, typ)
+	}
+	return interfaces
+}
+
+func hasNonTargetInterfaceUse(component any, replacedTargets, injectedInterfaces []reflect.Type) bool {
+	componentType := componentRegistrationType(component)
+	if componentType == nil {
+		return false
+	}
+	if !containsReflectType(replacedTargets, lifecycleInterfaceType()) && componentType.Implements(lifecycleInterfaceType()) {
+		return true
+	}
+	for _, injected := range injectedInterfaces {
+		if containsReflectType(replacedTargets, injected) {
+			continue
+		}
+		if componentType.AssignableTo(injected) {
+			return true
+		}
+	}
+	return false
+}
+
+func lifecycleInterfaceType() reflect.Type {
+	return reflect.TypeOf((*core.Lifecycle)(nil)).Elem()
+}
+
+func componentWithExcludedTargets(component any, targets []reflect.Type, usedAtStartup bool) any {
+	registration, ok := component.(core.ComponentRegistration)
+	if !ok {
+		registration = core.NewComponentRegistration(component)
+	}
+	registration.ExcludeFrom = appendUniqueReflectTypes(registration.ExcludeFrom, targets...)
+	if !usedAtStartup && registration.Scope == core.ScopeSingleton {
+		registration.Lazy = true
+	}
+	return registration
+}
+
+func componentRegistrationType(component any) reflect.Type {
+	if registration, ok := component.(core.ComponentRegistration); ok {
+		return reflect.TypeOf(registration.Component)
+	}
+	return reflect.TypeOf(component)
+}
+
+func appendUniqueReflectTypes(types []reflect.Type, additions ...reflect.Type) []reflect.Type {
+	for _, addition := range additions {
+		if containsReflectType(types, addition) {
+			continue
+		}
+		types = append(types, addition)
+	}
+	return types
+}
+
+func containsReflectType(types []reflect.Type, target reflect.Type) bool {
+	for _, typ := range types {
+		if typ == target {
+			return true
+		}
+	}
+	return false
+}
+
+func mockRegistration(mock mockBean) core.ComponentRegistration {
+	registration := core.NewComponentRegistration(mock.impl)
+	registration.ResolveAs = []reflect.Type{mock.target}
+	return registration
 }

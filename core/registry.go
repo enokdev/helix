@@ -24,6 +24,10 @@ type ComponentRegistration struct {
 	Scope Scope
 	// Lazy defers instantiation until the first Resolve call.
 	Lazy bool
+	// ResolveAs limits interface resolution to the listed interface types.
+	ResolveAs []reflect.Type
+	// ExcludeFrom removes this component from the listed interface resolutions.
+	ExcludeFrom []reflect.Type
 }
 
 // NewComponentRegistration creates a ComponentRegistration with safe defaults
@@ -56,8 +60,25 @@ func normalizeComponentRegistration(input any) (ComponentRegistration, reflect.T
 	if registration.Scope == ScopePrototype && registration.Lazy {
 		return ComponentRegistration{}, nil, fmt.Errorf("ScopePrototype cannot be combined with Lazy: %w", ErrUnresolvable)
 	}
+	if err := validateInterfaceTypeList("ResolveAs", registration.ResolveAs); err != nil {
+		return ComponentRegistration{}, nil, err
+	}
+	if err := validateInterfaceTypeList("ExcludeFrom", registration.ExcludeFrom); err != nil {
+		return ComponentRegistration{}, nil, err
+	}
+	registration.ResolveAs = append([]reflect.Type(nil), registration.ResolveAs...)
+	registration.ExcludeFrom = append([]reflect.Type(nil), registration.ExcludeFrom...)
 
 	return registration, componentValue.Type(), nil
+}
+
+func validateInterfaceTypeList(name string, types []reflect.Type) error {
+	for _, typ := range types {
+		if typ == nil || typ.Kind() != reflect.Interface {
+			return fmt.Errorf("%s must contain interface types only: %w", name, ErrUnresolvable)
+		}
+	}
+	return nil
 }
 
 func (s Scope) isValid() bool {

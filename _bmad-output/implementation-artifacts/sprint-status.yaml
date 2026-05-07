@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-05-06 - story 14.8 done
+last_updated: 2026-05-07 - story 14.10 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-05-06 - story 14.8 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-05-06 - story 14.8 done
+last_updated: 2026-05-07 - story 14.10 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -194,6 +194,6 @@ development_status:
   14-6-repository-pagination-findall-bornee: done
   14-7-cli-migrations-concurrence-annulation: done
   14-8-lifecycle-goroutine-leaks-onstop: done
-  14-9-mockbean-testapp-edge-cases: backlog
-  14-10-guards-context-nettoyage-sentinelles: backlog
+  14-9-mockbean-testapp-edge-cases: done
+  14-10-guards-context-nettoyage-sentinelles: done
   epic-14-retrospective: optional

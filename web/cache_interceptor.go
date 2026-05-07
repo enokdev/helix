@@ -188,6 +188,9 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 		now := time.Now()
 
 		if entry, ok := s.getCached(key, now); ok {
+			if guardErr := evaluateRouteGuards(ctx); guardErr != nil {
+				return guardErr
+			}
 			s.hits.Add(1)
 			ctx.Status(entry.status)
 			var body any
@@ -207,6 +210,9 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 			case <-flight.done:
 				if flight.result.err != nil {
 					return flight.result.err
+				}
+				if guardErr := evaluateRouteGuards(ctx); guardErr != nil {
+					return guardErr
 				}
 				ctx.Status(flight.result.status)
 				var body any
@@ -245,6 +251,18 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 		close(flight.done)
 		return nil
 	})
+}
+
+func evaluateRouteGuards(ctx Context) error {
+	raw := ctx.Locals(routeGuardEvaluatorLocal)
+	if raw == nil {
+		return nil
+	}
+	evaluate, ok := raw.(func(Context) error)
+	if !ok {
+		return nil
+	}
+	return evaluate(ctx)
 }
 
 func (s *cacheStore) getCached(key string, now time.Time) (cacheEntry, bool) {

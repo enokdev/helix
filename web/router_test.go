@@ -870,14 +870,52 @@ func TestRegisterController_ChainsGuardsAndInterceptorsInOrder(t *testing.T) {
 	defer resp.Body.Close()
 
 	want := []string{
-		"guard:first",
-		"guard:second",
 		"interceptor:first:before",
 		"interceptor:second:before",
+		"guard:first",
+		"guard:second",
 		"handler",
 		"interceptor:second:after",
 		"interceptor:first:after",
 	}
+	if strings.Join(order, "|") != strings.Join(want, "|") {
+		t.Fatalf("execution order = %#v, want %#v", order, want)
+	}
+}
+
+func TestRegisterController_RunsInterceptorsAroundRejectedGuards(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	var order []string
+	controller := &RejectedGuardController{calls: &order}
+
+	if err := web.RegisterGuard(server, "authenticated", web.GuardFunc(func(web.Context) error {
+		order = append(order, "guard:authenticated")
+		return web.Unauthorized("authentication required")
+	})); err != nil {
+		t.Fatalf("RegisterGuard(authenticated) error = %v", err)
+	}
+	if err := web.RegisterInterceptor(server, "log", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
+		order = append(order, "interceptor:before")
+		err := next(ctx)
+		order = append(order, "interceptor:after")
+		return err
+	})); err != nil {
+		t.Fatalf("RegisterInterceptor(log) error = %v", err)
+	}
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/rejected-guards", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusUnauthorized, "UNAUTHORIZED", "")
+
+	want := []string{"interceptor:before", "guard:authenticated", "interceptor:after"}
 	if strings.Join(order, "|") != strings.Join(want, "|") {
 		t.Fatalf("execution order = %#v, want %#v", order, want)
 	}
@@ -1439,6 +1477,17 @@ type ChainedController struct {
 //helix:interceptor second
 func (c *ChainedController) Index() {
 	*c.order = append(*c.order, "handler")
+}
+
+type RejectedGuardController struct {
+	helix.Controller
+	calls *[]string
+}
+
+//helix:interceptor log
+//helix:guard authenticated
+func (c *RejectedGuardController) Index() {
+	*c.calls = append(*c.calls, "handler")
 }
 
 type MixedDirectiveController struct {

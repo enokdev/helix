@@ -17,6 +17,7 @@ type cacheTestContext struct {
 	*mockContext
 	originalURL string
 	statusCode  int
+	locals      map[string]any
 }
 
 func (c *cacheTestContext) Path() string           { return "/" }
@@ -30,9 +31,19 @@ func (c *cacheTestContext) Status(code int) {
 	c.statusCode = code
 	c.mockContext.Status(code)
 }
-func (c *cacheTestContext) Locals(_ string, _ ...any) any { return nil }
-func (c *cacheTestContext) Send(_ []byte) error           { return nil }
-func (c *cacheTestContext) Context() context.Context      { return context.Background() }
+
+func (c *cacheTestContext) Locals(key string, value ...any) any {
+	if c.locals == nil {
+		c.locals = make(map[string]any)
+	}
+	if len(value) > 0 {
+		c.locals[key] = value[0]
+		return value[0]
+	}
+	return c.locals[key]
+}
+func (c *cacheTestContext) Send(_ []byte) error      { return nil }
+func (c *cacheTestContext) Context() context.Context { return context.Background() }
 
 // TestCacheInterceptorSingleFlightPatternColdCache tests AC 1: Multiple concurrent requests on cold cache.
 func TestCacheInterceptorSingleFlightPatternColdCache(t *testing.T) {
@@ -118,6 +129,62 @@ func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 	}
 
 	assert.Equal(t, int32(1), handlerCalls.Load())
+}
+
+func TestCacheInterceptorEvaluatesGuardsForInflightWaiters(t *testing.T) {
+	store := newCacheStore()
+	t.Cleanup(func() { _ = store.Stop() })
+
+	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
+	handlerStarted := make(chan struct{})
+	handlerDone := make(chan struct{})
+	handler := func(ctx Context) error {
+		close(handlerStarted)
+		<-handlerDone
+		ctx.Status(http.StatusOK)
+		return ctx.JSON(map[string]string{"data": "authorized"})
+	}
+
+	first := &cacheTestContext{
+		mockContext: &mockContext{method: http.MethodGet},
+		originalURL: "/api/guarded",
+	}
+	first.Locals(routeGuardEvaluatorLocal, func(Context) error { return nil })
+
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- interceptor.Intercept(first, handler)
+	}()
+
+	<-handlerStarted
+	second := &cacheTestContext{
+		mockContext: &mockContext{method: http.MethodGet},
+		originalURL: "/api/guarded",
+	}
+	second.Locals(routeGuardEvaluatorLocal, func(Context) error {
+		return Unauthorized("authentication required")
+	})
+
+	secondResult := make(chan error, 1)
+	go func() {
+		secondResult <- interceptor.Intercept(second, handler)
+	}()
+
+	close(handlerDone)
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first request error = %v", err)
+	}
+	err := <-secondResult
+	structured, ok := err.(interface{ StatusCode() int })
+	if !ok {
+		t.Fatal("second request error = nil, want guard rejection")
+	}
+	if structured.StatusCode() != http.StatusUnauthorized {
+		t.Fatalf("second request status error = %d, want %d", structured.StatusCode(), http.StatusUnauthorized)
+	}
+	if second.statusCode == http.StatusOK {
+		t.Fatalf("second request status = %d, in-flight response was written despite guard rejection", second.statusCode)
+	}
 }
 
 // TestCacheInterceptorHitAndMiss tests basic cache hit/miss metrics.

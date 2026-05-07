@@ -16,7 +16,10 @@ import (
 	"github.com/enokdev/helix/web/internal"
 )
 
-const controllerMarkerPkgPath = "github.com/enokdev/helix"
+const (
+	controllerMarkerPkgPath  = "github.com/enokdev/helix"
+	routeGuardEvaluatorLocal = "_helix_route_guard_evaluator"
+)
 
 var (
 	contextType = reflect.TypeOf((*Context)(nil)).Elem()
@@ -257,7 +260,22 @@ func wrapControllerHandler(server HTTPServer, directives methodDirectives, handl
 }
 
 func composeHandler(guards []Guard, interceptors []Interceptor, handler HandlerFunc) HandlerFunc {
-	wrapped := handler
+	runGuards := func(ctx Context) error {
+		for _, guard := range guards {
+			if err := guard.CanActivate(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	guarded := func(ctx Context) error {
+		if err := runGuards(ctx); err != nil {
+			return err
+		}
+		return handler(ctx)
+	}
+
+	wrapped := HandlerFunc(guarded)
 	for i := len(interceptors) - 1; i >= 0; i-- {
 		interceptor := interceptors[i]
 		next := wrapped
@@ -265,12 +283,9 @@ func composeHandler(guards []Guard, interceptors []Interceptor, handler HandlerF
 			return interceptor.Intercept(ctx, next)
 		}
 	}
-
 	return func(ctx Context) error {
-		for _, guard := range guards {
-			if err := guard.CanActivate(ctx); err != nil {
-				return err
-			}
+		if len(guards) > 0 {
+			ctx.Locals(routeGuardEvaluatorLocal, runGuards)
 		}
 		return wrapped(ctx)
 	}
