@@ -302,8 +302,8 @@ type blockingHealthIndicator struct {
 func (i *blockingHealthIndicator) Name() string { return i.name }
 
 func (i *blockingHealthIndicator) Health(ctx context.Context) ComponentHealth {
-	close(i.ready)   // signal: now blocking
-	<-ctx.Done()     // wait for cancellation
+	close(i.ready) // signal: now blocking
+	<-ctx.Done()   // wait for cancellation
 	i.ctxErr = ctx.Err()
 	return ComponentHealth{Status: StatusUp}
 }
