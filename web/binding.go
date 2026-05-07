@@ -16,6 +16,9 @@ import (
 )
 
 const (
+	// bindingErrorType is used for structural binding failures (JSON parse, query param parse).
+	// It is distinct from requestErrorType which is reserved for business-logic validation.
+	bindingErrorType      = "BindingError"
 	requestErrorType      = "ValidationError"
 	codeValidationFailed  = "VALIDATION_FAILED"
 	codeInvalidQueryParam = "INVALID_QUERY_PARAM"
@@ -257,7 +260,7 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 
 		target := fieldByIndexSafe(value, field.indexPath)
 		if err := setQueryValue(target, raw); err != nil {
-			return newRequestError(http.StatusBadRequest, codeInvalidQueryParam, field.name, fmt.Sprintf("%s has invalid value", field.name))
+			return newBindingError(http.StatusBadRequest, codeInvalidQueryParam, field.name, fmt.Sprintf("%s has invalid value", field.name))
 		}
 		if field.maxValue != "" && exceedsMax(target, field.maxValue) {
 			return newRequestError(http.StatusBadRequest, codeValidationFailed, field.name, fmt.Sprintf("%s must be at most %s", field.name, field.maxValue))
@@ -283,18 +286,18 @@ func fieldByIndexSafe(v reflect.Value, index []int) reflect.Value {
 func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
 	ct := ctx.Header("Content-Type")
 	if ct == "" {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type header is required (application/json)")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type header is required (application/json)")
 	}
 	mediaType, _, err := mime.ParseMediaType(ct)
 	if err != nil || mediaType != "application/json" {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
 	}
 	body := bytes.TrimSpace(ctx.Body())
 	if len(body) == 0 {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body is required")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "request body is required")
 	}
 	if bytes.Equal(body, []byte("null")) {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body must not be null")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "request body must not be null")
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -303,10 +306,10 @@ func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
 	}
 	if err := decoder.Decode(value.Addr().Interface()); err != nil {
 		field := jsonErrorField(err)
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, field, "request body is invalid")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, field, "request body is invalid")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body must contain a single JSON value")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "request body must contain a single JSON value")
 	}
 	return nil
 }
@@ -378,9 +381,36 @@ func setQueryValue(value reflect.Value, raw string) error {
 			return err
 		}
 		target.SetUint(parsed)
+	case reflect.Float32, reflect.Float64:
+		parsed, err := strconv.ParseFloat(raw, target.Type().Bits())
+		if err != nil {
+			return err
+		}
+		target.SetFloat(parsed)
+	case reflect.Slice:
+		return setQuerySliceValue(target, raw)
 	default:
 		return ErrUnsupportedHandler
 	}
+	return nil
+}
+
+// setQuerySliceValue parses a comma-separated query param string into a slice.
+// Only slices of supported primitive element types are accepted.
+func setQuerySliceValue(slice reflect.Value, raw string) error {
+	if raw == "" {
+		slice.Set(reflect.MakeSlice(slice.Type(), 0, 0))
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	result := reflect.MakeSlice(slice.Type(), len(parts), len(parts))
+	for i, part := range parts {
+		elem := result.Index(i)
+		if err := setQueryValue(elem, strings.TrimSpace(part)); err != nil {
+			return fmt.Errorf("element %d: %w", i, err)
+		}
+	}
+	slice.Set(result)
 	return nil
 }
 
@@ -395,6 +425,9 @@ func validateMaxTagValue(maxValue string, fieldType reflect.Type) error {
 		return err
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		_, err := strconv.ParseUint(maxValue, 10, ft.Bits())
+		return err
+	case reflect.Float32, reflect.Float64:
+		_, err := strconv.ParseFloat(maxValue, ft.Bits())
 		return err
 	default:
 		return fmt.Errorf("unsupported numeric kind %s", ft.Kind())
@@ -417,6 +450,9 @@ func exceedsMax(value reflect.Value, maxValue string) bool {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		maxUint, err := strconv.ParseUint(maxValue, 10, target.Type().Bits())
 		return err != nil || target.Uint() > maxUint
+	case reflect.Float32, reflect.Float64:
+		maxFloat, err := strconv.ParseFloat(maxValue, target.Type().Bits())
+		return err != nil || target.Float() > maxFloat
 	default:
 		return false
 	}
@@ -427,8 +463,26 @@ func isSupportedQueryField(fieldType reflect.Type) bool {
 		fieldType = fieldType.Elem()
 	}
 	switch fieldType.Kind() {
-	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	case reflect.Slice:
+		return isSupportedSliceElement(fieldType.Elem())
+	default:
+		return false
+	}
+}
+
+// isSupportedSliceElement reports whether elem is a type that can appear in a
+// comma-separated query slice. Only flat, primitive element types are accepted.
+func isSupportedSliceElement(elem reflect.Type) bool {
+	switch elem.Kind() {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
 		return true
 	default:
 		return false
@@ -441,7 +495,8 @@ func isNumericField(fieldType reflect.Type) bool {
 	}
 	switch fieldType.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
 		return true
 	default:
 		return false

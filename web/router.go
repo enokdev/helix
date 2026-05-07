@@ -187,7 +187,7 @@ func RegisterController(server HTTPServer, controller any) error {
 				return fmt.Errorf("web: register controller %s handler %s directives: %w", controllerType.Name(), methodName, err)
 			}
 			if _, err := validateRoute(directive.method, directive.path, handler); err != nil {
-				return fmt.Errorf("web: register controller %s directive %s %s: %w", controllerType.Name(), directive.method, directive.path, ErrInvalidDirective)
+				return fmt.Errorf("web: register controller %s directive %s %s: %w", controllerType.Name(), directive.method, directive.path, err)
 			}
 			routes = append(routes, controllerRoute{
 				method:  directive.method,
@@ -754,7 +754,8 @@ func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc
 		}
 		payload := results[0].Interface()
 		if errVal, ok := payload.(error); ok && errVal != nil {
-			slog.Default().With("namespace", "web").Error("error value in payload slot",
+			slog.Default().With("namespace", "web").Error(
+				"error value in payload slot",
 				"error", errVal,
 			)
 			return writeErrorResponse(ctx, errVal)

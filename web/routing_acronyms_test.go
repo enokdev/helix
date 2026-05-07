@@ -91,6 +91,11 @@ func TestControllerRoutePrefixAcronyms(t *testing.T) {
 			controllerName: "HTTPSConfigController",
 			expectedRoute:  "/https-configs",
 		},
+		{
+			name:           "UserID controller strips ID suffix",
+			controllerName: "UserIDController",
+			expectedRoute:  "/users",
+		},
 	}
 
 	for _, tt := range tests {

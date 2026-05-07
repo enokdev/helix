@@ -74,6 +74,21 @@ func newRequestError(status int, code, field, message string) *RequestError {
 	}
 }
 
+// newBindingError creates a RequestError for structural binding failures (INVALID_JSON,
+// INVALID_QUERY_PARAM). Its ErrorType() returns "BindingError", distinct from "ValidationError".
+func newBindingError(status int, code, field, message string) *RequestError {
+	return &RequestError{
+		status:            status,
+		isMultiFieldError: false,
+		detail: ErrorDetail{
+			Type:    bindingErrorType,
+			Message: message,
+			Field:   field,
+			Code:    code,
+		},
+	}
+}
+
 // newMultiFieldValidationError creates a RequestError with multiple validation errors.
 func newMultiFieldValidationError(validationErrors []FieldError) *RequestError {
 	return &RequestError{
