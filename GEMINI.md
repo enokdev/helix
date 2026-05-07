@@ -38,17 +38,23 @@ Helix est un framework backend Go inspiré de **Spring Boot**, conçu pour minim
 
 ### Commandes Framework
 
+> ⚠️ **Conflit de toolchain macOS** : le binaire `go` du PATH peut être Homebrew (version différente du cache précompilé). Si `go test` échoue avec `"compile: version mismatch"`, utiliser le binaire **govm** :
+> ```bash
+> /Users/yacoubakone/.govm/go/bin/go test ./...
+> ```
+> Le projet cible **go1.25.5** (govm). Toujours vérifier `go version` avant de lancer des commandes.
+
 Pour développer le framework lui-même :
 
 ```bash
 # Télécharger les dépendances
-go mod tidy
+/Users/yacoubakone/.govm/go/bin/go mod tidy
 
 # Lancer tous les tests
-go test ./...
+/Users/yacoubakone/.govm/go/bin/go test ./...
 
 # Compiler le framework
-go build ./...
+/Users/yacoubakone/.govm/go/bin/go build ./...
 
 # Lancer le linter (si installé)
 golangci-lint run
