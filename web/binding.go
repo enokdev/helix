@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -47,10 +49,11 @@ type bindingPlan struct {
 }
 
 type fieldBinding struct {
-	indexPath    []int
-	name         string
-	defaultValue string
-	maxValue     string
+	indexPath       []int
+	name            string
+	defaultValue    string
+	maxValue        string
+	unsupportedType string
 }
 
 func newRequestValidator() *validator.Validate {
@@ -164,8 +167,10 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 		}
 
 		*hasQuery = true
-		if !isSupportedQueryField(field.Type) {
-			return fmt.Errorf("web: adapt handler query field %s: %w", field.Name, ErrUnsupportedHandler)
+		unsupportedType := ""
+		supported := isSupportedQueryField(field.Type)
+		if !supported {
+			unsupportedType = field.Type.String()
 		}
 		maxVal := field.Tag.Get("max")
 		if maxVal != "" {
@@ -177,10 +182,11 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 			}
 		}
 		*fields = append(*fields, fieldBinding{
-			indexPath:    currentPath,
-			name:         queryName,
-			defaultValue: field.Tag.Get("default"),
-			maxValue:     maxVal,
+			indexPath:       currentPath,
+			name:            queryName,
+			defaultValue:    field.Tag.Get("default"),
+			maxValue:        maxVal,
+			unsupportedType: unsupportedType,
 		})
 	}
 	return nil
@@ -249,13 +255,23 @@ func (p *bindingPlan) bind(ctx Context) (reflect.Value, error) {
 }
 
 func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
+	validationErrors := make([]FieldError, 0)
 	for _, field := range p.fields {
 		raw := ctx.Query(field.name)
-		if raw == "" {
+		present := queryParamPresent(ctx, field.name)
+		if raw == "" && !present {
 			raw = field.defaultValue
 		}
-		if raw == "" {
+		if raw == "" && !present && field.defaultValue == "" {
 			continue
+		}
+		if field.unsupportedType != "" {
+			return newBindingError(
+				http.StatusBadRequest,
+				codeInvalidQueryParam,
+				field.name,
+				fmt.Sprintf("%s has unsupported query type %s", field.name, field.unsupportedType),
+			)
 		}
 
 		target := fieldByIndexSafe(value, field.indexPath)
@@ -263,10 +279,37 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
 			return newBindingError(http.StatusBadRequest, codeInvalidQueryParam, field.name, fmt.Sprintf("%s has invalid value", field.name))
 		}
 		if field.maxValue != "" && exceedsMax(target, field.maxValue) {
-			return newRequestError(http.StatusBadRequest, codeValidationFailed, field.name, fmt.Sprintf("%s must be at most %s", field.name, field.maxValue))
+			validationErrors = append(validationErrors, FieldError{
+				Field: field.name,
+				Msg:   fmt.Sprintf("%s must be at most %s", field.name, field.maxValue),
+			})
 		}
 	}
+	if len(validationErrors) > 1 {
+		return newMultiFieldValidationError(validationErrors)
+	}
+	if len(validationErrors) == 1 {
+		validationErr := validationErrors[0]
+		return newRequestError(http.StatusBadRequest, codeValidationFailed, validationErr.Field, validationErr.Msg)
+	}
 	return nil
+}
+
+func queryParamPresent(ctx Context, name string) bool {
+	originalURL := ctx.OriginalURL()
+	if originalURL == "" {
+		return false
+	}
+	queryStart := strings.IndexByte(originalURL, '?')
+	if queryStart < 0 || queryStart == len(originalURL)-1 {
+		return false
+	}
+	values, err := url.ParseQuery(originalURL[queryStart+1:])
+	if err != nil {
+		return false
+	}
+	_, ok := values[name]
+	return ok
 }
 
 func fieldByIndexSafe(v reflect.Value, index []int) reflect.Value {
@@ -386,6 +429,9 @@ func setQueryValue(value reflect.Value, raw string) error {
 		if err != nil {
 			return err
 		}
+		if !isFiniteFloat(parsed) {
+			return strconv.ErrSyntax
+		}
 		target.SetFloat(parsed)
 	case reflect.Slice:
 		return setQuerySliceValue(target, raw)
@@ -427,8 +473,14 @@ func validateMaxTagValue(maxValue string, fieldType reflect.Type) error {
 		_, err := strconv.ParseUint(maxValue, 10, ft.Bits())
 		return err
 	case reflect.Float32, reflect.Float64:
-		_, err := strconv.ParseFloat(maxValue, ft.Bits())
-		return err
+		parsed, err := strconv.ParseFloat(maxValue, ft.Bits())
+		if err != nil {
+			return err
+		}
+		if !isFiniteFloat(parsed) {
+			return strconv.ErrSyntax
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported numeric kind %s", ft.Kind())
 	}
@@ -452,10 +504,14 @@ func exceedsMax(value reflect.Value, maxValue string) bool {
 		return err != nil || target.Uint() > maxUint
 	case reflect.Float32, reflect.Float64:
 		maxFloat, err := strconv.ParseFloat(maxValue, target.Type().Bits())
-		return err != nil || target.Float() > maxFloat
+		return err != nil || !isFiniteFloat(maxFloat) || !isFiniteFloat(target.Float()) || target.Float() > maxFloat
 	default:
 		return false
 	}
+}
+
+func isFiniteFloat(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func isSupportedQueryField(fieldType reflect.Type) bool {
@@ -467,7 +523,7 @@ func isSupportedQueryField(fieldType reflect.Type) bool {
 		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
-		return true
+		return isBuiltinPrimitive(fieldType)
 	case reflect.Slice:
 		return isSupportedSliceElement(fieldType.Elem())
 	default:
@@ -483,10 +539,14 @@ func isSupportedSliceElement(elem reflect.Type) bool {
 		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
-		return true
+		return isBuiltinPrimitive(elem)
 	default:
 		return false
 	}
+}
+
+func isBuiltinPrimitive(fieldType reflect.Type) bool {
+	return fieldType.PkgPath() == ""
 }
 
 func isNumericField(fieldType reflect.Type) bool {

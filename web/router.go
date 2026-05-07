@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -485,7 +486,7 @@ func parseRouteDirective(text string) (routeDirective, error) {
 	}
 	normalizedMethod, err := validateRoute(directive.method, directive.path, func(Context) error { return nil })
 	if err != nil {
-		return routeDirective{}, ErrInvalidDirective
+		return routeDirective{}, errors.Join(err, ErrInvalidDirective)
 	}
 	directive.method = normalizedMethod
 	return directive, nil
@@ -596,13 +597,13 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 				if strings.HasPrefix(part, "route:") {
 					route := strings.TrimSpace(strings.TrimPrefix(part, "route:"))
 					if route == "" {
-						return "", fmt.Errorf("web: invalid controller %s tag: route value cannot be empty — use helix:\"route:/v1/path\"", controllerType.Name())
+						return "", fmt.Errorf("web: invalid controller %s tag: route value cannot be empty — use helix:\"route:/v1/path\": %w", controllerType.Name(), ErrInvalidController)
 					}
 					if !strings.HasPrefix(route, "/") {
-						return "", fmt.Errorf("web: invalid controller %s tag: route must start with '/' — found %q", controllerType.Name(), route)
+						return "", fmt.Errorf("web: invalid controller %s tag: route must start with '/' — found %q: %w", controllerType.Name(), route, ErrInvalidRoute)
 					}
 					if strings.Contains(route, "..") {
-						return "", fmt.Errorf("web: invalid controller %s tag: route contains illegal '..' sequence", controllerType.Name())
+						return "", fmt.Errorf("web: invalid controller %s tag: route contains illegal '..' sequence: %w", controllerType.Name(), ErrInvalidRoute)
 					}
 					return route, nil
 				}

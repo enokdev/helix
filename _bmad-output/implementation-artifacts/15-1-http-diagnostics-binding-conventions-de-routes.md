@@ -1,6 +1,6 @@
 # Story 15.1: HTTP — Diagnostics, Binding & Conventions de Routes
 
-Status: in-progress
+Status: done
 
 ## Story
 
@@ -19,32 +19,42 @@ afin de diagnostiquer rapidement les problèmes de binding, validation et décou
 
 ## Tasks / Subtasks
 
-- [ ] Corriger le modèle d'erreur de binding (AC: 1, 2)
-  - [ ] Introduire des constantes séparées pour `BindingError` et `ValidationError` dans `web/binding.go` / `web/errors.go`.
-  - [ ] Garder `helix.ValidationError` inchangé : il doit rester une validation métier avec `ErrorType() == "ValidationError"`.
-  - [ ] Faire en sorte que `writeErrorResponse` respecte le body spécifique d'un `RequestError`, y compris `ValidationErrorResponse`, au lieu de reconstruire systématiquement `ErrorResponse`.
-  - [ ] Conserver `errors.Is(err, web.ErrInvalidRequest)` pour tous les `RequestError`.
-- [ ] Finaliser les erreurs multiples et leur couverture HTTP end-to-end (AC: 2)
-  - [ ] Ajouter un test via `web.RegisterController` + `ServeHTTP` qui vérifie le JSON `errors` sur plusieurs erreurs de body.
-  - [ ] Ajouter un test équivalent pour plusieurs erreurs de query.
-  - [ ] Vérifier l'ordre des erreurs selon l'ordre des champs déclarés, y compris avec embedded structs.
-- [ ] Étendre le binding query (AC: 3)
-  - [ ] Ajouter `float32` / `float64` et pointeurs vers floats dans `isSupportedQueryField`, `isNumericField`, `validateMaxTagValue`, `exceedsMax`, `setQueryValue`.
-  - [ ] Ajouter les slices simples en parsing comma-separated sans modifier `web.Context`; les repeated query params sont hors périmètre tant que `Context` n'expose que `Query(key) string`.
-  - [ ] Refuser les slices multidimensionnelles, maps, structs, `time.Time`, et types custom non explicitement supportés avec une erreur actionnable.
-  - [ ] Tester erreurs `ErrSyntax` / `ErrRange` de parsing comme `INVALID_QUERY_PARAM`.
-- [ ] Durcir les conventions de route (AC: 4, 5)
-  - [ ] Vérifier que les tests actuels couvrent `UserIDController`; ajouter le cas si absent.
-  - [ ] Faire tester l'override `helix:"route:/v1/users"` en inspectant les routes enregistrées ou via `ServeHTTP`, pas uniquement `NoError`.
-  - [ ] Ne pas introduire de dépendance externe de pluralisation dans cette story; les pluriels irréguliers restent hors périmètre.
-- [ ] Améliorer les diagnostics de registration (AC: 6)
-  - [ ] Distinguer les causes de `adaptControllerMethod` / `newControllerArgumentPlan` / `newControllerReturnPlan` dans les messages.
-  - [ ] Pour les routes invalides, préserver l'erreur racine de `validateRoute` dans la chaîne au lieu de ne retourner que `ErrInvalidDirective`.
-  - [ ] Ajouter des tests sur les messages sans matcher des chaînes trop longues ou fragiles.
-- [ ] Vérification
-  - [ ] Lancer `gofumpt` sur les fichiers Go modifiés.
-  - [ ] Lancer `go test ./web/...`.
-  - [ ] Lancer `go test ./...` si les signatures publiques changent.
+- [x] Corriger le modèle d'erreur de binding (AC: 1, 2)
+  - [x] Introduire des constantes séparées pour `BindingError` et `ValidationError` dans `web/binding.go` / `web/errors.go`.
+  - [x] Garder `helix.ValidationError` inchangé : il doit rester une validation métier avec `ErrorType() == "ValidationError"`.
+  - [x] Faire en sorte que `writeErrorResponse` respecte le body spécifique d'un `RequestError`, y compris `ValidationErrorResponse`, au lieu de reconstruire systématiquement `ErrorResponse`.
+  - [x] Conserver `errors.Is(err, web.ErrInvalidRequest)` pour tous les `RequestError`.
+- [x] Finaliser les erreurs multiples et leur couverture HTTP end-to-end (AC: 2)
+  - [x] Ajouter un test via `web.RegisterController` + `ServeHTTP` qui vérifie le JSON `errors` sur plusieurs erreurs de body.
+  - [x] Ajouter un test équivalent pour plusieurs erreurs de query.
+  - [x] Vérifier l'ordre des erreurs selon l'ordre des champs déclarés, y compris avec embedded structs.
+- [x] Étendre le binding query (AC: 3)
+  - [x] Ajouter `float32` / `float64` et pointeurs vers floats dans `isSupportedQueryField`, `isNumericField`, `validateMaxTagValue`, `exceedsMax`, `setQueryValue`.
+  - [x] Ajouter les slices simples en parsing comma-separated sans modifier `web.Context`; les repeated query params sont hors périmètre tant que `Context` n'expose que `Query(key) string`.
+  - [x] Refuser les slices multidimensionnelles, maps, structs, `time.Time`, et types custom non explicitement supportés avec une erreur actionnable.
+  - [x] Tester erreurs `ErrSyntax` / `ErrRange` de parsing comme `INVALID_QUERY_PARAM`.
+- [x] Durcir les conventions de route (AC: 4, 5)
+  - [x] Vérifier que les tests actuels couvrent `UserIDController`; cas ajouté dans `routing_acronyms_test.go`.
+  - [x] Faire tester l'override `helix:"route:/v1/users"` via `ServeHTTP` (nouveau test `TestControllerRouteOverride_ServeHTTP`).
+  - [x] Ne pas introduire de dépendance externe de pluralisation dans cette story; les pluriels irréguliers restent hors périmètre.
+- [x] Améliorer les diagnostics de registration (AC: 6)
+  - [x] Distinguer les causes de `adaptControllerMethod` / `newControllerArgumentPlan` / `newControllerReturnPlan` dans les messages.
+  - [x] Pour les routes invalides, préserver l'erreur racine de `validateRoute` dans la chaîne au lieu de ne retourner que `ErrInvalidDirective`.
+  - [x] Ajouter des tests sur les messages sans matcher des chaînes trop longues ou fragiles.
+- [x] Vérification
+  - [x] Lancer `gofumpt` sur les fichiers Go modifiés.
+  - [x] Lancer `go test ./web/...` — vert.
+  - [x] Lancer `go test ./...` — tous les 28 packages passent.
+
+### Review Findings
+
+- [x] [Review][Patch] Les floats query acceptent `NaN` / `Inf` et peuvent contourner `max` [web/binding.go:384]
+- [x] [Review][Patch] Les erreurs de validation query `max` court-circuitent au premier champ au lieu de retourner toutes les erreurs [web/binding.go:265]
+- [x] [Review][Patch] Les types query non supportés ne produisent pas `INVALID_QUERY_PARAM` avec champ et type [web/binding.go:167]
+- [x] [Review][Patch] Le comportement `tags=` pour les slices est non testé et la branche slice vide est inatteignable via `bindQuery` [web/binding.go:253]
+- [x] [Review][Patch] Les directives `//helix:route` invalides perdent la cause racine de validation de route [web/router.go:486]
+- [x] [Review][Patch] Les overrides `helix:"route:..."` invalides ne wrappent pas de cause sentinelle [web/router.go:598]
+- [x] [Review][Patch] Le test float ne vérifie pas réellement le binding `float32` [web/router_test.go:1859]
 
 ## Dev Notes
 
@@ -112,13 +122,36 @@ afin de diagnostiquer rapidement les problèmes de binding, validation et décou
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Sonnet 4.6 (claude-sonnet-4.6) via GitHub Copilot CLI
 
 ### Debug Log References
+
+- CI run 25488065466 : échec lint revive (paramètre `body` non utilisé) → corrigé en `_` dans commit `f6fed65`.
+- CI run 25488222909 : succès ✅
 
 ### Completion Notes List
 
 - Story context created from Epic 15 and current HTTP implementation analysis.
-- Several ACs are already partially implemented; dev work should close gaps and strengthen end-to-end tests.
+- Several ACs were already partially implemented; dev work closed the gaps and strengthened end-to-end tests.
+- **Piège Go toolchain** : le binaire `go` par défaut sur macOS (Homebrew go1.26.2) ne correspond pas au cache de compilation précompilé (govm go1.25.5) → toutes les commandes `go test` échouaient avec "compile: version mismatch". Utiliser `/Users/yacoubakone/.govm/go/bin/go` (go1.25.5) en local.
+- `writeErrorResponse` ne respectait pas `ResponseBody()` → bug corrigé dans `web/response.go` ; la réponse multi-erreurs `{"errors":[...]}` est maintenant réellement envoyée via HTTP.
+- Nouveau `newBindingError()` séparé de `newRequestError()` ; les erreurs `INVALID_JSON` et `INVALID_QUERY_PARAM` retournent `type: "BindingError"`.
+- Slices comma-separated : `tags=a,b,c` → `[]string{"a","b","c"}` via `setQuerySliceValue`.
+- Floats : `float32`/`float64` supportés dans toute la pipeline query (parse, max, validate).
+- `validateRoute` préserve désormais la cause racine via `%w err` au lieu de `ErrInvalidDirective`.
 
 ### File List
+
+- `web/binding.go`
+- `web/errors.go`
+- `web/response.go`
+- `web/router.go`
+- `web/router_test.go`
+- `web/routing_acronyms_test.go`
+
+### Change Log
+
+| Date | Commit | Description |
+|------|--------|-------------|
+| 2026-05-07 | `3280913` | feat(web): HTTP diagnostics, binding error types, float/slice query params — story 15.1 |
+| 2026-05-07 | `f6fed65` | fix(web): rename unused body param to _ in test controller (revive lint) |
