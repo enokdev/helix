@@ -20,6 +20,9 @@ func TestGeneratorCreatesRepositoryQueries(t *testing.T) {
 	if result.GeneratedFiles != 1 {
 		t.Fatalf("GeneratedFiles = %d, want 1", result.GeneratedFiles)
 	}
+	if len(result.Files) != 1 || filepath.Base(result.Files[0]) != "user_repository_query_gen.go" {
+		t.Fatalf("Files = %#v, want generated query file", result.Files)
+	}
 
 	generatedPath := filepath.Join(dir, "user_repository_query_gen.go")
 	generated := readFile(t, generatedPath)
@@ -69,6 +72,35 @@ func TestGeneratorIsDeterministicAndDoesNotRewriteIdenticalFile(t *testing.T) {
 	}
 	if !info.ModTime().Equal(infoAfter.ModTime()) {
 		t.Fatal("identical second generation rewrote the generated file")
+	}
+}
+
+func TestWriteFileIfChangedReportsChangesAndCleansTempFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "generated.go")
+
+	changed, err := writeFileIfChanged(path, []byte("package generated\n"))
+	if err != nil {
+		t.Fatalf("writeFileIfChanged() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("writeFileIfChanged() changed = false, want true for new file")
+	}
+
+	changed, err = writeFileIfChanged(path, []byte("package generated\n"))
+	if err != nil {
+		t.Fatalf("second writeFileIfChanged() error = %v", err)
+	}
+	if changed {
+		t.Fatal("writeFileIfChanged() changed = true, want false for identical content")
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, ".generated.go.tmp-*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temp files left behind: %v", matches)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/enokdev/helix/cli/internal/gofmtx"
 )
 
 // GenerateResult contains information about the generation process.
@@ -245,7 +247,11 @@ func initGeneratedRoutes() error {
 
 	buf.WriteString("\n\treturn nil\n}\n")
 
-	return os.WriteFile(outputPath, buf.Bytes(), 0o644)
+	formatted, err := gofmtx.Source(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("format generated routes: %w", err)
+	}
+	return os.WriteFile(outputPath, formatted, 0o644)
 }
 
 func (g *WebGenerator) generateHandlersFile(outputPath string, handlersByFile map[string][]handlerInfo) error {
@@ -300,7 +306,11 @@ func initGeneratedErrorHandlers() error {
 
 	buf.WriteString(",\n\t); err != nil {\n\t\treturn err\n\t}\n\n\treturn nil\n}\n")
 
-	return os.WriteFile(outputPath, buf.Bytes(), 0o644)
+	formatted, err := gofmtx.Source(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("format generated error handlers: %w", err)
+	}
+	return os.WriteFile(outputPath, formatted, 0o644)
 }
 
 func formatStringSlice(slice []string) string {

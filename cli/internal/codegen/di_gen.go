@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/format"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/enokdev/helix/cli/internal/gofmtx"
 )
 
 var errCyclicWireDependency = errors.New("cyclic dependency")
@@ -114,11 +115,12 @@ func (g *DIGenerator) Generate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	formatted, err := format.Source(content)
+	formatted, err := gofmtx.Source(content)
 	if err != nil {
 		return fmt.Errorf("cli/codegen: wire: format generated file: %w", err)
 	}
-	return writeFileIfChanged(filepath.Join(absRoot, "helix_wire_gen.go"), formatted)
+	_, err = writeFileIfChanged(filepath.Join(absRoot, "helix_wire_gen.go"), formatted)
+	return err
 }
 
 func collectAllInjectableComponents(packages []*packageModel) ([]injectableComponent, error) {

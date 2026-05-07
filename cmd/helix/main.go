@@ -4,120 +4,119 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/enokdev/helix/cli"
 )
 
+var cliStdout io.Writer = os.Stdout
+
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("helix: expected subcommand new, db, generate, run, or build")
 	}
 
 	switch args[0] {
 	case "new":
-		return runNew(args[1:])
+		return runNew(ctx, args[1:])
 	case "db":
-		return runDB(args[1:])
+		return runDB(ctx, args[1:])
 	case "run":
-		return runRun(args[1:])
+		return runRun(ctx, args[1:])
 	case "build":
-		return runBuild(args[1:])
+		return runBuild(ctx, args[1:])
 	case "generate":
 		restArgs := args[1:]
 		if len(restArgs) > 0 && restArgs[0] == "wire" {
-			return runGenerateWire(restArgs[1:])
+			return runGenerateWire(ctx, restArgs[1:])
 		}
 		if len(restArgs) > 0 && restArgs[0] == "module" {
-			return runGenerateModule(restArgs[1:])
+			return runGenerateModule(ctx, restArgs[1:])
 		}
 		if len(restArgs) > 0 && restArgs[0] == "context" {
-			return runGenerateContext(restArgs[1:])
+			return runGenerateContext(ctx, restArgs[1:])
 		}
-		return runGenerate(restArgs)
+		return runGenerate(ctx, restArgs)
 	default:
 		return fmt.Errorf("helix: expected subcommand new, db, generate, run, or build")
 	}
 }
 
-func runDB(args []string) error {
+func runDB(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] != "migrate" {
 		return fmt.Errorf("helix db: expected subcommand migrate")
 	}
-	return runDBMigrate(args[1:])
+	return runDBMigrate(ctx, args[1:])
 }
 
-func runDBMigrate(args []string) error {
+func runDBMigrate(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("helix db migrate: expected subcommand create, up, down, or status")
 	}
 	switch args[0] {
 	case "create":
-		return runDBMigrateCreate(args[1:])
+		return runDBMigrateCreate(ctx, args[1:])
 	case "up":
-		return runDBMigrateUp(args[1:])
+		return runDBMigrateUp(ctx, args[1:])
 	case "down":
-		return runDBMigrateDown(args[1:])
+		return runDBMigrateDown(ctx, args[1:])
 	case "status":
-		return runDBMigrateStatus(args[1:])
+		return runDBMigrateStatus(ctx, args[1:])
 	default:
 		return fmt.Errorf("helix db migrate: expected subcommand create, up, down, or status")
 	}
 }
 
-func runDBMigrateCreate(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("helix db migrate create: expected migration name")
-	}
-	if strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("helix db migrate create: migration name must come before flags (got %q)", args[0])
-	}
-	name := args[0]
+func runDBMigrateCreate(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("db migrate create", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "Go module root")
-	if err := flags.Parse(args[1:]); err != nil {
+	name, err := parseNamedCommand(flags, args, "migration name")
+	if err != nil {
 		return err
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("helix db migrate create: unexpected argument %q", flags.Arg(0))
-	}
-	return cli.CreateMigration(context.Background(), cli.CreateMigrationOptions{Dir: *dir, Name: name})
+	return cli.CreateMigration(ctx, cli.CreateMigrationOptions{Dir: *dir, Name: name})
 }
 
-func runDBMigrateUp(args []string) error {
+func runDBMigrateUp(ctx context.Context, args []string) error {
 	opts, err := parseDBMigrateOptions("db migrate up", args)
 	if err != nil {
 		return err
 	}
-	opts.Output = os.Stdout
-	return cli.MigrateUp(context.Background(), opts)
+	opts.Output = cliStdout
+	return cli.MigrateUp(ctx, opts)
 }
 
-func runDBMigrateDown(args []string) error {
+func runDBMigrateDown(ctx context.Context, args []string) error {
 	opts, err := parseDBMigrateOptions("db migrate down", args)
 	if err != nil {
 		return err
 	}
-	opts.Output = os.Stdout
-	return cli.MigrateDown(context.Background(), opts)
+	opts.Output = cliStdout
+	return cli.MigrateDown(ctx, opts)
 }
 
-func runDBMigrateStatus(args []string) error {
+func runDBMigrateStatus(ctx context.Context, args []string) error {
 	opts, err := parseDBMigrateOptions("db migrate status", args)
 	if err != nil {
 		return err
 	}
-	opts.Output = os.Stdout
-	return cli.MigrationStatus(context.Background(), opts)
+	opts.Output = cliStdout
+	return cli.MigrationStatus(ctx, opts)
 }
 
 func parseDBMigrateOptions(name string, args []string) (cli.MigrationOptions, error) {
@@ -134,19 +133,19 @@ func parseDBMigrateOptions(name string, args []string) (cli.MigrationOptions, er
 	return cli.MigrationOptions{Dir: *dir, DatabaseURL: *databaseURL}, nil
 }
 
-func runNew(args []string) error {
+func runNew(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] != "app" {
 		return fmt.Errorf("helix new: expected subcommand app")
 	}
-	return runNewApp(args[1:])
+	return runNewApp(ctx, args[1:])
 }
 
-func runRun(args []string) error {
+func runRun(ctx context.Context, args []string) error {
 	opts, err := parseRunOptions(args)
 	if err != nil {
 		return err
 	}
-	return cli.Run(context.Background(), opts)
+	return cli.Run(ctx, opts)
 }
 
 func parseRunOptions(args []string) (cli.RunOptions, error) {
@@ -159,12 +158,12 @@ func parseRunOptions(args []string) (cli.RunOptions, error) {
 	return cli.RunOptions{Dir: *dir, Args: flags.Args()}, nil
 }
 
-func runBuild(args []string) error {
+func runBuild(ctx context.Context, args []string) error {
 	opts, err := parseBuildOptions(args)
 	if err != nil {
 		return err
 	}
-	return cli.Build(context.Background(), opts)
+	return cli.Build(ctx, opts)
 }
 
 func parseBuildOptions(args []string) (cli.BuildOptions, error) {
@@ -181,24 +180,18 @@ func parseBuildOptions(args []string) (cli.BuildOptions, error) {
 	return cli.BuildOptions{Dir: *dir, Docker: *docker}, nil
 }
 
-func runNewApp(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("helix new app: expected app name")
-	}
-	name := args[0]
+func runNewApp(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("new app", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "directory where the app folder is created")
-	if err := flags.Parse(args[1:]); err != nil {
+	name, err := parseNamedCommand(flags, args, "app name")
+	if err != nil {
 		return err
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("helix new app: unexpected argument %q", flags.Arg(0))
-	}
-	return cli.NewApp(context.Background(), cli.NewAppOptions{Dir: *dir, Name: name})
+	return cli.NewApp(ctx, cli.NewAppOptions{Dir: *dir, Name: name})
 }
 
-func runGenerate(args []string) error {
+func runGenerate(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("generate", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "directory tree to scan")
@@ -208,10 +201,10 @@ func runGenerate(args []string) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("helix generate: unexpected argument %q", flags.Arg(0))
 	}
-	return cli.Generate(context.Background(), cli.GenerateOptions{Dir: *dir})
+	return cli.Generate(ctx, cli.GenerateOptions{Dir: *dir, Output: cliStdout})
 }
 
-func runGenerateWire(args []string) error {
+func runGenerateWire(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("generate wire", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "directory tree to scan")
@@ -221,39 +214,57 @@ func runGenerateWire(args []string) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("helix generate wire: unexpected argument %q", flags.Arg(0))
 	}
-	return cli.GenerateWire(context.Background(), cli.GenerateWireOptions{Dir: *dir})
+	return cli.GenerateWire(ctx, cli.GenerateWireOptions{Dir: *dir})
 }
 
-func runGenerateModule(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("helix generate module: expected module name")
-	}
-	name := args[0]
+func runGenerateModule(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("generate module", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "Go module root")
-	if err := flags.Parse(args[1:]); err != nil {
+	name, err := parseNamedCommand(flags, args, "module name")
+	if err != nil {
 		return err
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("helix generate module: unexpected argument %q", flags.Arg(0))
-	}
-	return cli.GenerateModule(context.Background(), cli.GenerateModuleOptions{Dir: *dir, Name: name})
+	return cli.GenerateModule(ctx, cli.GenerateModuleOptions{Dir: *dir, Name: name})
 }
 
-func runGenerateContext(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("helix generate context: expected context name")
-	}
-	name := args[0]
+func runGenerateContext(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("generate context", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "Go module root")
-	if err := flags.Parse(args[1:]); err != nil {
+	name, err := parseNamedCommand(flags, args, "context name")
+	if err != nil {
 		return err
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("helix generate context: unexpected argument %q", flags.Arg(0))
+	return cli.GenerateContext(ctx, cli.GenerateContextOptions{Dir: *dir, Name: name})
+}
+
+func parseNamedCommand(flags *flag.FlagSet, args []string, nameDescription string) (string, error) {
+	var flagArgs []string
+	var positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			flagArgs = append(flagArgs, arg)
+			if strings.Contains(arg, "=") {
+				continue
+			}
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				flagArgs = append(flagArgs, args[i+1])
+				i++
+			}
+			continue
+		}
+		positionals = append(positionals, arg)
 	}
-	return cli.GenerateContext(context.Background(), cli.GenerateContextOptions{Dir: *dir, Name: name})
+	if err := flags.Parse(flagArgs); err != nil {
+		return "", err
+	}
+	if len(positionals) == 0 {
+		return "", fmt.Errorf("helix %s: expected %s", flags.Name(), nameDescription)
+	}
+	if len(positionals) > 1 {
+		return "", fmt.Errorf("helix %s: unexpected argument %q", flags.Name(), positionals[1])
+	}
+	return positionals[0], nil
 }
