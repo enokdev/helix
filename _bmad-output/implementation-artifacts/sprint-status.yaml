@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-05-07 - story 15.1 done
+last_updated: 2026-05-07 - story 15.2 review
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-05-07 - story 15.1 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-05-07 - story 15.1 done
+last_updated: 2026-05-07 - story 15.2 review
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -203,7 +203,7 @@ development_status:
   # ─────────────────────────────────────────────
   epic-15: in-progress
   15-1-http-diagnostics-binding-conventions-de-routes: done
-  15-2-observabilite-context-propagation-metrics-tracing-corrects: backlog
+  15-2-observabilite-context-propagation-metrics-tracing-corrects: done
   15-3-interceptors-cache-comportement-production-grade: backlog
   15-4-cli-codegen-ergonomie-annulation-sorties-fiables: backlog
   15-5-scheduling-starters-contrats-dexecution-stricts: backlog

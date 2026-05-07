@@ -537,6 +537,17 @@ func (h *InterfaceArgErrorHandler) Handle(_ error) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
+type FailingWriteValidationErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *FailingWriteValidationErrorHandler) Handle(_ web.Context, _ helix.ValidationError) (any, int) {
+	// func() is not JSON-serialisable: the invoker will set the status to
+	// http.StatusTeapot and then fail to write the body.
+	return func() {}, http.StatusTeapot
+}
+
 func newTestServer(t *testing.T) web.HTTPServer {
 	t.Helper()
 	return web.NewServer()
@@ -669,6 +680,39 @@ func TestWithRouteObserver_CaptureStatusErreurGenerique(t *testing.T) {
 	}
 	if obs.calls[0].StatusCode != http.StatusInternalServerError {
 		t.Errorf("StatusCode = %d, want 500", obs.calls[0].StatusCode)
+	}
+}
+
+func TestWithRouteObserver_CaptureStatusEffectivementEnvoyeQuandErrorHandlerEchoue(t *testing.T) {
+	t.Parallel()
+
+	obs := &testObserver{}
+	server := web.NewServer(web.WithRouteObserver(obs))
+	if err := web.RegisterErrorHandler(server, &FailingWriteValidationErrorHandler{}); err != nil {
+		t.Fatalf("RegisterErrorHandler() error = %v", err)
+	}
+	if err := server.RegisterRoute(http.MethodGet, "/handled-write-failure", func(web.Context) error {
+		return helix.ValidationError{Message: "bad user", Field: "id"}
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/handled-write-failure", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(obs.calls) != 1 {
+		t.Fatalf("observer received %d calls, want 1", len(obs.calls))
+	}
+	// The observer must capture the status committed by the error handler (418),
+	// NOT the 500 that Fiber writes when the body serialisation error bubbles up.
+	if obs.calls[0].StatusCode != http.StatusTeapot {
+		t.Fatalf("observed status = %d, want %d (status committed by error handler before write failure)", obs.calls[0].StatusCode, http.StatusTeapot)
+	}
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("HTTP response status = %d, want %d (Fiber fallback after serialisation error)", resp.StatusCode, http.StatusInternalServerError)
 	}
 }
 

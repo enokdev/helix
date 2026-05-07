@@ -55,7 +55,7 @@ func RegisterMetricsRoute(server web.HTTPServer, registry *prometheus.Registry, 
 		return fmt.Errorf("observability: register metrics route: guard: %w", ErrInvalidMetrics)
 	}
 
-	handler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+	handler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{DisableCompression: true})
 
 	if err := server.RegisterRoute(http.MethodGet, metricsPath, func(ctx web.Context) error {
 		if options.guard != nil {
@@ -82,9 +82,6 @@ func servePrometheus(ctx web.Context, handler http.Handler) error {
 	if accept := ctx.Header("Accept"); accept != "" {
 		req.Header.Set("Accept", accept)
 	}
-	if enc := ctx.Header("Accept-Encoding"); enc != "" {
-		req.Header.Set("Accept-Encoding", enc)
-	}
 
 	rec := &responseRecorder{
 		header: make(http.Header),
@@ -96,7 +93,7 @@ func servePrometheus(ctx web.Context, handler http.Handler) error {
 	ctx.Status(rec.code)
 	for key, values := range rec.header {
 		for _, v := range values {
-			ctx.SetHeader(key, v)
+			ctx.AppendHeader(key, v)
 		}
 	}
 	return ctx.Send(rec.buf.Bytes())

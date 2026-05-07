@@ -13,6 +13,8 @@ import (
 	"time"
 
 	fiberinternal "github.com/enokdev/helix/web/internal"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // HTTPServer exposes Helix's minimal HTTP server contract.
@@ -121,23 +123,31 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 						"panic", fmt.Sprintf("%v", r),
 						"stack", string(debug.Stack()),
 					)
-					handlerErr = writeErrorResponse(observed, fmt.Errorf("handler panic"))
+					handlerErr = fmt.Errorf("handler panic: %v", r)
 				}
 			}()
 			handlerErr = handler(observed)
 		}()
 		if handlerErr != nil {
+			originalErr := handlerErr
 			if handled, handleErr := s.writeRegisteredError(observed, handlerErr); handled {
 				handlerErr = handleErr
 			} else {
 				handlerErr = writeErrorResponse(observed, handlerErr)
 			}
+			if ctx.StatusCode() >= http.StatusInternalServerError {
+				recordSpanError(observed.Context(), originalErr)
+			}
 		}
 
 		if observer != nil {
-			statusCode := observed.statusCode
+			statusCode := ctx.StatusCode()
 			if statusCode == 0 {
-				statusCode = http.StatusOK
+				if handlerErr != nil {
+					statusCode = http.StatusInternalServerError
+				} else {
+					statusCode = http.StatusOK
+				}
 			}
 			observer.Observe(RouteObservation{
 				Method:     ctx.Method(),
@@ -155,11 +165,22 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 	return nil
 }
 
+func recordSpanError(ctx context.Context, err error) {
+	if ctx == nil || err == nil {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	if !span.SpanContext().IsValid() {
+		return
+	}
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+}
+
 // observingContext wraps a Context to intercept Status calls and record the
 // final status code set during handler execution.
 type observingContext struct {
 	BaseContext fiberinternal.Context
-	statusCode  int // 0 means no explicit Status call; interpret as 200
 }
 
 func (o *observingContext) Method() string      { return o.BaseContext.Method() }
@@ -179,12 +200,15 @@ func (o *observingContext) Header(key string) string {
 func (o *observingContext) IP() string   { return o.BaseContext.IP() }
 func (o *observingContext) Body() []byte { return o.BaseContext.Body() }
 func (o *observingContext) Status(code int) {
-	o.statusCode = code
 	o.BaseContext.Status(code)
 }
 
 func (o *observingContext) SetHeader(key, value string) {
 	o.BaseContext.SetHeader(key, value)
+}
+
+func (o *observingContext) AppendHeader(key, value string) {
+	o.BaseContext.AppendHeader(key, value)
 }
 
 func (o *observingContext) Send(body []byte) error {
