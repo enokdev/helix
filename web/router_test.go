@@ -1749,7 +1749,7 @@ type MultiFieldBindingController struct {
 	helix.Controller
 }
 
-func (c *MultiFieldBindingController) Create(body multiFieldBody) error { return nil }
+func (c *MultiFieldBindingController) Create(_ multiFieldBody) error { return nil }
 
 func TestRegisterController_MultiFieldValidationResponseBody(t *testing.T) {
 	t.Parallel()
