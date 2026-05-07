@@ -476,3 +476,27 @@ func TestCacheInterceptorResponseRecorderCapture(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.status)
 	assert.NotEmpty(t, recorder.body)
 }
+
+// TestCacheInterceptorStatusAfterJSON verifies that calling Status(non-2xx) AFTER
+// JSON() prevents caching, even though JSON() has already been called.
+// This documents the intentional ordering contract of responseRecorder.
+func TestCacheInterceptorStatusAfterJSON(t *testing.T) {
+	store := newCacheStore()
+	t.Cleanup(func() { _ = store.Stop() })
+	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
+
+	// Handler calls JSON() first then Status(404) — should NOT be cached.
+	handler := func(ctx Context) error {
+		if err := ctx.JSON(map[string]string{"msg": "not found"}); err != nil {
+			return err
+		}
+		ctx.Status(http.StatusNotFound)
+		return nil
+	}
+
+	m := &mockContext{method: "GET"}
+	w := &cacheTestContext{mockContext: m, originalURL: "/missing"}
+	_ = interceptor.Intercept(w, handler)
+
+	assert.Equal(t, 0, store.Size(), "response with Status(404) after JSON() must not be cached")
+}

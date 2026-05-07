@@ -419,6 +419,12 @@ func (r *responseRecorder) Send(body []byte) error {
 	return r.BaseContext.Send(body)
 }
 
+// JSON serialises body to JSON, forwards it to the underlying context, and
+// records the payload for potential caching. If Status has not been called
+// before JSON, the status is implicitly set to 200 OK. If Status is called
+// AFTER JSON with a non-2xx code, the recorded status reflects that code and
+// the response will NOT be cached. Always call Status before JSON when the
+// intended status is not 200.
 func (r *responseRecorder) JSON(body any) error {
 	if r.status == 0 {
 		r.status = http.StatusOK

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	helix "github.com/enokdev/helix"
@@ -822,4 +823,85 @@ func TestServer_JSONSerializationFailure(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
+}
+
+// TestRegisterRouteDuplicate verifies that registering the same METHOD+path twice
+// returns ErrDuplicateRoute on the second call.
+func TestRegisterRouteDuplicate(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	if err := srv.RegisterRoute(http.MethodGet, "/items", handler); err != nil {
+		t.Fatalf("first RegisterRoute() error = %v", err)
+	}
+
+	err := srv.RegisterRoute(http.MethodGet, "/items", handler)
+	if !errors.Is(err, web.ErrDuplicateRoute) {
+		t.Fatalf("second RegisterRoute() error = %v, want ErrDuplicateRoute", err)
+	}
+}
+
+// TestRegisterRouteDuplicateCaseInsensitiveMethod verifies that method normalisation
+// is applied before the duplicate check (e.g. "get" and "GET" are the same route).
+func TestRegisterRouteDuplicateCaseInsensitiveMethod(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	if err := srv.RegisterRoute("GET", "/ping", handler); err != nil {
+		t.Fatalf("first RegisterRoute() error = %v", err)
+	}
+
+	err := srv.RegisterRoute("get", "/ping", handler)
+	if !errors.Is(err, web.ErrDuplicateRoute) {
+		t.Fatalf("RegisterRoute(\"get\") error = %v, want ErrDuplicateRoute", err)
+	}
+}
+
+// TestRegisterRouteDistinctMethodsSamePathAllowed verifies that different methods
+// on the same path are not considered duplicates.
+func TestRegisterRouteDistinctMethodsSamePathAllowed(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	if err := srv.RegisterRoute(http.MethodGet, "/items", handler); err != nil {
+		t.Fatalf("RegisterRoute(GET) error = %v", err)
+	}
+
+	if err := srv.RegisterRoute(http.MethodPost, "/items", handler); err != nil {
+		t.Fatalf("RegisterRoute(POST) error = %v, want nil", err)
+	}
+}
+
+// TestServerConcurrentRegistration verifies that guards and interceptors can be
+// registered from multiple goroutines without triggering the race detector.
+func TestServerConcurrentRegistration(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func(n int) {
+			defer wg.Done()
+			_ = web.RegisterGuard(srv,
+				fmt.Sprintf("guard-%d", n),
+				web.GuardFunc(func(web.Context) error { return nil }),
+			)
+		}(i)
+		go func(n int) {
+			defer wg.Done()
+			_ = web.RegisterInterceptor(srv,
+				fmt.Sprintf("interceptor-%d", n),
+				web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error { return next(ctx) }),
+			)
+		}(i)
+	}
+	wg.Wait()
 }

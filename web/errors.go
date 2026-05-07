@@ -27,6 +27,10 @@ var ErrInvalidRequest = errors.New("web: invalid request")
 // be registered.
 var ErrInvalidErrorHandler = errors.New("web: invalid error handler")
 
+// ErrDuplicateRoute is returned when the same METHOD+path combination is
+// registered more than once on the same server.
+var ErrDuplicateRoute = errors.New("web: duplicate route")
+
 // ErrorResponse is the structured JSON error envelope returned by Helix.
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`
