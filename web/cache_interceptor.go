@@ -32,9 +32,10 @@ type cacheEntry struct {
 }
 
 type flightResult struct {
-	status int
-	body   []byte
-	err    error
+	status     int
+	body       []byte
+	replayable bool
+	err        error
 }
 
 type flightKey struct {
@@ -214,6 +215,9 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 				if guardErr := evaluateRouteGuards(ctx); guardErr != nil {
 					return guardErr
 				}
+				if !flight.result.replayable {
+					return next(ctx)
+				}
 				ctx.Status(flight.result.status)
 				var body any
 				if err := json.Unmarshal(flight.result.body, &body); err != nil {
@@ -234,6 +238,12 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 			return err
 		}
 
+		if recorder.wroteJSON {
+			flight.result.status = recorder.status
+			flight.result.body = recorder.body
+			flight.result.replayable = true
+		}
+
 		if recorder.wroteJSON && recorder.status >= 200 && recorder.status < 300 {
 			// OOM Guard: only cache reasonably sized bodies.
 			if len(recorder.body) <= MaxCacheBodySize {
@@ -243,8 +253,6 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 					expiresAt: now.Add(ttl),
 					timestamp: now,
 				}, maxSize, strategy)
-				flight.result.status = recorder.status
-				flight.result.body = recorder.body
 			}
 		}
 

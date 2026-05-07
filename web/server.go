@@ -178,6 +178,9 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 		return handlerErr
 	})
 	if err != nil {
+		s.mu.Lock()
+		delete(s.registeredRoutes, routeKey)
+		s.mu.Unlock()
 		return fmt.Errorf("web: register route %s %s: %w", normalizedMethod, path, err)
 	}
 	return nil
@@ -356,16 +359,16 @@ func (s *server) registerInterceptorFactory(name string, factory InterceptorFact
 
 func (s *server) resolveGuard(directive namedDirective) (Guard, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if directive.argument == "" {
 		guard, ok := s.guards[directive.name]
+		s.mu.RUnlock()
 		if !ok {
 			return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, ErrInvalidDirective)
 		}
 		return guard, nil
 	}
 	factory, ok := s.guardFactories[directive.name]
+	s.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, ErrInvalidDirective)
 	}
@@ -381,19 +384,21 @@ func (s *server) resolveGuard(directive namedDirective) (Guard, error) {
 
 func (s *server) resolveInterceptor(directive namedDirective) (Interceptor, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if directive.argument == "" {
 		interceptor, ok := s.interceptors[directive.name]
 		if !ok {
 			if _, isFactory := s.interceptorFactories[directive.name]; isFactory {
+				s.mu.RUnlock()
 				return nil, fmt.Errorf("web: resolve interceptor %s: %q requires an argument (use %s:<value>): %w", directive.raw, directive.name, directive.name, ErrInvalidDirective)
 			}
+			s.mu.RUnlock()
 			return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, ErrInvalidDirective)
 		}
+		s.mu.RUnlock()
 		return interceptor, nil
 	}
 	factory, ok := s.interceptorFactories[directive.name]
+	s.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, ErrInvalidDirective)
 	}

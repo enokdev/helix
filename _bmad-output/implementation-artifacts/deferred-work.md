@@ -363,3 +363,7 @@
 ## Deferred from: code review of 14-10-guards-context-nettoyage-sentinelles (2026-05-07)
 
 - New interface registrations do not invalidate existing dependent singletons — pre-existing broader DI limitation outside AC4, which only requires same-type re-registration invalidation. If a singleton was already resolved through an interface dependency and a second implementation is later registered, the cached dependent may keep the old dependency instead of re-evaluating ambiguity. [core/reflect_resolver.go:65]
+
+## Deferred from: code review of 15-3-interceptors-cache-comportement-production-grade (2026-05-07)
+
+- `ApplyGlobalGuard` accepte toujours un guard nil, puis la première requête panique sur `g.CanActivate` avant le bloc de recovery du handler. C'est une faiblesse préexistante hors AC3/AC4/AC5, à corriger dans un durcissement séparé. [web/guard.go:112]

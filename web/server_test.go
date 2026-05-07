@@ -886,22 +886,68 @@ func TestServerConcurrentRegistration(t *testing.T) {
 	srv := newTestServer(t)
 
 	var wg sync.WaitGroup
+	errs := make(chan error, 40)
 	for i := 0; i < 20; i++ {
 		wg.Add(2)
 		go func(n int) {
 			defer wg.Done()
-			_ = web.RegisterGuard(srv,
+			errs <- web.RegisterGuard(srv,
 				fmt.Sprintf("guard-%d", n),
 				web.GuardFunc(func(web.Context) error { return nil }),
 			)
 		}(i)
 		go func(n int) {
 			defer wg.Done()
-			_ = web.RegisterInterceptor(srv,
+			errs <- web.RegisterInterceptor(srv,
 				fmt.Sprintf("interceptor-%d", n),
 				web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error { return next(ctx) }),
 			)
 		}(i)
 	}
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent registration error = %v", err)
+		}
+	}
+}
+
+func TestServerConcurrentRouteRegistration(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- srv.RegisterRoute(http.MethodGet, "/concurrent-route", handler)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	duplicates := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, web.ErrDuplicateRoute):
+			duplicates++
+		default:
+			t.Fatalf("RegisterRoute() error = %v, want nil or ErrDuplicateRoute", err)
+		}
+	}
+
+	if successes != 1 {
+		t.Fatalf("successful RegisterRoute() calls = %d, want 1", successes)
+	}
+	if duplicates != 19 {
+		t.Fatalf("duplicate RegisterRoute() calls = %d, want 19", duplicates)
+	}
 }

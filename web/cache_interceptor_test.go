@@ -121,7 +121,6 @@ func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 		}()
 	}
 
-	time.Sleep(50 * time.Millisecond)
 	close(handlerDone)
 
 	for i := 0; i < 10; i++ {
@@ -172,6 +171,7 @@ func TestCacheInterceptorEvaluatesGuardsForInflightWaiters(t *testing.T) {
 		secondResult <- interceptor.Intercept(second, handler)
 	}()
 
+	time.Sleep(50 * time.Millisecond)
 	close(handlerDone)
 	if err := <-firstResult; err != nil {
 		t.Fatalf("first request error = %v", err)
@@ -499,4 +499,54 @@ func TestCacheInterceptorStatusAfterJSON(t *testing.T) {
 	_ = interceptor.Intercept(w, handler)
 
 	assert.Equal(t, 0, store.Size(), "response with Status(404) after JSON() must not be cached")
+}
+
+func TestCacheInterceptorInflightWaitersReplayNonCacheableJSON(t *testing.T) {
+	store := newCacheStore()
+	t.Cleanup(func() { _ = store.Stop() })
+	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
+
+	handlerCalls := atomic.Int32{}
+	handlerStarted := make(chan struct{})
+	handlerDone := make(chan struct{})
+	handler := func(ctx Context) error {
+		if handlerCalls.Add(1) == 1 {
+			close(handlerStarted)
+		}
+		<-handlerDone
+		if err := ctx.JSON(map[string]string{"msg": "not found"}); err != nil {
+			return err
+		}
+		ctx.Status(http.StatusNotFound)
+		return nil
+	}
+
+	first := &cacheTestContext{
+		mockContext: &mockContext{method: http.MethodGet},
+		originalURL: "/missing-concurrent",
+	}
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- interceptor.Intercept(first, handler)
+	}()
+	<-handlerStarted
+
+	second := &cacheTestContext{
+		mockContext: &mockContext{method: http.MethodGet},
+		originalURL: "/missing-concurrent",
+	}
+	secondResult := make(chan error, 1)
+	go func() {
+		secondResult <- interceptor.Intercept(second, handler)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(handlerDone)
+
+	assert.NoError(t, <-firstResult)
+	assert.NoError(t, <-secondResult)
+	assert.Equal(t, int32(1), handlerCalls.Load())
+	assert.Equal(t, http.StatusNotFound, first.statusCode)
+	assert.Equal(t, http.StatusNotFound, second.statusCode)
+	assert.Equal(t, 0, store.Size())
 }
