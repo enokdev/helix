@@ -6,10 +6,6 @@
 - [D-15.5-3] `runtime.Goexit()` dans un job planifié tue le goroutine worker cron — `recover()` ne peut pas intercepter `Goexit`. Cas théorique (typiquement via `testing.T.FailNow()`), non actionnable en production. [scheduler/scheduler.go:recoverPanic]
 - [D-15.5-4] Mutex `adapterWrapper` tenu pendant tout l'appel `RegisterRaw` (incl. parse cron + acquisition lock interne robfig) — sous très forte charge de `Register`/`Unregister` simultanés, crée une contention. Optimisation future : séparer la validation sous lock de l'appel à l'adaptateur. [scheduler/scheduler.go:Register]
 
-## Deferred from: code review of 14-5-starters-erreurs-idempotence (2026-05-06)
-
-- [D-14.5-1] `wrapError` case `ErrInvalidFilter` identique à `default` — dead code après l'ajout de `ErrInvalidCondition`. Les deux branches produisent `fmt.Errorf("data/gorm: %s: %w", action, err)`. Pas de bug, mais le case spécialisé peut être supprimé lors d'un nettoyage futur. [data/gorm/adapter.go:331-332]
-
 ## Deferred from: code review of story-10-5 (2026-04-22)
 
 - [D-10.5-2] Migrations concurrentes non sérialisées — deux appels simultanés `helix db migrate up` peuvent tous deux passer le snapshot `appliedMigrations` et exécuter le même SQL. SQLite DDL est transactionnel donc l'état final reste cohérent, mais ce comportement est une hypothèse implicite non documentée et cassera sur toute DB dont DDL n'est pas transactionnel. [cli/internal/migrate/migrate.go:Up]
@@ -301,14 +297,7 @@
 
 ## Deferred from: code review of 11-1-readme-enrichi-quick-start (2026-04-23)
 
-- `FindAll` dégradation O(nextID) après suppression (`examples/crud-api/main.go:40-52`) — itère de 1 à nextID au lieu de parcourir la map directement ; acceptable pour un exemple en mémoire, refactor autonome pour un usage production.
-- `coverage.out` repo complet généré dans coverage.yml mais jamais uploadé ni rattaché comme artifact — dead work sur chaque run CI, nettoyable dans une story d'assainissement technique.
 - `serve` dans `examples/crud-api/main_test.go:60-62` définit `Content-Type` après passage du buffer à `http.NewRequest`, s'appuyant sur un comportement non documenté de `bytes.Buffer` — fonctionne aujourd'hui, fragile si l'implémentation stdlib change.
-
-## Deferred from: code review of 11-3-guide-couche-http-routing-guards-extracteurs (2026-04-23)
-
-- Future date hardcoded in sprint status file (sprint-status.yaml:2, 40) — The last_updated timestamp uses 2026-04-23, a future date inconsistent with typical practice. This suggests a test artifact, configuration error, or manual entry mistake. Dates in tracking files should reflect actual change dates for audit and historical accuracy.
-
 
 ## Deferred from: code review of 11-3-guide-couche-http-routing-guards-extracteurs (2026-04-24)
 
@@ -374,3 +363,7 @@
 ## Deferred from: code review of 15-3-interceptors-cache-comportement-production-grade (2026-05-07)
 
 - `ApplyGlobalGuard` accepte toujours un guard nil, puis la première requête panique sur `g.CanActivate` avant le bloc de recovery du handler. C'est une faiblesse préexistante hors AC3/AC4/AC5, à corriger dans un durcissement séparé. [web/guard.go:112]
+
+## Deferred from: code review of 15-6-test-ci-nettoyage-mineur-pre-release (2026-05-09)
+
+- [D-15.6-1] `setDefaultLoggerForTest` / `restoreDefault` latent deadlock if called twice with the same `t` — `defaultLoggerMu.Lock()` is acquired at call time and released only via `t.Cleanup`. If any test or helper calls the function twice with the same `t`, the second call blocks forever. Not currently triggered (each test calls it once with its own `t`), but a trap for future contributors. [test_globals_test.go, observability/logging_test.go, data/gorm/test_globals_test.go, scheduler/test_globals_test.go, web/test_globals_test.go]
