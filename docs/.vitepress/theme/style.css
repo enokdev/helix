@@ -159,3 +159,21 @@
   color: var(--vp-c-brand-1);
   font-weight: 700;
 }
+
+/* Show social links + appearance toggle at 960px instead of VitePress default 1280px.
+   This removes the awkward gap next to the ··· button on medium-width screens. */
+@media (min-width: 960px) {
+  .VPNavBarAppearance.appearance {
+    display: flex !important;
+    align-items: center;
+  }
+
+  .VPNavBarSocialLinks.social-links {
+    display: flex !important;
+  }
+
+  /* Hide the ··· extra button when social/appearance are already visible inline */
+  .VPNavBarExtra.extra {
+    display: none !important;
+  }
+}
