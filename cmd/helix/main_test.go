@@ -324,7 +324,7 @@ func TestRunRootCommandErrorsMentionRunAndBuild(t *testing.T) {
 	t.Parallel()
 
 	err := run(context.Background(), nil)
-	if err == nil || !strings.Contains(err.Error(), "expected subcommand new, db, generate, run, or build") {
+	if err == nil || !strings.Contains(err.Error(), "expected subcommand new, db, generate, run, build, or version") {
 		t.Fatalf("run(nil) error = %v", err)
 	}
 }
