@@ -2,6 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Helix',
+  base: '/helix/',
   description: 'The Spring Boot-inspired Go backend framework. DI/IoC, convention routing, auto-configuration, JWT security, Prometheus metrics — production-ready defaults, zero magic.',
   lang: 'en-US',
 
