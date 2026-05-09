@@ -1,0 +1,161 @@
+/**
+ * Helix Framework - Custom Vibrant Theme
+ */
+
+:root {
+  /* Brand Colors */
+  --helix-blue: #4f6ef7;
+  --helix-purple: #8b5cf6;
+  --helix-gradient: linear-gradient(135deg, var(--helix-blue), var(--helix-purple));
+
+  /* Overriding VitePress Variables */
+  --vp-c-brand-1: #4f6ef7;
+  --vp-c-brand-2: #8b5cf6;
+  --vp-c-brand-3: #4338ca;
+  --vp-c-brand-soft: rgba(79, 110, 247, 0.12);
+
+  /* Typography */
+  --vp-font-family-base: 'Plus Jakarta Sans', "Inter", sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', monospace;
+
+  /* Custom Layout */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: var(--helix-gradient);
+}
+
+.VPHero {
+  background-image: radial-gradient(var(--vp-c-brand-soft) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: center center;
+}
+
+/* Fix for invisible Hero Title and clipping of descenders */
+.name, .VPLine {
+  background: var(--helix-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  display: inline-block;
+  line-height: 1.3;
+  padding-bottom: 0.15em;
+  margin-bottom: -0.15em;
+}
+
+/* Dark Mode Adjustments */
+.dark {
+  --vp-c-brand-1: #8b5cf6;
+  --vp-c-brand-soft: rgba(139, 92, 246, 0.12);
+}
+
+/* Custom Component Styles */
+.terminal-window {
+  background: #0d1117;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  margin: 2rem 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.terminal-header {
+  background: #161b22;
+  padding: 10px 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.dot-red { background: #ff5f56; opacity: 0.8; }
+.dot-yellow { background: #ffbd2e; opacity: 0.8; }
+.dot-green { background: #27c93f; opacity: 0.8; }
+
+.terminal-content {
+  padding: 1.25rem;
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.85rem;
+  color: #e6edf3;
+  line-height: 1.6;
+}
+
+/* Interactive Feature Cards */
+.feature-card {
+  height: 100%;
+  padding: 1.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-soft);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+.feature-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vp-c-brand-1);
+  margin-bottom: 0.5rem;
+}
+
+.feature-title {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--vp-c-text-1);
+  letter-spacing: -0.01em;
+}
+
+.feature-details {
+  font-size: 0.925rem;
+  color: var(--vp-c-text-2);
+  line-height: 1.65;
+}
+
+/* Custom Callouts */
+.custom-callout {
+  margin: 2rem 0;
+  padding: 1.25rem 1.5rem;
+  border-radius: 10px;
+  border-left: 4px solid var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.callout-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--vp-c-brand-1);
+  margin-top: 3px;
+}
+
+.callout-content {
+  font-size: 0.95rem;
+  color: var(--vp-c-text-1);
+  line-height: 1.6;
+}
+
+.callout-content strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--vp-c-brand-1);
+  font-weight: 700;
+}
