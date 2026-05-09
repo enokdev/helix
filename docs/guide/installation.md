@@ -27,6 +27,42 @@ Verify:
 helix --version
 ```
 
+::: details `helix: command not found` after install
+
+`go install` places the binary in `$GOPATH/bin` (default: `~/go/bin`). If that directory is not in your `PATH`, the shell can't find `helix`.
+
+```bash
+# Add to your ~/.zshrc or ~/.bashrc
+export PATH="$PATH:$HOME/go/bin"
+
+# Apply immediately
+source ~/.zshrc
+```
+
+:::
+
+::: details `compile: version "goX.Y.Z" does not match go tool version "goA.B.C"`
+
+This happens when the `go` binary and `GOROOT` point to different Go installations — common when using a Go version manager (govm, gvm, asdf) alongside a system Go (Homebrew, golang.org installer).
+
+Check your environment:
+
+```bash
+which go        # which binary is used
+go env GOROOT   # must match that binary's installation
+```
+
+If they differ, unset `GOROOT` to let the Go binary use its own built-in path:
+
+```bash
+unset GOROOT
+go install github.com/enokdev/helix/cmd/helix@latest
+```
+
+To fix permanently, remove any `export GOROOT=...` line from your shell config (`~/.zshrc`, `~/.bashrc`) that was added by the version manager, or ensure you use only one Go installation at a time.
+
+:::
+
 ## Scaffold a New Project
 
 ```bash
