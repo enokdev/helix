@@ -1,4 +1,15 @@
 
+## Deferred from: code review of story-15-5 (2026-05-07)
+
+- [D-15.5-1] Partial-failure dans `Starter.Configure` laisse un scheduler orphelin dans le container — si `container.Register(sched)` réussit mais `container.Register(registrar)` échoue, le scheduler est registered sans registrar associé. Pré-existant, hors scope story 15.5. [starter/scheduling/starter.go:Configure]
+- [D-15.5-2] `evaluateCondition` retourne toujours `ReasonComponentMarker` pour tout `MarkerAwareStarter`, même quand l'inactivité est due à un override config. Limitation architecturale de l'interface `bool` — résoudre quand l'interface `Condition()` sera enrichie d'un motif. [starter/starter.go:evaluateCondition]
+- [D-15.5-3] `runtime.Goexit()` dans un job planifié tue le goroutine worker cron — `recover()` ne peut pas intercepter `Goexit`. Cas théorique (typiquement via `testing.T.FailNow()`), non actionnable en production. [scheduler/scheduler.go:recoverPanic]
+- [D-15.5-4] Mutex `adapterWrapper` tenu pendant tout l'appel `RegisterRaw` (incl. parse cron + acquisition lock interne robfig) — sous très forte charge de `Register`/`Unregister` simultanés, crée une contention. Optimisation future : séparer la validation sous lock de l'appel à l'adaptateur. [scheduler/scheduler.go:Register]
+
+## Deferred from: code review of 14-5-starters-erreurs-idempotence (2026-05-06)
+
+- [D-14.5-1] `wrapError` case `ErrInvalidFilter` identique à `default` — dead code après l'ajout de `ErrInvalidCondition`. Les deux branches produisent `fmt.Errorf("data/gorm: %s: %w", action, err)`. Pas de bug, mais le case spécialisé peut être supprimé lors d'un nettoyage futur. [data/gorm/adapter.go:331-332]
+
 ## Deferred from: code review of story-10-5 (2026-04-22)
 
 - [D-10.5-2] Migrations concurrentes non sérialisées — deux appels simultanés `helix db migrate up` peuvent tous deux passer le snapshot `appliedMigrations` et exécuter le même SQL. SQLite DDL est transactionnel donc l'état final reste cohérent, mais ce comportement est une hypothèse implicite non documentée et cassera sur toute DB dont DDL n'est pas transactionnel. [cli/internal/migrate/migrate.go:Up]
@@ -329,3 +340,37 @@
 ## Deferred from: code review of 14-1-panic-recovery-http-robustesse (2026-04-27)
 - Dépendance globale slog : L'usage de slog.Default() limite l'injectabilité du logging.
 - Allocation mémoire inutile : bytes.TrimSpace(ctx.Body()) alloue une nouvelle slice, doublant l'usage mémoire sur de gros payloads.
+
+## Deferred from: code review of story 14.2 (2026-04-27)
+
+- jsonErrorField relies on brittle string matching [web/binding.go:428]
+- No support for slice/list in query params [web/binding.go:340]
+- collectQueryFields lacks recursion depth limit [web/binding.go:121]
+
+## Deferred from: code review 14-4-securite-rbac-injection-sql (2026-05-06)
+- RBAC Search Optimization: The current O(N x M) loop in security/rbac.go is inefficient but acceptable for current needs. Consider optimizing with a map if role counts increase.
+
+## Deferred from: code review of 14-6-repository-pagination-findall-bornee (2026-05-07)
+
+- [D-14.6-1] `captureHandler.WithAttrs`/`WithGroup` retournent `h` (même pointeur) — viole le contrat `slog.Handler` qui exige un nouvel handler. Sans conséquence sur les tests actuels car `FindAll` utilise `slog.WarnContext` et non un sub-logger, mais un refactor de l'adaptateur vers un logger scopé casserait silencieusement les assertions. [data/gorm/adapter_integration_test.go:584]
+- [D-14.6-2] `attrValue` suppose une assertion `int64` pour la valeur de limite — si le type de `findAllLimit` change (ex: `int`), le helper retourne `nil` sans erreur visible. Rendre `attrValue` générique ou asserter `int` en fallback. [data/gorm/adapter_integration_test.go]
+- [D-14.6-3] Guard nil-receiver `if r != nil` dans `WithTransaction` est du code défensif inaccessible dans les flux nominaux — `r` ne peut être `nil` qu'avec une variable de type interface non-nulle. À supprimer lors d'un futur nettoyage. [data/gorm/adapter.go:203]
+- [D-14.6-4] `WithTransaction(tx)` sur un repo construit avec `db==nil` (`r.err==errInvalidDB`) réhabilite silencieusement le repo : le champ `r.err` n'est pas propagé dans le repo retourné. Actuellement non-observable car le seul chemin qui définit `r.err` est `NewRepository(nil)`, cas rare. À documenter ou corriger si `r.err` est étendu à d'autres états. [data/gorm/adapter.go:203-215]
+- [D-14.6-5] `clause.Column` passé en `Vars` dans `EscapeLike` repose sur le path interne `Statement.AddVar` de GORM pour rendre une `clause.Column` comme identifiant quoté. Comportement confirmé sur SQLite ; non garanti sur tous les dialectes. À couvrir par un test d'intégration multi-dialecte lors de l'ajout du support PostgreSQL/MySQL. [data/gorm/adapter.go]
+
+
+## Deferred from: code review of 14-7-cli-migrations-concurrence-annulation (2026-05-06)
+
+- [D-14.7-1] `isLockConflict` matching de chaînes fragile pour drivers non-SQLite — les patterns actuels ("unique constraint", "constraint failed", "database is locked") couvrent SQLite mais pas MySQL/PostgreSQL. À remplacer par des vérifications de codes d'erreur driver-specific lors de l'ajout du support multi-DB. [cli/internal/migrate/migrate.go]
+- [D-14.7-2] Lock row persistante après crash process (pas de TTL) — si le processus est SIGKILL-é après acquireMigrationLock mais avant releaseLock, la ligne persiste et tous les Up() suivants spinnent jusqu'au timeout. À résoudre avec un mécanisme TTL/expiry (ex: vérifier acquired_at > N secondes) lors d'un futur durcissement. [cli/internal/migrate/migrate.go]
+- [D-14.7-3] `cancelAfterAppliedContext.Done()` retourne nil, violation du contrat context.Context — le context de test custom retourne context.Canceled via Err() mais son channel Done() (hérité de context.Background()) ne se ferme jamais. Inoffensif dans les tests actuels où le lock est non-contesté, mais cassant si un test évolue vers un scénario avec lock contesté. [cli/internal/migrate/migrate_test.go]
+- [D-14.7-4] `\n` embarqué dans la chaîne `%w` de runMigration — pattern pré-existant qui embed la sortie subprocess dans l'erreur avec un newline littéral. Casse les loggers structurés et l'affichage d'erreurs multi-lignes. À nettoyer lors d'un refactor du logging d'erreurs CLI. [cli/internal/migrate/migrate.go]
+- [D-14.7-5] `appliedThisRun` peut omettre migration k si le subprocess succède avant d'être SIGKILL-é — si runMigration est appelé, le subprocess applique la migration et l'insère dans helix_migrations, puis est tué par cmd.CommandContext avant de retourner, l'erreur ctx rapportée ne l'inclut pas dans la liste. Limitation pré-existante du design subprocess. [cli/internal/migrate/migrate.go]
+
+## Deferred from: code review of 14-10-guards-context-nettoyage-sentinelles (2026-05-07)
+
+- New interface registrations do not invalidate existing dependent singletons — pre-existing broader DI limitation outside AC4, which only requires same-type re-registration invalidation. If a singleton was already resolved through an interface dependency and a second implementation is later registered, the cached dependent may keep the old dependency instead of re-evaluating ambiguity. [core/reflect_resolver.go:65]
+
+## Deferred from: code review of 15-3-interceptors-cache-comportement-production-grade (2026-05-07)
+
+- `ApplyGlobalGuard` accepte toujours un guard nil, puis la première requête panique sur `g.CanActivate` avant le bloc de recovery du handler. C'est une faiblesse préexistante hors AC3/AC4/AC5, à corriger dans un durcissement séparé. [web/guard.go:112]

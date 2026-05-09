@@ -179,6 +179,16 @@ Le framework est exempt de data races, de bugs de sécurité connus et de limita
 **FRs couverts :** NFR1, NFR2, NFR4
 **Phase PRD :** Phase 4 (Post-MVP)
 
+### Epic 14: Dette Technique v2
+Le framework est robuste face aux edge cases de production : panics, structs embarquées, ScopePrototype correct, RBAC sécurisé, migrations sérialisées et goroutine leaks absents.
+**FRs couverts :** NFR1, NFR2, NFR4
+**Phase PRD :** Phase 4 (Post-MVP)
+
+### Epic 15: Durcissement Release Candidate & DX Finale
+Le framework atteint un niveau release-candidate : diagnostics HTTP précis, observabilité correcte sous erreurs, cache/interceptors production-grade, CLI/codegen ergonomiques et dette de test/CI nettoyée.
+**FRs couverts :** NFR1, NFR2, NFR4, NFR6
+**Phase PRD :** Phase 4 (Post-MVP)
+
 ---
 
 ## Epic 1: Application Bootstrap & DI Container
@@ -1420,3 +1430,143 @@ Afin d'avoir un comportement prédictible et un code base sans code mort.
 **Given** `container.Register(component)` appelé deux fois avec le même type
 **Then** les singletons précédemment résolus qui dépendent de ce type sont invalidés (ou l'erreur est documentée)
 **Refs:** D-3.7-1, D-3.7-2, D-9.1-1, D-1.5-Df4 [web/guard.go, web/context.go, scheduler/scheduler.go]
+
+---
+
+## Epic 15: Durcissement Release Candidate & DX Finale
+
+Le framework atteint un niveau release-candidate : diagnostics HTTP précis, observabilité correcte sous erreurs, cache/interceptors production-grade, CLI/codegen ergonomiques et dette de test/CI nettoyée.
+**FRs couverts :** NFR1, NFR2, NFR4, NFR6
+**Phase PRD :** Phase 4 (Post-MVP)
+
+### Story 15.1: HTTP — Diagnostics, Binding & Conventions de Routes
+
+En tant que **développeur exposant une API Helix**,
+Je veux des erreurs HTTP plus précises et des conventions de routing configurables,
+Afin de diagnostiquer rapidement les problèmes de binding, validation et découverte de routes.
+
+**Acceptance Criteria:**
+
+**Given** une erreur de binding JSON
+**When** la réponse d'erreur est générée
+**Then** le type/code distinguent explicitement `BindingError` d'une validation métier
+**Given** plusieurs champs invalides dans un body ou une query
+**Then** toutes les erreurs de validation sont retournées dans une liste stable et testée
+**Given** une query contenant des slices ou floats supportés
+**Then** le binding les convertit correctement ou retourne une erreur typée et actionnable
+**Given** un controller `UserHTTPController` ou `UserIDController`
+**Then** les acronymes terminaux ne produisent pas de routes comme `/user-https` ou `/user-ids`
+**Given** un controller avec besoin de versioning ou ressource imbriquée
+**Then** un override explicite du préfixe de route est supporté et documenté
+**Given** `RegisterController` échoue
+**Then** l'erreur inclut le type du controller et la cause précise
+**Refs:** D-3.4-4, D-3.4-7, D-3.4-8, D-3.5-1, D-3.2-D1/D3/D5/D6, review 11.3 [web/binding.go, web/router.go]
+
+### Story 15.2: Observabilité — Context Propagation, Metrics & Tracing Corrects
+
+En tant que **développeur opérant Helix en production**,
+Je veux que les métriques, logs et traces reflètent fidèlement les erreurs et annulations,
+Afin que l'observabilité soit fiable pendant les incidents.
+
+**Acceptance Criteria:**
+
+**Given** une requête `/actuator/health` annulée par le client
+**When** un health indicator fait de l'I/O
+**Then** le contexte HTTP entrant est propagé au lieu de `context.Background()`
+**Given** un handler retourne une erreur
+**Then** le span OpenTelemetry enregistre l'erreur et passe en status error
+**Given** Prometheus retourne plusieurs valeurs pour un même header
+**Then** Helix préserve les headers multi-valeurs via une API adaptée
+**Given** un middleware de compression Fiber est actif
+**Then** `/actuator/metrics` ne double-compresse pas la réponse Prometheus
+**Given** un error handler écrit une réponse puis retourne une erreur
+**Then** la métrique de status reflète le status effectivement envoyé au client
+**Given** un handler veut créer un child span
+**Then** le contexte tracing courant est accessible via le contexte HTTP Helix
+**Refs:** story-6.1, story-6.2, story-6.4, F11, F12 [observability/actuator.go, observability/metrics_route.go, web/internal/fiber_adapter.go]
+
+### Story 15.3: Interceptors & Cache — Comportement Production-Grade
+
+En tant que **développeur utilisant des interceptors Helix**,
+Je veux que le cache et l'enregistrement runtime soient sûrs sous concurrence,
+Afin d'éviter les stampedes, fuites mémoire et états incohérents.
+
+**Acceptance Criteria:**
+
+**Given** plusieurs requêtes concurrentes touchent une cold cache key
+**Then** un seul handler calcule la valeur et les autres attendent le résultat
+**Given** des entrées de cache expirées ou trop nombreuses
+**Then** le cache applique une limite de taille et une éviction proactive configurable
+**Given** guards, interceptors ou error handlers sont enregistrés depuis plusieurs goroutines
+**Then** les maps internes sont protégées ou l'API retourne une erreur documentée avant démarrage
+**Given** une route dupliquée est enregistrée
+**Then** Helix retourne une erreur explicite au lieu d'empiler silencieusement les handlers Fiber
+**Given** `Status(non-2xx)` est appelé après `JSON()`
+**Then** le comportement de cache est testé et documenté ou rendu impossible par l'API
+**Refs:** D-3.7-3, D-3.7-4, D-3.7-5, D-3.7-7, Df2 3.1, review 11.3 [web/cache_interceptor.go, web/router.go, web/server.go]
+
+### Story 15.4: CLI & Codegen — Ergonomie, Annulation & Sorties Fiables
+
+En tant que **développeur utilisant le CLI Helix**,
+Je veux que les commandes et générateurs produisent des diagnostics fiables et interruptibles,
+Afin d'intégrer Helix proprement dans des workflows locaux et CI.
+
+**Acceptance Criteria:**
+
+**Given** une sous-commande CLI reçoit des flags avant ou après l'argument positionnel
+**Then** les deux formes acceptées sont supportées ou l'erreur explique l'ordre attendu
+**Given** une génération écrit un fichier
+**Then** l'écriture atomique ne dépend pas d'un rename cross-device et n'exécute pas de cleanup inutile après succès
+**Given** `helix generate` produit des fichiers
+**Then** le résultat liste les fichiers créés/modifiés dans la sortie CLI
+**Given** l'utilisateur interrompt une génération
+**Then** le contexte est annulé proprement au lieu d'utiliser un `context.Background()` non interruptible
+**Given** le générateur formate du Go
+**Then** la sortie respecte `gofumpt` ou documente explicitement l'écart
+**Given** une migration importe le module hôte ou échoue avec `CGO_ENABLED=0`
+**Then** l'erreur CLI est actionnable et ne dépend pas d'une sortie subprocess multi-lignes brute
+**Refs:** D-10.5-3, D-10.5-4, D-10.1-1, story 10.4, story 10.6, 4.3, 4.4 [cli/internal/codegen, cli/internal/migrate, cmd/helix/main.go]
+
+### Story 15.5: Scheduling & Starters — Contrats d'Exécution Stricts
+
+En tant que **développeur utilisant les starters et le scheduler**,
+Je veux que les contrats d'exécution soient explicites et défensifs,
+Afin d'éviter des jobs dupliqués, orphelins ou silencieusement non enregistrés.
+
+**Acceptance Criteria:**
+
+**Given** un job planifié panique
+**Then** la panique est récupérée, loggée et n'arrête pas silencieusement la goroutine scheduler
+**Given** deux jobs portent le même nom ou un nom vide
+**Then** l'enregistrement échoue avec une erreur claire
+**Given** un job échoue pendant `OnStart()`
+**Then** les jobs déjà enregistrés sont rollbackés ou arrêtés avant de retourner l'erreur
+**Given** `AllowConcurrent=false`
+**Then** le scheduler applique lui-même le verrou, même hors registrar auto-généré
+**Given** des starters ont des ordres ou noms dupliqués
+**Then** l'orchestration les rejette avant `Configure()`
+**Given** `Condition()` ou `Configure()` panique dans un starter utilisateur
+**Then** le contrat de récupération ou de propagation est documenté et testé
+**Refs:** story-9.2 D1/D4/D5/D6/D11, F3/F6/F13, D-10.2-1 [scheduler, starter, helix.go]
+
+### Story 15.6: Test, CI & Nettoyage Mineur Pré-Release
+
+En tant que **mainteneur Helix**,
+Je veux nettoyer les petites dettes de test, CI et exemples,
+Afin que la base soit stable avant une release candidate.
+
+**Acceptance Criteria:**
+
+**Given** la CI génère `coverage.out`
+**Then** le fichier est soit publié comme artifact, soit sa génération est supprimée
+**Given** des tests mutent le CWD ou `slog.Default()`
+**Then** ils sont isolés pour rester corrects si `t.Parallel()` est introduit
+**Given** des helpers de test implémentent `slog.Handler`
+**Then** `WithAttrs` et `WithGroup` respectent le contrat stdlib
+**Given** l'exemple CRUD supprime des users
+**Then** `FindAll` itère sur la map au lieu de scanner `1..nextID`
+**Given** une branche de wrapping d'erreur est identique au `default`
+**Then** le code mort est supprimé sans changement comportemental
+**Given** les artefacts de suivi contiennent des dates incohérentes
+**Then** elles sont corrigées au format réel de mise à jour
+**Refs:** 11.1, 11.3, 14.5, 14.6 [coverage.yml, examples/crud-api, data/gorm/adapter.go, sprint-status.yaml]

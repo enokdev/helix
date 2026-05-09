@@ -315,6 +315,11 @@ func TestRegisterController_RejectsMalformedRouteDirective(t *testing.T) {
 			if !errors.Is(err, web.ErrInvalidDirective) {
 				t.Fatalf("RegisterController() error = %v, want ErrInvalidDirective", err)
 			}
+			if tt.name == "unsupported method" || tt.name == "invalid path" {
+				if !errors.Is(err, web.ErrInvalidRoute) {
+					t.Fatalf("RegisterController() error = %v, want ErrInvalidRoute", err)
+				}
+			}
 		})
 	}
 }
@@ -403,6 +408,66 @@ func TestRegisterController_RejectsInvalidTypedQueryParams(t *testing.T) {
 				t.Fatal("handler should not be called when query extraction or validation fails")
 			}
 		})
+	}
+}
+
+func TestRegisterController_ReturnsMultipleQueryMaxErrors(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &MultiMaxQueryController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/multi-max-queries?limit=11&offset=21", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	var payload web.ValidationErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode ValidationErrorResponse: %v", err)
+	}
+	if len(payload.Errors) != 2 {
+		t.Fatalf("len(errors) = %d, want 2", len(payload.Errors))
+	}
+	if payload.Errors[0].Field != "limit" || payload.Errors[1].Field != "offset" {
+		t.Fatalf("error fields = %#v, want limit then offset", payload.Errors)
+	}
+	if controller.called {
+		t.Fatal("handler should not be called when query validation fails")
+	}
+}
+
+func TestRegisterController_UnsupportedQueryTypeReturnsInvalidQueryParam(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &UnsupportedQueryTypeController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/unsupported-query-types?metadata=enabled", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	detail := assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_QUERY_PARAM", "metadata")
+	if !strings.Contains(detail.Message, "map[string]string") {
+		t.Fatalf("error.message = %q, want unsupported type", detail.Message)
+	}
+	if controller.called {
+		t.Fatal("handler should not be called when query type is unsupported")
 	}
 }
 
@@ -870,14 +935,52 @@ func TestRegisterController_ChainsGuardsAndInterceptorsInOrder(t *testing.T) {
 	defer resp.Body.Close()
 
 	want := []string{
-		"guard:first",
-		"guard:second",
 		"interceptor:first:before",
 		"interceptor:second:before",
+		"guard:first",
+		"guard:second",
 		"handler",
 		"interceptor:second:after",
 		"interceptor:first:after",
 	}
+	if strings.Join(order, "|") != strings.Join(want, "|") {
+		t.Fatalf("execution order = %#v, want %#v", order, want)
+	}
+}
+
+func TestRegisterController_RunsInterceptorsAroundRejectedGuards(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	var order []string
+	controller := &RejectedGuardController{calls: &order}
+
+	if err := web.RegisterGuard(server, "authenticated", web.GuardFunc(func(web.Context) error {
+		order = append(order, "guard:authenticated")
+		return web.Unauthorized("authentication required")
+	})); err != nil {
+		t.Fatalf("RegisterGuard(authenticated) error = %v", err)
+	}
+	if err := web.RegisterInterceptor(server, "log", web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error {
+		order = append(order, "interceptor:before")
+		err := next(ctx)
+		order = append(order, "interceptor:after")
+		return err
+	})); err != nil {
+		t.Fatalf("RegisterInterceptor(log) error = %v", err)
+	}
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/rejected-guards", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	assertErrorResponse(t, resp, http.StatusUnauthorized, "UNAUTHORIZED", "")
+
+	want := []string{"interceptor:before", "guard:authenticated", "interceptor:after"}
 	if strings.Join(order, "|") != strings.Join(want, "|") {
 		t.Fatalf("execution order = %#v, want %#v", order, want)
 	}
@@ -1260,6 +1363,35 @@ func (c *TypedQueryController) Index(params typedQueryParams) error {
 	return nil
 }
 
+type MultiMaxQueryController struct {
+	helix.Controller
+	called bool
+}
+
+type multiMaxQueryParams struct {
+	Limit  int `query:"limit" max:"10"`
+	Offset int `query:"offset" max:"20"`
+}
+
+func (c *MultiMaxQueryController) Index(_ multiMaxQueryParams) error {
+	c.called = true
+	return nil
+}
+
+type UnsupportedQueryTypeController struct {
+	helix.Controller
+	called bool
+}
+
+type unsupportedQueryTypeParams struct {
+	Metadata map[string]string `query:"metadata"`
+}
+
+func (c *UnsupportedQueryTypeController) Index(_ unsupportedQueryTypeParams) error {
+	c.called = true
+	return nil
+}
+
 type BodyBindingController struct {
 	helix.Controller
 	called bool
@@ -1439,6 +1571,17 @@ type ChainedController struct {
 //helix:interceptor second
 func (c *ChainedController) Index() {
 	*c.order = append(*c.order, "handler")
+}
+
+type RejectedGuardController struct {
+	helix.Controller
+	calls *[]string
+}
+
+//helix:interceptor log
+//helix:guard authenticated
+func (c *RejectedGuardController) Index() {
+	*c.calls = append(*c.calls, "handler")
 }
 
 type MixedDirectiveController struct {
@@ -1682,5 +1825,334 @@ func TestRegisterController_RejectsWrongContentType(t *testing.T) {
 	detail := assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_JSON", "")
 	if !strings.Contains(detail.Message, "must be application/json") {
 		t.Errorf("error.message = %q, want it to contain 'must be application/json'", detail.Message)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AC 1 & 2: BindingError type + multi-error HTTP response body
+// ---------------------------------------------------------------------------
+
+// multiFieldBody has three required fields so we can trigger multiple errors.
+type multiFieldBody struct {
+	Email string `json:"email" validate:"required,email"`
+	Age   int    `json:"age"   validate:"required,min=18"`
+	Phone string `json:"phone" validate:"required"`
+}
+
+type MultiFieldBindingController struct {
+	helix.Controller
+}
+
+func (c *MultiFieldBindingController) Create(_ multiFieldBody) error { return nil }
+
+func TestRegisterController_MultiFieldValidationResponseBody(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &MultiFieldBindingController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	// Sending {} triggers required errors on all three fields → multi-error format.
+	req := httptest.NewRequest(http.MethodPost, "/multi-field-bindings", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	var payload web.ValidationErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode ValidationErrorResponse: %v", err)
+	}
+	if len(payload.Errors) != 3 {
+		t.Fatalf("len(errors) = %d, want 3", len(payload.Errors))
+	}
+	fields := make([]string, len(payload.Errors))
+	for i, fe := range payload.Errors {
+		fields[i] = fe.Field
+	}
+	for _, want := range []string{"email", "age", "phone"} {
+		found := false
+		for _, f := range fields {
+			if f == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected field %q in errors %v", want, fields)
+		}
+	}
+}
+
+func TestRegisterController_BindingErrorType_JSON(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &MultiFieldBindingController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/multi-field-bindings", strings.NewReader(`invalid-json`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	detail := assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_JSON", "")
+	if detail.Type != "BindingError" {
+		t.Errorf("error.type = %q, want BindingError", detail.Type)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AC 3: float32/float64 and slice query param support
+// ---------------------------------------------------------------------------
+
+type floatQueryParams struct {
+	Score  float64 `query:"score"`
+	Weight float32 `query:"weight"`
+}
+
+type FloatQueryController struct {
+	helix.Controller
+	got floatQueryParams
+}
+
+func (c *FloatQueryController) Index(params floatQueryParams) error {
+	c.got = params
+	return nil
+}
+
+func TestRegisterController_FloatQueryParams(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	ctrl := &FloatQueryController{}
+	if err := web.RegisterController(server, ctrl); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/float-queries?score=3.14&weight=1.5", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+	if ctrl.got.Score != 3.14 {
+		t.Errorf("Score = %v, want 3.14", ctrl.got.Score)
+	}
+	if ctrl.got.Weight != 1.5 {
+		t.Errorf("Weight = %v, want 1.5", ctrl.got.Weight)
+	}
+}
+
+func TestRegisterController_FloatQueryParam_InvalidValue(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &FloatQueryController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/float-queries?score=notanumber", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_QUERY_PARAM", "score")
+}
+
+func TestRegisterController_FloatQueryParam_RejectsNonFinite(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{"NaN", "+Inf", "-Inf"}
+	for _, raw := range tests {
+		raw := raw
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer(t)
+			if err := web.RegisterController(server, &FloatQueryController{}); err != nil {
+				t.Fatalf("RegisterController() error = %v", err)
+			}
+
+			resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/float-queries?score="+raw, nil))
+			if err != nil {
+				t.Fatalf("ServeHTTP() error = %v", err)
+			}
+			defer resp.Body.Close()
+
+			assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_QUERY_PARAM", "score")
+		})
+	}
+}
+
+type sliceQueryParams struct {
+	Tags []string `query:"tags"`
+	IDs  []int    `query:"ids"`
+}
+
+type SliceQueryController struct {
+	helix.Controller
+	got sliceQueryParams
+}
+
+func (c *SliceQueryController) Index(params sliceQueryParams) error {
+	c.got = params
+	return nil
+}
+
+func TestRegisterController_SliceQueryParams(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	ctrl := &SliceQueryController{}
+	if err := web.RegisterController(server, ctrl); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/slice-queries?tags=a,b,c&ids=1,2,3", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+	if len(ctrl.got.Tags) != 3 {
+		t.Errorf("Tags = %v, want 3 elements", ctrl.got.Tags)
+	}
+	if len(ctrl.got.IDs) != 3 {
+		t.Errorf("IDs = %v, want 3 elements", ctrl.got.IDs)
+	}
+}
+
+func TestRegisterController_SliceQueryParam_EmptyValue(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	ctrl := &SliceQueryController{}
+	if err := web.RegisterController(server, ctrl); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/slice-queries?tags=", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+	if ctrl.got.Tags == nil {
+		t.Fatal("Tags = nil, want empty slice")
+	}
+	if len(ctrl.got.Tags) != 0 {
+		t.Fatalf("Tags = %v, want empty slice", ctrl.got.Tags)
+	}
+}
+
+func TestRegisterController_SliceQueryParam_InvalidElement(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	if err := web.RegisterController(server, &SliceQueryController{}); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/slice-queries?ids=1,notanint,3", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_QUERY_PARAM", "ids")
+}
+
+// ---------------------------------------------------------------------------
+// AC 4: Route override verified via ServeHTTP
+// ---------------------------------------------------------------------------
+
+type VerifiedOverrideController struct {
+	helix.Controller `helix:"route:/v1/users"`
+	called           bool
+}
+
+func (c *VerifiedOverrideController) Index() error {
+	c.called = true
+	return nil
+}
+
+func TestControllerRouteOverride_ServeHTTP(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	ctrl := &VerifiedOverrideController{}
+	if err := web.RegisterController(server, ctrl); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/v1/users", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200; override route not registered correctly", resp.StatusCode)
+	}
+	if !ctrl.called {
+		t.Fatal("handler was not called at /v1/users")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AC 5 & 6: Diagnostic error messages contain controller and handler info
+// ---------------------------------------------------------------------------
+
+func TestRegisterController_DiagnosticErrorContainsControllerName(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	// TooManyReturnsController produces an unsupported handler error
+	err := web.RegisterController(server, &TooManyReturnsController{})
+	if err == nil {
+		t.Fatal("expected an error for TooManyReturnsController, got nil")
+	}
+	if !strings.Contains(err.Error(), "TooManyReturns") {
+		t.Errorf("error %q does not contain controller name 'TooManyReturns'", err.Error())
+	}
+}
+
+func TestRegisterController_InvalidDirectivePreservesRootCause(t *testing.T) {
+	t.Parallel()
+
+	type BadDirectiveController struct {
+		helix.Controller `helix:"route:no-leading-slash"`
+	}
+
+	server := newTestServer(t)
+	err := web.RegisterController(server, &BadDirectiveController{})
+	if err == nil {
+		t.Fatal("expected an error for invalid route override, got nil")
+	}
+	// The error message should mention the malformed path, not just ErrInvalidDirective
+	if !strings.Contains(err.Error(), "no-leading-slash") {
+		t.Errorf("error %q does not mention the invalid route value", err.Error())
 	}
 }

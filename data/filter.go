@@ -1,9 +1,13 @@
 package data
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 )
+
+var conditionFieldPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$`)
 
 // Operator describes a portable repository filter comparison.
 type Operator string
@@ -87,8 +91,8 @@ func (f Filter) Validate() error {
 
 // Validate returns an error if the condition cannot be translated safely by adapters.
 func (c Condition) Validate() error {
-	if c.Field == "" {
-		return fmt.Errorf("data: validate filter condition field: %w", ErrInvalidFilter)
+	if err := ValidateFieldName(c.Field); err != nil {
+		return err
 	}
 	if !c.Operator.valid() {
 		return fmt.Errorf("data: validate filter operator %q: %w", c.Operator, ErrInvalidFilter)
@@ -101,7 +105,7 @@ func (c Condition) Validate() error {
 	}
 	rv := reflect.ValueOf(c.Value)
 	switch rv.Kind() {
-	case reflect.Ptr, reflect.Chan, reflect.Interface, reflect.Map, reflect.Slice:
+	case reflect.Pointer, reflect.Chan, reflect.Interface, reflect.Map, reflect.Slice:
 		if rv.IsNil() {
 			return fmt.Errorf("data: validate filter condition %s value: %w", c.Field, ErrInvalidFilter)
 		}
@@ -117,6 +121,22 @@ func (c Condition) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ValidateFieldName returns an error if the field name is invalid or dangerous.
+func ValidateFieldName(field string) error {
+	if field == "" {
+		return invalidConditionError("data: validate filter condition field")
+	}
+	if !conditionFieldPattern.MatchString(field) {
+		return invalidConditionError("data: validate filter condition field %q", field)
+	}
+	return nil
+}
+
+func invalidConditionError(format string, args ...any) error {
+	msg := fmt.Sprintf(format, args...)
+	return fmt.Errorf("%s: %w", msg, errors.Join(ErrInvalidCondition, ErrInvalidFilter))
 }
 
 func (c Condition) requiresValue() bool {

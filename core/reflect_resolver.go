@@ -62,7 +62,11 @@ func (r *ReflectResolver) Register(component any) error {
 
 	_, exists := r.registrations[componentType]
 	r.registrations[componentType] = registration
-	delete(r.singletons, componentType)
+	if exists {
+		r.invalidateSingletonsDependingOn(componentType)
+	} else {
+		delete(r.singletons, componentType)
+	}
 
 	typeName := componentType.String()
 	if !exists {
@@ -72,6 +76,34 @@ func (r *ReflectResolver) Register(component any) error {
 	r.graph.Edges[typeName] = nil
 
 	return nil
+}
+
+func (r *ReflectResolver) invalidateSingletonsDependingOn(registrationType reflect.Type) {
+	invalidated := make(map[reflect.Type]struct{})
+	r.collectSingletonDependents(registrationType, invalidated)
+	for typ := range invalidated {
+		delete(r.singletons, typ)
+	}
+}
+
+func (r *ReflectResolver) collectSingletonDependents(registrationType reflect.Type, invalidated map[reflect.Type]struct{}) {
+	if _, ok := invalidated[registrationType]; ok {
+		return
+	}
+	invalidated[registrationType] = struct{}{}
+
+	registrationName := registrationType.String()
+	for _, candidateType := range r.registrationOrder {
+		if _, ok := invalidated[candidateType]; ok {
+			continue
+		}
+		for _, dependencyName := range r.graph.Edges[candidateType.String()] {
+			if dependencyName == registrationName {
+				r.collectSingletonDependents(candidateType, invalidated)
+				break
+			}
+		}
+	}
 }
 
 // Resolve finds the registered component matching target's element type.
@@ -174,7 +206,7 @@ func (r *ReflectResolver) resolveByType(requestedType reflect.Type) (reflect.Val
 }
 
 func (r *ReflectResolver) resolveAllAssignable(targetType reflect.Type) ([]reflect.Value, error) {
-	if targetType == nil || (targetType.Kind() != reflect.Interface && targetType.Kind() != reflect.Ptr) {
+	if targetType == nil || (targetType.Kind() != reflect.Interface && targetType.Kind() != reflect.Pointer) {
 		return nil, ErrUnresolvable
 	}
 
@@ -184,12 +216,12 @@ func (r *ReflectResolver) resolveAllAssignable(targetType reflect.Type) ([]refle
 
 	values := make([]reflect.Value, 0)
 	for _, registrationType := range order {
-		if !registrationType.AssignableTo(targetType) {
-			continue
-		}
-
 		r.mu.Lock()
 		registration := r.registrations[registrationType]
+		if !registrationMatchesRequestedType(registrationType, registration, targetType) {
+			r.mu.Unlock()
+			continue
+		}
 		val, err := r.resolveRegistration(registrationType, registration, newResolutionState())
 		r.mu.Unlock()
 
@@ -327,14 +359,15 @@ func (r *ReflectResolver) lookupRegistration(requestedType reflect.Type) (reflec
 	)
 
 	for _, registeredType := range r.registrationOrder {
-		if !registeredType.AssignableTo(requestedType) {
+		registration := r.registrations[registeredType]
+		if !registrationMatchesRequestedType(registeredType, registration, requestedType) {
 			continue
 		}
 		if found {
 			return nil, ComponentRegistration{}, fmt.Errorf("core: lookup %s: multiple registrations assignable: %w", requestedType, ErrUnresolvable)
 		}
 		matchType = registeredType
-		match = r.registrations[registeredType]
+		match = registration
 		found = true
 	}
 
@@ -343,6 +376,29 @@ func (r *ReflectResolver) lookupRegistration(requestedType reflect.Type) (reflec
 	}
 
 	return matchType, match, nil
+}
+
+func registrationMatchesRequestedType(registrationType reflect.Type, registration ComponentRegistration, requestedType reflect.Type) bool {
+	if !registrationType.AssignableTo(requestedType) {
+		return false
+	}
+	if requestedType.Kind() != reflect.Interface {
+		return true
+	}
+	for _, excluded := range registration.ExcludeFrom {
+		if requestedType == excluded {
+			return false
+		}
+	}
+	if len(registration.ResolveAs) == 0 {
+		return true
+	}
+	for _, allowed := range registration.ResolveAs {
+		if requestedType == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *ReflectResolver) appendGraphEdge(owner, dependency string) {
@@ -356,14 +412,14 @@ func (r *ReflectResolver) appendGraphEdge(owner, dependency string) {
 }
 
 func isRegistrableComponent(value reflect.Value) bool {
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 	return value.Elem().Kind() == reflect.Struct
 }
 
 func isResolvableTarget(value reflect.Value) bool {
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 	return value.Elem().CanSet()

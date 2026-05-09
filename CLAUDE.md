@@ -67,11 +67,17 @@ type Lifecycle interface {
 
 ## Development Commands
 
+> ⚠️ **Conflit de toolchain macOS** : le binaire `go` du PATH peut être Homebrew (version différente du cache compilé). Si `go test` échoue avec `"compile: version mismatch"`, utiliser le binaire **govm** explicitement :
+> ```bash
+> /Users/yacoubakone/.govm/go/bin/go test ./...
+> ```
+> Le projet cible **go1.25.5** (govm). Ne pas utiliser le `go` du PATH sans vérifier `go version`.
+
 ```bash
-go mod tidy          # sync dependencies
-go build ./...       # build all packages
-go test ./...        # run all tests
-go test ./core/...   # run tests for a specific package
+/Users/yacoubakone/.govm/go/bin/go mod tidy    # sync dependencies
+/Users/yacoubakone/.govm/go/bin/go build ./... # build all packages
+/Users/yacoubakone/.govm/go/bin/go test ./...  # run all tests
+/Users/yacoubakone/.govm/go/bin/go test ./core/...  # run tests for a specific package
 golangci-lint run    # lint (must pass before commit)
 ```
 
@@ -109,4 +115,5 @@ When a work item is marked `done` in the internal tracking system, close the cor
    gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
    ```
 
-3. Verify that the CI passes , if not, investigate and fix before closing the issue.
+
+

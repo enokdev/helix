@@ -16,18 +16,19 @@ type fakeContext struct {
 	locals map[string]any
 }
 
-func (c *fakeContext) Path() string             { return c.path }
-func (c *fakeContext) OriginalURL() string      { return c.path }
-func (c *fakeContext) Method() string           { return "GET" }
-func (c *fakeContext) Param(string) string      { return "" }
-func (c *fakeContext) Query(string) string      { return "" }
-func (c *fakeContext) IP() string               { return "" }
-func (c *fakeContext) Body() []byte             { return nil }
-func (c *fakeContext) Status(int)               {}
-func (c *fakeContext) SetHeader(string, string) {}
-func (c *fakeContext) Send([]byte) error        { return nil }
-func (c *fakeContext) JSON(any) error           { return nil }
-func (c *fakeContext) Context() context.Context { return context.Background() }
+func (c *fakeContext) Path() string                { return c.path }
+func (c *fakeContext) OriginalURL() string         { return c.path }
+func (c *fakeContext) Method() string              { return "GET" }
+func (c *fakeContext) Param(string) string         { return "" }
+func (c *fakeContext) Query(string) string         { return "" }
+func (c *fakeContext) IP() string                  { return "" }
+func (c *fakeContext) Body() []byte                { return nil }
+func (c *fakeContext) Status(int)                  {}
+func (c *fakeContext) SetHeader(string, string)    {}
+func (c *fakeContext) AppendHeader(string, string) {}
+func (c *fakeContext) Send([]byte) error           { return nil }
+func (c *fakeContext) JSON(any) error              { return nil }
+func (c *fakeContext) Context() context.Context    { return context.Background() }
 func (c *fakeContext) Header(key string) string {
 	if key == "Authorization" {
 		return c.header

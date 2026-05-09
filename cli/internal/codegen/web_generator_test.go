@@ -87,15 +87,7 @@ func TestWebGenerator_GenerateErrorHandlersFile(t *testing.T) {
 
 func TestWebGenerator_GenerateWithNoDirectives(t *testing.T) {
 	tempDir := t.TempDir()
-	// Change to temp dir to avoid scanning actual project
-	oldWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("os.Getwd() error = %v", err)
-	}
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatalf("os.Chdir(tempDir) error = %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+	chdirForTest(t, tempDir)
 
 	gen := NewWebGenerator(tempDir)
 

@@ -27,6 +27,10 @@ var ErrInvalidRequest = errors.New("web: invalid request")
 // be registered.
 var ErrInvalidErrorHandler = errors.New("web: invalid error handler")
 
+// ErrDuplicateRoute is returned when the same METHOD+path combination is
+// registered more than once on the same server.
+var ErrDuplicateRoute = errors.New("web: duplicate route")
+
 // ErrorResponse is the structured JSON error envelope returned by Helix.
 type ErrorResponse struct {
 	Error ErrorDetail `json:"error"`
@@ -67,6 +71,21 @@ func newRequestError(status int, code, field, message string) *RequestError {
 		isMultiFieldError: false,
 		detail: ErrorDetail{
 			Type:    requestErrorType,
+			Message: message,
+			Field:   field,
+			Code:    code,
+		},
+	}
+}
+
+// newBindingError creates a RequestError for structural binding failures (INVALID_JSON,
+// INVALID_QUERY_PARAM). Its ErrorType() returns "BindingError", distinct from "ValidationError".
+func newBindingError(status int, code, field, message string) *RequestError {
+	return &RequestError{
+		status:            status,
+		isMultiFieldError: false,
+		detail: ErrorDetail{
+			Type:    bindingErrorType,
 			Message: message,
 			Field:   field,
 			Code:    code,

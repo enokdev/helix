@@ -1,0 +1,217 @@
+diff --git a/web/binding.go b/web/binding.go
+index d0a9a4f..2473411 100644
+--- a/web/binding.go
++++ b/web/binding.go
+@@ -198,6 +198,10 @@ func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
+ }
+ 
+ func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
++       ct := ctx.Header("Content-Type")
++       if !strings.Contains(ct, "application/json") {
++               return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
++       }
+        body := bytes.TrimSpace(ctx.Body())
+        if len(body) == 0 {
+                return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body is required")
+diff --git a/web/binding_test.go b/web/binding_test.go
+index 6f0bb6b..8dc417c 100644
+--- a/web/binding_test.go
++++ b/web/binding_test.go
+@@ -182,7 +182,12 @@ func (tc *testContext) OriginalURL() string         { return "/test" }
+ func (tc *testContext) Body() []byte                { return tc.body }
+ func (tc *testContext) Query(string) string         { return "" }
+ func (tc *testContext) Param(string) string         { return "" }
+-func (tc *testContext) Header(string) string        { return "" }
++func (tc *testContext) Header(key string) string {
++       if key == "Content-Type" {
++               return "application/json"
++       }
++       return ""
++}
+ func (tc *testContext) IP() string                  { return "127.0.0.1" }
+ func (tc *testContext) Status(int)                  {}
+ func (tc *testContext) SetHeader(string, string)    {}
+diff --git a/web/router.go b/web/router.go
+index a141c32..0654eb3 100644
+--- a/web/router.go
++++ b/web/router.go
+@@ -737,7 +737,14 @@ func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc
+                if !returnPlan.hasPayload {
+                        return nil
+                }
+-               return writeSuccessResponse(ctx, httpMethod, results[0].Interface())
++               payload := results[0].Interface()
++               if errVal, ok := payload.(error); ok && errVal != nil {
++                       slog.Default().With("namespace", "web").Error("error value in payload slot",
++                               "error", errVal,
++                       )
++                       return writeErrorResponse(ctx, errVal)
++               }
++               return writeSuccessResponse(ctx, httpMethod, payload)
+        }, nil
+ }
+ 
+diff --git a/web/router_test.go b/web/router_test.go
+index 985afe5..38a1f40 100644
+--- a/web/router_test.go
++++ b/web/router_test.go
+@@ -1579,3 +1579,61 @@ func TestRegisterController_FallsBackToASTWhenNoRegistry(t *testing.T) {
+        }
+ }
+ 
++// ---- Task 2: Error in any slot ----
++
++type ErrorInPayloadSlotController struct {
++       helix.Controller
++}
++
++func (c *ErrorInPayloadSlotController) Index() (any, error) {
++       return fmt.Errorf("something failed internally"), nil
++}
++
++// ---- Task 3: JSON serialization failure (unserializable payload) ----
++
++type ChannelPayloadController struct {
++       helix.Controller
++}
++
++func (c *ChannelPayloadController) Index() (any, error) {
++       return make(chan int), nil
++}
++
++// ---- Task 4: Content-Type validation ----
++
++func TestRegisterController_ErrorInAnySlot(t *testing.T) {
++       t.Parallel()
++
++       server := newTestServer(t)
++       if err := web.RegisterController(server, &ErrorInPayloadSlotController{}); err != nil {
++               t.Fatalf("RegisterController() error = %v", err)
++       }
++
++       resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/error-in-payload-slots", nil))
++       if err != nil {
++               t.Fatalf("ServeHTTP() error = %v", err)
++       }
++       defer resp.Body.Close()
++       assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
++}
++
++func TestRegisterController_RejectsMissingContentType(t *testing.T) {
++       t.Parallel()
++
++       server := newTestServer(t)
++       if err := web.RegisterController(server, &BodyBindingController{}); err != nil {
++               t.Fatalf("RegisterController() error = %v", err)
++       }
++
++       req := httptest.NewRequest(http.MethodPost, "/body-bindings",
++               strings.NewReader(`{"name":"Alice","email":"alice@example.com"}`))
++       // Intentionally NOT setting Content-Type: application/json
++
++       resp, err := server.ServeHTTP(req)
++       if err != nil {
++               t.Fatalf("ServeHTTP() error = %v", err)
++       }
++       defer resp.Body.Close()
++       assertErrorResponse(t, resp, http.StatusBadRequest, "INVALID_JSON", "")
++}
++
+diff --git a/web/server.go b/web/server.go
+index 95cc66e..b6b5058 100644
+--- a/web/server.go
++++ b/web/server.go
+@@ -4,6 +4,7 @@ import (
+        "context"
+        "errors"
+        "fmt"
++       "log/slog"
+        "net/http"
+        "reflect"
+        "sort"
+@@ -109,7 +110,20 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
+                        }
+                }
+ 
+-               handlerErr := handler(observed)
++               var handlerErr error
++               func() {
++                       defer func() {
++                               if r := recover(); r != nil {
++                                       slog.Default().With("namespace", "web").Error("handler panic recovered",
++                                               "method", normalizedMethod,
++                                               "path", routePath,
++                                               "panic", fmt.Sprintf("%v", r),
++                                       )
++                                       handlerErr = writeErrorResponse(observed, fmt.Errorf("handler panic"))
++                               }
++                       }()
++                       handlerErr = handler(observed)
++               }()
+                if handlerErr != nil {
+                        if handled, handleErr := s.writeRegisteredError(observed, handlerErr); handled {
+                                handlerErr = handleErr
+diff --git a/web/server_test.go b/web/server_test.go
+index 73e3f0e..e767087 100644
+--- a/web/server_test.go
++++ b/web/server_test.go
+@@ -723,3 +723,59 @@ func moduleRoot(t *testing.T) string {
+                dir = parent
+        }
+ }
++
++// ---- Task 1: Panic Recovery ----
++
++func TestServer_PanicRecovery(t *testing.T) {
++       t.Parallel()
++
++       server := newTestServer(t)
++
++       if err := server.RegisterRoute(http.MethodGet, "/panic", func(_ web.Context) error {
++               panic("unexpected nil pointer")
++       }); err != nil {
++               t.Fatalf("RegisterRoute() error = %v", err)
++       }
++       if err := server.RegisterRoute(http.MethodGet, "/healthy", func(ctx web.Context) error {
++               ctx.Status(http.StatusOK)
++               return ctx.JSON(map[string]string{"status": "ok"})
++       }); err != nil {
++               t.Fatalf("RegisterRoute() error = %v", err)
++       }
++
++       resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/panic", nil))
++       if err != nil {
++               t.Fatalf("ServeHTTP() error = %v", err)
++       }
++       defer resp.Body.Close()
++       assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
++
++       // Server must still be alive after a panic.
++       resp2, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/healthy", nil))
++       if err != nil {
++               t.Fatalf("ServeHTTP() second request error = %v", err)
++       }
++       defer resp2.Body.Close()
++       if resp2.StatusCode != http.StatusOK {
++               t.Fatalf("second request status = %d, want %d", resp2.StatusCode, http.StatusOK)
++       }
++}
++
++// ---- Task 3: JSON Serialization Failure ----
++
++func TestServer_JSONSerializationFailure(t *testing.T) {
++       t.Parallel()
++
++       server := newTestServer(t)
++
++       if err := web.RegisterController(server, &ChannelPayloadController{}); err != nil {
++               t.Fatalf("RegisterController() error = %v", err)
++       }
++
++       resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/channel-payloads", nil))
++       if err != nil {
++               t.Fatalf("ServeHTTP() error = %v", err)
++       }
++       defer resp.Body.Close()
++       assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
++}

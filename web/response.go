@@ -45,7 +45,8 @@ func writeSuccessResponse(ctx Context, method string, payload any) error {
 
 	ctx.Status(status)
 	if err := ctx.JSON(payload); err != nil {
-		slog.Default().With("namespace", "web").Error("json serialisation failed",
+		slog.Default().With("namespace", "web").Error(
+			"json serialisation failed",
 			"payload_type", fmt.Sprintf("%T", payload),
 			"error", err,
 		)
@@ -57,6 +58,18 @@ func writeSuccessResponse(ctx Context, method string, payload any) error {
 func writeErrorResponse(ctx Context, err error) error {
 	if err == nil {
 		return nil
+	}
+
+	// RequestError carries its own response body (single ErrorResponse or multi-field
+	// ValidationErrorResponse). Always use ResponseBody() so multi-error format is preserved.
+	var reqErr *RequestError
+	if errors.As(err, &reqErr) {
+		status := reqErr.StatusCode()
+		if status < http.StatusContinue || status > 599 {
+			status = http.StatusInternalServerError
+		}
+		ctx.Status(status)
+		return ctx.JSON(reqErr.ResponseBody())
 	}
 
 	var structured structuredHTTPError

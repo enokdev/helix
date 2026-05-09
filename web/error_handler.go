@@ -137,7 +137,7 @@ func buildErrorHandlers(server HTTPServer, handler any) (map[string]errorHandler
 
 func validateErrorHandler(handler any) (reflect.Value, reflect.Type, error) {
 	value := reflect.ValueOf(handler)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return reflect.Value{}, nil, fmt.Errorf("web: validate error handler %T: %w", handler, ErrInvalidErrorHandler)
 	}
 
@@ -162,7 +162,7 @@ func hasErrorHandlerMarker(handlerType reflect.Type) bool {
 			continue
 		}
 		fieldType := field.Type
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 		if fieldType.Kind() != reflect.Struct {
@@ -341,7 +341,7 @@ func validateErrorHandlerSignature(methodType reflect.Type) (int, error) {
 }
 
 func canonicalErrorTypeName(t reflect.Type) string {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t.Name()

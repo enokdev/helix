@@ -2,11 +2,13 @@ package data
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	helixconfig "github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/core"
@@ -24,8 +26,10 @@ const (
 
 // Starter auto-configures the DB connection when gorm.io/driver/sqlite is available.
 type Starter struct {
-	cfg    helixconfig.Loader
-	models []any
+	cfg           helixconfig.Loader
+	models        []any
+	mu            sync.Mutex
+	configuredFor *core.Container
 }
 
 // Option configures a Starter.
@@ -83,6 +87,12 @@ func (s *Starter) Configure(container *core.Container) error {
 		return nil
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.configuredFor == container {
+		return nil
+	}
+
 	lc := &databaseLifecycle{}
 
 	if s.cfg != nil {
@@ -101,7 +111,10 @@ func (s *Starter) Configure(container *core.Container) error {
 
 			if lc.startErr == nil {
 				for _, comp := range db.Components() {
-					_ = container.Register(comp)
+					if err := container.Register(comp); err != nil {
+						_ = db.Close()
+						return fmt.Errorf("data starter: register db component %T: %w", comp, err)
+					}
 				}
 			}
 		}
@@ -113,7 +126,13 @@ func (s *Starter) Configure(container *core.Container) error {
 		}
 	}
 
-	_ = container.Register(lc)
+	if err := container.Register(lc); err != nil {
+		if lc.db != nil {
+			_ = lc.db.Close()
+		}
+		return fmt.Errorf("data starter: register lifecycle: %w", err)
+	}
+	s.configuredFor = container
 	return nil
 }
 
@@ -143,7 +162,7 @@ func (l *databaseLifecycle) OnStart() error {
 	return nil
 }
 
-func (l *databaseLifecycle) OnStop() error {
+func (l *databaseLifecycle) OnStop(_ context.Context) error {
 	if l.db == nil {
 		return nil
 	}

@@ -58,13 +58,19 @@ type ConfigReloadable interface {
 
 ## Go Commands
 
+> ⚠️ **Conflit de toolchain macOS** : le binaire `go` du PATH peut être Homebrew (version différente du cache précompilé). Si `go test` ou `go build` échoue avec `"compile: version mismatch"`, utiliser le binaire **govm** explicitement :
+> ```bash
+> /Users/yacoubakone/.govm/go/bin/go test ./...
+> ```
+> Le projet cible **go1.25.5** (géré par govm). Ne jamais supposer que `go` dans le PATH est le bon binaire — toujours vérifier avec `go version`.
+
 ```bash
-go mod tidy          # install/sync dependencies
-go build ./...       # build all packages
-go test ./...        # run all tests
-go test ./core/...   # run tests for a single package
-go test -run TestName ./core/...  # run a single test
-go test -cover ./core/...         # coverage (target: >80% on core/)
+/Users/yacoubakone/.govm/go/bin/go mod tidy              # install/sync dependencies
+/Users/yacoubakone/.govm/go/bin/go build ./...           # build all packages
+/Users/yacoubakone/.govm/go/bin/go test ./...            # run all tests
+/Users/yacoubakone/.govm/go/bin/go test ./core/...       # run tests for a single package
+/Users/yacoubakone/.govm/go/bin/go test -run TestName ./core/...  # run a single test
+/Users/yacoubakone/.govm/go/bin/go test -cover ./core/...         # coverage (target: >80% on core/)
 ```
 
 Minimum Go version: **1.21** (required for `slog`).

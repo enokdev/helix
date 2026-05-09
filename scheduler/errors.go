@@ -2,10 +2,14 @@ package scheduler
 
 import "errors"
 
-var (
-	// ErrInvalidCron is returned when a cron expression is malformed.
-	ErrInvalidCron = errors.New("scheduler: invalid cron expression")
+// ErrInvalidCron is returned when a cron expression is malformed.
+var ErrInvalidCron = errors.New("scheduler: invalid cron expression")
 
-	// ErrJobNotFound is returned when a requested job does not exist.
-	ErrJobNotFound = errors.New("scheduler: job not found")
-)
+// ErrInvalidJob is returned when a job definition is incomplete or invalid.
+var ErrInvalidJob = errors.New("scheduler: invalid job")
+
+// ErrDuplicateJob is returned when a job name is already registered.
+var ErrDuplicateJob = errors.New("scheduler: duplicate job")
+
+// ErrJobNotFound is returned when a registered job cannot be found.
+var ErrJobNotFound = errors.New("scheduler: job not found")

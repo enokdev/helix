@@ -1,5 +1,7 @@
 package core
 
+import "context"
+
 // Lifecycle is implemented by components that need to hook into the
 // application start/stop sequence.
 //
@@ -8,7 +10,9 @@ package core
 //
 // OnStop is called on SIGTERM/SIGINT, in reverse dependency order,
 // allowing components to flush buffers and release resources.
+// The provided context carries the remaining shutdown budget; implementations
+// should honour ctx.Done() to avoid goroutine leaks.
 type Lifecycle interface {
 	OnStart() error
-	OnStop() error
+	OnStop(ctx context.Context) error
 }

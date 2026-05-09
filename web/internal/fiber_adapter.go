@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -25,7 +26,9 @@ type Context interface {
 	IP() string
 	Body() []byte
 	Status(code int)
+	StatusCode() int
 	SetHeader(key, value string)
+	AppendHeader(key, value string)
 	Send(body []byte) error
 	JSON(body any) error
 	Context() context.Context
@@ -107,6 +110,10 @@ func tracingMiddleware(tp trace.TracerProvider) fiber.Handler {
 		c.SetUserContext(ctx)
 
 		err := c.Next()
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
 
 		// Update span name with the matched route pattern after routing.
 		if route := c.Route(); route != nil {
@@ -223,8 +230,16 @@ func (c fiberContext) Status(code int) {
 	c.ctx.Status(code)
 }
 
+func (c fiberContext) StatusCode() int {
+	return c.ctx.Response().StatusCode()
+}
+
 func (c fiberContext) SetHeader(key, value string) {
 	c.ctx.Set(key, value)
+}
+
+func (c fiberContext) AppendHeader(key, value string) {
+	c.ctx.Response().Header.Add(key, value)
 }
 
 func (c fiberContext) Send(body []byte) error {

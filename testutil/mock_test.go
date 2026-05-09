@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -22,11 +23,13 @@ func (r *realMockBeanRepository) FindName() string {
 }
 
 func (r *realMockBeanRepository) OnStart() error {
-	*r.started++
+	if r.started != nil {
+		*r.started++
+	}
 	return nil
 }
 
-func (r *realMockBeanRepository) OnStop() error {
+func (r *realMockBeanRepository) OnStop(_ context.Context) error {
 	return nil
 }
 
@@ -46,7 +49,7 @@ func (m *mockMockBeanRepository) OnStart() error {
 	return nil
 }
 
-func (m *mockMockBeanRepository) OnStop() error {
+func (m *mockMockBeanRepository) OnStop(_ context.Context) error {
 	return nil
 }
 
@@ -84,6 +87,62 @@ type mockBeanService struct {
 	Dependency *untouchedMockBeanDependency `inject:"true"`
 }
 
+type mockBeanMailer interface {
+	Send() string
+}
+
+type mockBeanHealthIndicator interface {
+	Health() string
+}
+
+type realMultiInterfaceMailer struct {
+	started *int
+}
+
+func (m *realMultiInterfaceMailer) Send() string {
+	return "real-mailer"
+}
+
+func (m *realMultiInterfaceMailer) Health() string {
+	return "healthy"
+}
+
+func (m *realMultiInterfaceMailer) OnStart() error {
+	if m.started != nil {
+		*m.started++
+	}
+	return nil
+}
+
+func (m *realMultiInterfaceMailer) OnStop(_ context.Context) error {
+	return nil
+}
+
+type mockMultiInterfaceMailer struct{}
+
+func (m *mockMultiInterfaceMailer) Send() string {
+	return "mock-mailer"
+}
+
+func (m *mockMultiInterfaceMailer) Health() string {
+	return "mock-health"
+}
+
+type mockBeanMailService struct {
+	Mailer mockBeanMailer          `inject:"true"`
+	Health mockBeanHealthIndicator `inject:"true"`
+}
+
+type alternateMultiInterfaceMailer struct{}
+
+func (m *alternateMultiInterfaceMailer) Send() string {
+	return "alternate-mailer"
+}
+
+func (m *alternateMultiInterfaceMailer) Health() string {
+	return "alternate-health"
+}
+
 func TestMockBeanReplacesInterfaceImplementation(t *testing.T) {
 	t.Parallel()
 
@@ -108,8 +167,8 @@ func TestMockBeanReplacesInterfaceImplementation(t *testing.T) {
 	if service.Dependency.value != "kept" {
 		t.Fatalf("service.Dependency.value = %q, want kept", service.Dependency.value)
 	}
-	if realStarts != 0 {
-		t.Fatalf("realStarts = %d, want 0", realStarts)
+	if realStarts != 1 {
+		t.Fatalf("realStarts = %d, want 1 because real component remains registered for lifecycle", realStarts)
 	}
 	if mockStarts != 1 {
 		t.Fatalf("mockStarts = %d, want 1", mockStarts)
@@ -157,6 +216,140 @@ func TestMockBeanCanProvideOnlyImplementationForInterface(t *testing.T) {
 	}
 	if service.Notifier.Notify() != "only-notifier" {
 		t.Fatalf("service.Notifier.Notify() = %q, want only-notifier", service.Notifier.Notify())
+	}
+}
+
+func TestMockBeanPreservesNonTargetInterfacesOnRealComponent(t *testing.T) {
+	t.Parallel()
+
+	realStarts := 0
+	app := NewApp(t,
+		WithComponents(
+			&realMultiInterfaceMailer{started: &realStarts},
+			&mockBeanMailService{},
+		),
+		MockBean[mockBeanMailer](&mockMultiInterfaceMailer{}),
+	)
+
+	service := GetBean[*mockBeanMailService](app)
+	if service.Mailer.Send() != "mock-mailer" {
+		t.Fatalf("service.Mailer.Send() = %q, want mock-mailer", service.Mailer.Send())
+	}
+	if service.Health.Health() != "healthy" {
+		t.Fatalf("service.Health.Health() = %q, want healthy", service.Health.Health())
+	}
+	if realStarts != 1 {
+		t.Fatalf("realStarts = %d, want 1 because real component remains registered for health", realStarts)
+	}
+}
+
+func TestMockBeanPreservesLifecycleOnRealComponent(t *testing.T) {
+	t.Parallel()
+
+	realStarts := 0
+	app := NewApp(t,
+		WithComponents(&realMultiInterfaceMailer{started: &realStarts}),
+		MockBean[mockBeanMailer](&mockMultiInterfaceMailer{}),
+	)
+
+	mailer := GetBean[mockBeanMailer](app)
+	if mailer.Send() != "mock-mailer" {
+		t.Fatalf("mailer.Send() = %q, want mock-mailer", mailer.Send())
+	}
+	if realStarts != 1 {
+		t.Fatalf("realStarts = %d, want 1 because lifecycle remains registered", realStarts)
+	}
+}
+
+func TestMockBeanMultiInterfaceMockDoesNotCreateAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	app := NewApp(t,
+		WithComponents(
+			&realMultiInterfaceMailer{},
+			&mockBeanMailService{},
+		),
+		MockBean[mockBeanMailer](&mockMultiInterfaceMailer{}),
+	)
+
+	service := GetBean[*mockBeanMailService](app)
+	if service.Mailer.Send() != "mock-mailer" {
+		t.Fatalf("service.Mailer.Send() = %q, want mock-mailer", service.Mailer.Send())
+	}
+	if service.Health.Health() != "healthy" {
+		t.Fatalf("service.Health.Health() = %q, want healthy", service.Health.Health())
+	}
+}
+
+func TestMockBeanPreservesNonTargetInterfaceForDirectResolution(t *testing.T) {
+	t.Parallel()
+
+	app := NewApp(t,
+		WithComponents(&realMultiInterfaceMailer{}),
+		MockBean[mockBeanMailer](&mockMultiInterfaceMailer{}),
+	)
+
+	mailer := GetBean[mockBeanMailer](app)
+	if mailer.Send() != "mock-mailer" {
+		t.Fatalf("mailer.Send() = %q, want mock-mailer", mailer.Send())
+	}
+
+	health := GetBean[mockBeanHealthIndicator](app)
+	if health.Health() != "healthy" {
+		t.Fatalf("health.Health() = %q, want healthy", health.Health())
+	}
+}
+
+func TestMockBeanPreservesNonTargetInterfaceAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	app := NewApp(t,
+		WithComponents(
+			&realMultiInterfaceMailer{},
+			&alternateMultiInterfaceMailer{},
+		),
+		MockBean[mockBeanMailer](&mockMultiInterfaceMailer{}),
+	)
+
+	var health mockBeanHealthIndicator
+	err := app.Container().Resolve(&health)
+	if err == nil {
+		t.Fatal("Resolve(mockBeanHealthIndicator) error = nil, want ambiguity")
+	}
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Resolve(mockBeanHealthIndicator) error = %v, want core.ErrUnresolvable", err)
+	}
+	if !strings.Contains(err.Error(), "multiple registrations") {
+		t.Fatalf("Resolve(mockBeanHealthIndicator) error = %q, want multiple registrations", err)
+	}
+}
+
+func TestMockBeanRecognizesComponentRegistration(t *testing.T) {
+	t.Parallel()
+
+	registration := core.NewComponentRegistration(&realMultiInterfaceMailer{})
+	registration.Scope = core.ScopePrototype
+
+	app := NewApp(t,
+		WithComponents(
+			registration,
+			&mockBeanMailService{},
+		),
+		MockBean[mockBeanMailer](&mockMultiInterfaceMailer{}),
+	)
+
+	service := GetBean[*mockBeanMailService](app)
+	if service.Mailer.Send() != "mock-mailer" {
+		t.Fatalf("service.Mailer.Send() = %q, want mock-mailer", service.Mailer.Send())
+	}
+	if service.Health.Health() != "healthy" {
+		t.Fatalf("service.Health.Health() = %q, want healthy", service.Health.Health())
+	}
+
+	first := GetBean[mockBeanHealthIndicator](app)
+	second := GetBean[mockBeanHealthIndicator](app)
+	if first == second {
+		t.Fatal("prototype ComponentRegistration returned the same health instance twice")
 	}
 }
 

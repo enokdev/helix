@@ -233,7 +233,7 @@ func wrapReadError(action string, err error) error {
 
 func isValidDecodeTarget(target any) bool {
 	value := reflect.ValueOf(target)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return false
 	}
 	return value.Elem().CanSet()

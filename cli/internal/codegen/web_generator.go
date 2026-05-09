@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/enokdev/helix/cli/internal/gofmtx"
 )
 
 // GenerateResult contains information about the generation process.
@@ -213,7 +215,7 @@ func initGeneratedRoutes() error {
 
 	for _, controller := range controllers {
 		routes := routesByController[controller]
-		buf.WriteString(fmt.Sprintf("\n\tif err := registry.RegisterGeneratedRoutes(\"%s\",\n", controller))
+		fmt.Fprintf(&buf, "\n\tif err := registry.RegisterGeneratedRoutes(\"%s\",\n", controller)
 		for i, route := range routes {
 			if i > 0 {
 				buf.WriteString(",\n")
@@ -229,7 +231,7 @@ func initGeneratedRoutes() error {
 				interceptors = fmt.Sprintf("[]string{%s}", formatStringSlice(route.Interceptors))
 			}
 
-			buf.WriteString(fmt.Sprintf("\t\tinternal.RouteInfo{\n"+
+			fmt.Fprintf(&buf, "\t\tinternal.RouteInfo{\n"+
 				"\t\t\tMethod:       %#v,\n"+
 				"\t\t\tPath:         %#v,\n"+
 				"\t\t\tController:   %#v,\n"+
@@ -238,14 +240,18 @@ func initGeneratedRoutes() error {
 				"\t\t\tGuards:       %s,\n"+
 				"\t\t\tInterceptors: %s,\n"+
 				"\t\t}",
-				route.Method, route.Path, route.Controller, route.HandlerName, route.Controller, route.HandlerName, guards, interceptors))
+				route.Method, route.Path, route.Controller, route.HandlerName, route.Controller, route.HandlerName, guards, interceptors)
 		}
 		buf.WriteString(",\n\t); err != nil {\n\t\treturn err\n\t}\n")
 	}
 
 	buf.WriteString("\n\treturn nil\n}\n")
 
-	return os.WriteFile(outputPath, buf.Bytes(), 0o644)
+	formatted, err := gofmtx.Source(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("format generated routes: %w", err)
+	}
+	return os.WriteFile(outputPath, formatted, 0o644)
 }
 
 func (g *WebGenerator) generateHandlersFile(outputPath string, handlersByFile map[string][]handlerInfo) error {
@@ -289,18 +295,22 @@ func initGeneratedErrorHandlers() error {
 		if i > 0 {
 			buf.WriteString(",\n")
 		}
-		buf.WriteString(fmt.Sprintf("\t\tinternal.ErrorHandlerInfo{\n"+
+		fmt.Fprintf(&buf, "\t\tinternal.ErrorHandlerInfo{\n"+
 			"\t\t\tErrorType:  %#v,\n"+
 			"\t\t\tController: %#v,\n"+
 			"\t\t\tMethodName: %#v,\n"+
 			"\t\t\tHandler:    (*%s).%s,\n"+
 			"\t\t}",
-			handler.ErrorType, handler.Controller, handler.MethodName, handler.Controller, handler.MethodName))
+			handler.ErrorType, handler.Controller, handler.MethodName, handler.Controller, handler.MethodName)
 	}
 
 	buf.WriteString(",\n\t); err != nil {\n\t\treturn err\n\t}\n\n\treturn nil\n}\n")
 
-	return os.WriteFile(outputPath, buf.Bytes(), 0o644)
+	formatted, err := gofmtx.Source(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("format generated error handlers: %w", err)
+	}
+	return os.WriteFile(outputPath, formatted, 0o644)
 }
 
 func formatStringSlice(slice []string) string {

@@ -37,6 +37,7 @@ func (m *mockCtx) IP() string               { return "" }
 func (m *mockCtx) Body() []byte             { return nil }
 func (m *mockCtx) Status(_ int)             {}
 func (m *mockCtx) SetHeader(_, _ string)    {}
+func (m *mockCtx) AppendHeader(_, _ string) {}
 func (m *mockCtx) Send(_ []byte) error      { return nil }
 func (m *mockCtx) JSON(_ any) error         { return nil }
 func (m *mockCtx) Context() context.Context { return context.Background() }

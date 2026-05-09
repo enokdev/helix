@@ -23,13 +23,20 @@ When architecture docs conflict with `prd.md`, the architecture doc takes preced
 - Testing: `go test ./...` stdlib + `testify/assert` + `testify/mock`
 - CI: GitHub Actions — lint, test, build on push/PR; goreleaser on `v*` tags
 
+> ⚠️ **Conflit de toolchain macOS** : sur macOS le binaire `go` par défaut peut venir de Homebrew (version différente de celle utilisée pour compiler le cache). Si `go test` échoue avec `"compile: version mismatch"`, utiliser le binaire géré par **govm** :
+> ```bash
+> /Users/yacoubakone/.govm/go/bin/go test ./...
+> ```
+> Le projet utilise **go1.25.5** (via govm). Ne jamais remplacer ce binaire par le `go` du PATH sans vérifier `go version`.
+
 ## Commands
 
 ```bash
-go build ./...                        # build all packages
-go test ./...                         # run all tests
-go test ./core/...                    # single package
-go test -run TestName ./core/...      # single test
+# Utiliser le bon binaire Go (évite version mismatch)
+/Users/yacoubakone/.govm/go/bin/go build ./...
+/Users/yacoubakone/.govm/go/bin/go test ./...
+/Users/yacoubakone/.govm/go/bin/go test ./core/...
+/Users/yacoubakone/.govm/go/bin/go test -run TestName ./core/...
 golangci-lint run                     # lint (must pass before commit)
 ```
 

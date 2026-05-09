@@ -32,9 +32,10 @@ type cacheEntry struct {
 }
 
 type flightResult struct {
-	status int
-	body   []byte
-	err    error
+	status     int
+	body       []byte
+	replayable bool
+	err        error
 }
 
 type flightKey struct {
@@ -188,6 +189,9 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 		now := time.Now()
 
 		if entry, ok := s.getCached(key, now); ok {
+			if guardErr := evaluateRouteGuards(ctx); guardErr != nil {
+				return guardErr
+			}
 			s.hits.Add(1)
 			ctx.Status(entry.status)
 			var body any
@@ -207,6 +211,12 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 			case <-flight.done:
 				if flight.result.err != nil {
 					return flight.result.err
+				}
+				if guardErr := evaluateRouteGuards(ctx); guardErr != nil {
+					return guardErr
+				}
+				if !flight.result.replayable {
+					return next(ctx)
 				}
 				ctx.Status(flight.result.status)
 				var body any
@@ -228,6 +238,12 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 			return err
 		}
 
+		if recorder.wroteJSON {
+			flight.result.status = recorder.status
+			flight.result.body = recorder.body
+			flight.result.replayable = true
+		}
+
 		if recorder.wroteJSON && recorder.status >= 200 && recorder.status < 300 {
 			// OOM Guard: only cache reasonably sized bodies.
 			if len(recorder.body) <= MaxCacheBodySize {
@@ -237,14 +253,24 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 					expiresAt: now.Add(ttl),
 					timestamp: now,
 				}, maxSize, strategy)
-				flight.result.status = recorder.status
-				flight.result.body = recorder.body
 			}
 		}
 
 		close(flight.done)
 		return nil
 	})
+}
+
+func evaluateRouteGuards(ctx Context) error {
+	raw := ctx.Locals(routeGuardEvaluatorLocal)
+	if raw == nil {
+		return nil
+	}
+	evaluate, ok := raw.(func(Context) error)
+	if !ok {
+		return nil
+	}
+	return evaluate(ctx)
 }
 
 func (s *cacheStore) getCached(key string, now time.Time) (cacheEntry, bool) {
@@ -393,10 +419,20 @@ func (r *responseRecorder) SetHeader(key, value string) {
 	r.BaseContext.SetHeader(key, value)
 }
 
+func (r *responseRecorder) AppendHeader(key, value string) {
+	r.BaseContext.AppendHeader(key, value)
+}
+
 func (r *responseRecorder) Send(body []byte) error {
 	return r.BaseContext.Send(body)
 }
 
+// JSON serialises body to JSON, forwards it to the underlying context, and
+// records the payload for potential caching. If Status has not been called
+// before JSON, the status is implicitly set to 200 OK. If Status is called
+// AFTER JSON with a non-2xx code, the recorded status reflects that code and
+// the response will NOT be cached. Always call Status before JSON when the
+// intended status is not 200.
 func (r *responseRecorder) JSON(body any) error {
 	if r.status == 0 {
 		r.status = http.StatusOK

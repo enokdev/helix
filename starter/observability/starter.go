@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	helixconfig "github.com/enokdev/helix/config"
@@ -17,7 +18,9 @@ const obsEnabledKey = "helix.starters.observability.enabled"
 
 // Starter auto-configures the observability stack (logging, actuator routes, metrics, tracing).
 type Starter struct {
-	cfg helixconfig.Loader
+	cfg           helixconfig.Loader
+	mu            sync.Mutex
+	configuredFor *core.Container
 }
 
 // New creates a Starter using the provided configuration loader.
@@ -51,6 +54,12 @@ func (s *Starter) Configure(container *core.Container) error {
 		return nil
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.configuredFor == container {
+		return nil
+	}
+
 	// Configure structured logging (global slog default).
 	if _, err := helixobs.ConfigureLogging(s.cfg); err != nil {
 		slog.Default().Warn("observability starter: configure logging",
@@ -74,10 +83,14 @@ func (s *Starter) Configure(container *core.Container) error {
 	// Resolve the HTTP server registered by the web starter.
 	var server helixweb.HTTPServer
 	if err := container.Resolve(&server); err != nil {
-		_ = container.Register(&observabilityLifecycle{
+		if registerErr := container.Register(&observabilityLifecycle{
 			startErr: fmt.Errorf("observability starter: resolve HTTPServer: %w", err),
 			shutdown: shutdownFn,
-		})
+		}); registerErr != nil {
+			cleanupShutdown(shutdownFn)
+			return fmt.Errorf("observability starter: register lifecycle: %w", registerErr)
+		}
+		s.configuredFor = container
 		return nil
 	}
 
@@ -91,10 +104,14 @@ func (s *Starter) Configure(container *core.Container) error {
 		if err2 != nil {
 			slog.Default().Error("observability starter: create fallback health checker",
 				slog.String("error", err2.Error()))
-			_ = container.Register(&observabilityLifecycle{
+			if registerErr := container.Register(&observabilityLifecycle{
 				startErr: fmt.Errorf("observability starter: create fallback health checker: %w", err2),
 				shutdown: shutdownFn,
-			})
+			}); registerErr != nil {
+				cleanupShutdown(shutdownFn)
+				return fmt.Errorf("observability starter: register lifecycle: %w", registerErr)
+			}
+			s.configuredFor = container
 			return nil
 		}
 		checker = empty
@@ -115,7 +132,11 @@ func (s *Starter) Configure(container *core.Container) error {
 			slog.String("error", err.Error()))
 	}
 
-	_ = container.Register(&observabilityLifecycle{shutdown: shutdownFn})
+	if err := container.Register(&observabilityLifecycle{shutdown: shutdownFn}); err != nil {
+		cleanupShutdown(shutdownFn)
+		return fmt.Errorf("observability starter: register lifecycle: %w", err)
+	}
+	s.configuredFor = container
 	return nil
 }
 
@@ -129,16 +150,23 @@ func (l *observabilityLifecycle) OnStart() error {
 	return l.startErr
 }
 
-func (l *observabilityLifecycle) OnStop() error {
+func (l *observabilityLifecycle) OnStop(ctx context.Context) error {
 	if l.shutdown == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	if err := l.shutdown(ctx); err != nil {
 		return fmt.Errorf("observability starter: shutdown: %w", err)
 	}
 	return nil
+}
+
+func cleanupShutdown(shutdownFn func(context.Context) error) {
+	if shutdownFn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = shutdownFn(ctx)
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

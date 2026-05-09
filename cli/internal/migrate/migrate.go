@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"go/format"
 	"io"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/enokdev/helix/cli/internal/gofmtx"
 	helixconfig "github.com/enokdev/helix/config"
 	_ "github.com/mattn/go-sqlite3" // register sqlite3 driver for journal queries
 )
@@ -26,6 +26,9 @@ const (
 	migrationDir    = "db/migrations"
 	migrationDSNEnv = "HELIX_MIGRATION_DSN"
 	timestampForm   = "20060102150405"
+
+	migrationLockName          = "up"
+	migrationLockRetryInterval = 25 * time.Millisecond
 )
 
 var (
@@ -39,6 +42,7 @@ var (
 
 	migrationFilePattern = regexp.MustCompile(`^([0-9]{14})_([a-z0-9_]+)\.go$`)
 	sqlite3VersionRE     = regexp.MustCompile(`\bgithub\.com/mattn/go-sqlite3\s+(v\S+)`)
+	modulePathRE         = regexp.MustCompile(`(?m)^\s*module\s+(\S+)\s*$`)
 )
 
 // Options configures migration status and execution commands.
@@ -75,6 +79,26 @@ type appConfig struct {
 type migrationTemplateData struct {
 	Version string
 	Name    string
+}
+
+type migrationCancelError struct {
+	cause   error
+	applied []migration
+}
+
+func (e *migrationCancelError) Error() string {
+	if len(e.applied) == 0 {
+		return fmt.Sprintf("migrate: up canceled after applying no migrations: %v", e.cause)
+	}
+	parts := make([]string, 0, len(e.applied))
+	for _, m := range e.applied {
+		parts = append(parts, m.Version+"_"+m.Name)
+	}
+	return fmt.Sprintf("migrate: up canceled after applying %s: %v", strings.Join(parts, ", "), e.cause)
+}
+
+func (e *migrationCancelError) Unwrap() error {
+	return e.cause
 }
 
 // Create creates a timestamped Go migration file under db/migrations.
@@ -118,29 +142,47 @@ func Up(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("migrate: up: %w", err)
 	}
+	defer db.Close()
 
 	migrations, err := discover(root)
 	if err != nil {
-		_ = db.Close()
 		return fmt.Errorf("migrate: up: %w", err)
 	}
+	releaseLock, err := acquireMigrationLock(ctx, db)
+	if err != nil {
+		return fmt.Errorf("migrate: up: %w", err)
+	}
+	defer releaseLock()
+
+	// The db connection remains open throughout subprocess execution.
+	// acquireMigrationLock auto-commits, leaving the connection idle (no active
+	// transaction) while subprocesses run, so there is no write-lock contention.
 	applied, err := appliedMigrations(ctx, db)
 	if err != nil {
-		_ = db.Close()
 		return fmt.Errorf("migrate: up: %w", err)
 	}
-	_ = db.Close() // close journal before spawning subprocess
 
 	pending := 0
+	appliedThisRun := make([]migration, 0)
 	for _, m := range migrations {
 		if _, ok := applied[m.Version]; ok {
 			continue
 		}
+		if err := checkContext(ctx); err != nil {
+			return &migrationCancelError{cause: err, applied: appliedThisRun}
+		}
 		pending++
 		if err := runMigration(ctx, root, target, "up", m); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return &migrationCancelError{cause: ctxErr, applied: appliedThisRun}
+			}
 			return fmt.Errorf("migrate: up %s: %w", m.Version, err)
 		}
+		appliedThisRun = append(appliedThisRun, m)
 		fmt.Fprintf(output(opts.Output), "applied %s %s\n", m.Version, m.Name)
+		if err := checkContext(ctx); err != nil {
+			return &migrationCancelError{cause: err, applied: appliedThisRun}
+		}
 	}
 	if pending == 0 {
 		fmt.Fprintln(output(opts.Output), "no pending migrations")
@@ -347,6 +389,58 @@ func ensureJournal(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func ensureLockTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS helix_migration_locks (
+	name TEXT PRIMARY KEY,
+	acquired_at TIMESTAMP NOT NULL
+)`)
+	if err != nil {
+		return fmt.Errorf("create helix_migration_locks: %w", err)
+	}
+	return nil
+}
+
+func acquireMigrationLock(ctx context.Context, db *sql.DB) (func(), error) {
+	if err := ensureLockTable(ctx, db); err != nil {
+		return nil, err
+	}
+	ticker := time.NewTicker(migrationLockRetryInterval)
+	defer ticker.Stop()
+
+	for {
+		_, err := db.ExecContext(ctx, "INSERT INTO helix_migration_locks (name, acquired_at) VALUES (?, CURRENT_TIMESTAMP)", migrationLockName)
+		if err == nil {
+			released := false
+			return func() {
+				if released {
+					return
+				}
+				released = true
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_, _ = db.ExecContext(releaseCtx, "DELETE FROM helix_migration_locks WHERE name = ?", migrationLockName)
+			}, nil
+		}
+		if !isLockConflict(err) {
+			return nil, fmt.Errorf("acquire migration lock: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func isLockConflict(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unique constraint") ||
+		strings.Contains(message, "constraint failed") ||
+		strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "database table is locked")
+}
+
 func appliedMigrations(ctx context.Context, db *sql.DB) (map[string]string, error) {
 	rows, err := db.QueryContext(ctx, "SELECT version, name FROM helix_migrations ORDER BY version")
 	if err != nil {
@@ -428,6 +522,9 @@ func migrationByVersion(migrations []migration, version string) (migration, bool
 }
 
 func runMigration(ctx context.Context, root string, target databaseTarget, action string, m migration) error {
+	if target.Driver == "sqlite3" && cgoDisabled() {
+		return fmt.Errorf("go-sqlite3 requires CGo for SQLite migrations: set CGO_ENABLED=1 and ensure a C compiler is available")
+	}
 	tempDir, err := os.MkdirTemp("", "helix-migration-*")
 	if err != nil {
 		return fmt.Errorf("create temp runner: %w", err)
@@ -437,6 +534,9 @@ func runMigration(ctx context.Context, root string, target databaseTarget, actio
 	source, err := os.ReadFile(m.Path)
 	if err != nil {
 		return fmt.Errorf("read migration file: %w", err)
+	}
+	if importsHostModule(source, root) {
+		return fmt.Errorf("host module imports are not supported in Go migrations because the runner module is isolated; keep migrations self-contained or use standard library/database imports only")
 	}
 	files := map[string]string{
 		"go.mod":       runnerGoMod(sqlite3VersionFromGoMod(root)),
@@ -454,9 +554,39 @@ func runMigration(ctx context.Context, root string, target databaseTarget, actio
 	cmd.Env = append(filterEnv("GOFLAGS", "GOWORK", migrationDSNEnv), "GOWORK=off", "GOFLAGS=-mod=mod", migrationDSNEnv+"="+target.DSN)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("run migration %s from %s: %w\n%s", action, filepath.ToSlash(m.Path), err, strings.TrimSpace(string(output)))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return runMigrationSubprocessError(action, m.Path, ctxErr, output)
+		}
+		return runMigrationSubprocessError(action, m.Path, err, output)
 	}
 	return nil
+}
+
+func runMigrationSubprocessError(action, path string, cause error, output []byte) error {
+	message := oneLineOutput(output)
+	if message == "" {
+		return fmt.Errorf("run migration %s from %s: %w", action, filepath.ToSlash(path), cause)
+	}
+	return fmt.Errorf("run migration %s from %s: %w: %s", action, filepath.ToSlash(path), cause, message)
+}
+
+func oneLineOutput(output []byte) string {
+	return strings.Join(strings.Fields(string(output)), " ")
+}
+
+func importsHostModule(source []byte, root string) bool {
+	modulePath := modulePathFromGoMod(root)
+	if modulePath == "" {
+		return false
+	}
+	// Match sub-package imports ("module/pkg") and direct root-package imports ("module").
+	return bytes.Contains(source, []byte(`"`+modulePath+`/`)) ||
+		bytes.Contains(source, []byte(`"`+modulePath+`"`))
+}
+
+func cgoDisabled() bool {
+	value, ok := os.LookupEnv("CGO_ENABLED")
+	return ok && strings.TrimSpace(value) == "0"
 }
 
 func runnerGoMod(sqlite3Version string) string {
@@ -473,6 +603,18 @@ func sqlite3VersionFromGoMod(root string) string {
 		}
 	}
 	return "v1.14.22"
+}
+
+func modulePathFromGoMod(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	matches := modulePathRE.FindSubmatch(data)
+	if matches == nil {
+		return ""
+	}
+	return string(matches[1])
 }
 
 // filterEnv returns os.Environ() with all entries whose key matches any of the provided keys removed.
@@ -565,7 +707,7 @@ func renderMigrationTemplate(data migrationTemplateData) (string, error) {
 	if err := template.Must(template.New("migration").Parse(migrationTemplate)).Execute(&buf, data); err != nil {
 		return "", err
 	}
-	formatted, err := format.Source(buf.Bytes())
+	formatted, err := gofmtx.Source(buf.Bytes())
 	if err != nil {
 		return "", fmt.Errorf("format migration template: %w", err)
 	}

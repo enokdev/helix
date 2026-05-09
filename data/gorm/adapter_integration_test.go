@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/enokdev/helix/data"
@@ -89,6 +91,106 @@ func TestRepositoryRejectsNilInputs(t *testing.T) {
 	nilDBRepo := datagorm.NewRepository[integrationUser, int](nil)
 	if _, err := nilDBRepo.FindAll(ctx); err == nil {
 		t.Fatal("FindAll on nil db repository returned nil error")
+	}
+}
+
+func TestRepositoryFindAllAppliesDefaultLimitAndWarns(t *testing.T) {
+	ctx := context.Background()
+	handler := &captureHandler{}
+	setDefaultLoggerForTest(t, slog.New(handler))
+
+	db := openIntegrationDB(t)
+	truncateUsers(t, db)
+	repo := datagorm.NewRepository[integrationUser, int](db)
+	seedManyUsers(t, repo, 1005)
+
+	all, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll returned error: %v", err)
+	}
+	if len(all) != 1000 {
+		t.Fatalf("FindAll returned %d users, want default limit 1000", len(all))
+	}
+
+	record, ok := handler.find("data/gorm: find all limit applied")
+	if !ok {
+		t.Fatal("FindAll did not log default limit warning")
+	}
+	if got := attrValue(record, "action"); got != "find all" {
+		t.Fatalf("warning action attr = %v, want find all", got)
+	}
+	if got := attrValue(record, "limit"); got != int64(1000) {
+		t.Fatalf("warning limit attr = %v, want 1000", got)
+	}
+	if got := attrValue(record, "repository"); got == "" {
+		t.Fatal("warning repository attr is empty")
+	}
+}
+
+func TestRepositoryFindAllDoesNotWarnAtExactLimitBoundary(t *testing.T) {
+	ctx := context.Background()
+	handler := &captureHandler{}
+	setDefaultLoggerForTest(t, slog.New(handler))
+
+	db := openIntegrationDB(t)
+	truncateUsers(t, db)
+	repo := datagorm.NewRepository[integrationUser, int](db)
+	seedManyUsers(t, repo, 1000) // exactly at the default limit
+
+	all, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll returned error: %v", err)
+	}
+	if len(all) != 1000 {
+		t.Fatalf("FindAll returned %d users, want 1000", len(all))
+	}
+	if _, ok := handler.find("data/gorm: find all limit applied"); ok {
+		t.Fatal("FindAll with exactly 1000 rows emitted a false-positive warning")
+	}
+}
+
+func TestRepositoryFindAllWithoutLimitReturnsAllRowsAndSkipsWarning(t *testing.T) {
+	ctx := context.Background()
+	handler := &captureHandler{}
+	setDefaultLoggerForTest(t, slog.New(handler))
+
+	db := openIntegrationDB(t)
+	truncateUsers(t, db)
+	repo := datagorm.NewRepository[integrationUser, int](db, datagorm.WithoutLimit())
+	seedManyUsers(t, repo, 1005)
+
+	all, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("FindAll returned error: %v", err)
+	}
+	if len(all) != 1005 {
+		t.Fatalf("FindAll returned %d users, want all 1005", len(all))
+	}
+	if _, ok := handler.find("data/gorm: find all limit applied"); ok {
+		t.Fatal("FindAll with WithoutLimit logged default limit warning")
+	}
+}
+
+func TestRepositoryWithTransactionPreservesFindAllLimitOptions(t *testing.T) {
+	ctx := context.Background()
+	db := openIntegrationDB(t)
+	truncateUsers(t, db)
+	repo := datagorm.NewRepository[integrationUser, int](db, datagorm.WithoutLimit())
+	seedManyUsers(t, repo, 1005)
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("begin transaction: %v", tx.Error)
+	}
+	defer tx.Rollback()
+
+	txRepo := repo.WithTransaction(datagorm.NewTransaction(tx))
+	all, err := txRepo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("transactional FindAll returned error: %v", err)
+	}
+	if len(all) != 1005 {
+		t.Fatalf("transactional FindAll returned %d users, want all 1005", len(all))
 	}
 }
 
@@ -203,12 +305,41 @@ func TestRepositoryFindWhereTranslatesPortableFilters(t *testing.T) {
 		})
 	}
 
-	unsafeFilter := mustFilter(t, data.LogicalAnd,
-		data.Condition{Field: "Name; DROP TABLE integration_users", Operator: data.OperatorEqual, Value: "Ada"},
-	)
-	if _, err := repo.FindWhere(ctx, unsafeFilter); !errors.Is(err, data.ErrInvalidFilter) {
-		t.Fatalf("unsafe field error = %v, want ErrInvalidFilter", err)
+	unsafeFilter := data.Filter{
+		Logic: data.LogicalAnd,
+		Conditions: []data.Condition{
+			{Field: "Name; DROP TABLE integration_users", Operator: data.OperatorEqual, Value: "Ada"},
+		},
 	}
+	if _, err := repo.FindWhere(ctx, unsafeFilter); !errors.Is(err, data.ErrInvalidCondition) {
+		t.Fatalf("unsafe field error = %v, want ErrInvalidCondition", err)
+	} else if !errors.Is(err, data.ErrInvalidFilter) {
+		t.Fatalf("unsafe field error = %v, want ErrInvalidFilter compatibility", err)
+	}
+
+	if _, err := datagorm.ColumnFor[integrationUser](db, "Name; DROP TABLE integration_users"); !errors.Is(err, data.ErrInvalidCondition) {
+		t.Fatalf("unsafe ColumnFor field error = %v, want ErrInvalidCondition", err)
+	} else if !errors.Is(err, data.ErrInvalidFilter) {
+		t.Fatalf("unsafe ColumnFor field error = %v, want ErrInvalidFilter compatibility", err)
+	}
+}
+
+func TestRepositoryFindWhereContainsEscapesPercent(t *testing.T) {
+	ctx := context.Background()
+	db := openIntegrationDB(t)
+	repo := datagorm.NewRepository[integrationUser, int](db)
+	seedUsers(t, repo,
+		integrationUser{Email: "promo@example.test", Name: "Promo 50% off", Age: 10},
+		integrationUser{Email: "near-promo@example.test", Name: "Promo 500 off", Age: 11},
+	)
+
+	got, err := repo.FindWhere(ctx, mustFilter(t, data.LogicalAnd,
+		data.Condition{Field: "Name", Operator: data.OperatorContains, Value: "50% off"},
+	))
+	if err != nil {
+		t.Fatalf("FindWhere returned error: %v", err)
+	}
+	assertNames(t, got, []string{"Promo 50% off"})
 }
 
 func TestRepositoryPagination(t *testing.T) {
@@ -244,9 +375,17 @@ func TestRepositoryPagination(t *testing.T) {
 		{page: 1, size: 0},
 		{page: -1, size: 20},
 	} {
-		if _, err := repo.Paginate(ctx, tc.page, tc.size); err == nil {
-			t.Fatalf("Paginate(%d, %d) returned nil error", tc.page, tc.size)
+		if _, err := repo.Paginate(ctx, tc.page, tc.size); !errors.Is(err, data.ErrInvalidPagination) {
+			t.Fatalf("Paginate(%d, %d) error = %v, want ErrInvalidPagination", tc.page, tc.size, err)
 		}
+	}
+
+	capped, err := repo.Paginate(ctx, 1, 1001)
+	if err != nil {
+		t.Fatalf("Paginate capped size returned error: %v", err)
+	}
+	if capped.PageSize != 1000 {
+		t.Fatalf("Paginate capped PageSize = %d, want 1000", capped.PageSize)
 	}
 }
 
@@ -354,6 +493,13 @@ func TestDatabaseUsesTransactionFromContext(t *testing.T) {
 	assertEmailCount(t, repo, "database-helper@example.test", 0)
 }
 
+func truncateUsers(t *testing.T, db *gormlib.DB) {
+	t.Helper()
+	if err := db.Session(&gormlib.Session{AllowGlobalUpdate: true}).Delete(&integrationUser{}).Error; err != nil {
+		t.Fatalf("truncate users: %v", err)
+	}
+}
+
 func openIntegrationDB(t *testing.T) *gormlib.DB {
 	t.Helper()
 
@@ -388,6 +534,20 @@ func seedUsers(t *testing.T, repo *datagorm.Repository[integrationUser, int], us
 			t.Fatalf("seed user %q: %v", users[i].Email, err)
 		}
 	}
+}
+
+func seedManyUsers(t *testing.T, repo *datagorm.Repository[integrationUser, int], count int) {
+	t.Helper()
+
+	users := make([]integrationUser, 0, count)
+	for i := 1; i <= count; i++ {
+		users = append(users, integrationUser{
+			Email: fmt.Sprintf("bulk-%04d@example.test", i),
+			Name:  fmt.Sprintf("Bulk %04d", i),
+			Age:   i,
+		})
+	}
+	seedUsers(t, repo, users...)
 }
 
 func mustFilter(t *testing.T, logic data.LogicalOperator, conditions ...data.Condition) data.Filter {
@@ -426,4 +586,121 @@ func assertEmailCount(t *testing.T, repo *datagorm.Repository[integrationUser, i
 	if len(got) != want {
 		t.Fatalf("FindWhere %q returned %d rows, want %d", email, len(got), want)
 	}
+}
+
+type captureHandler struct {
+	state   *captureState
+	attrs   []slog.Attr
+	groups  []string
+	stateMu sync.Mutex
+}
+
+type captureState struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *captureHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *captureHandler) Handle(_ context.Context, record slog.Record) error {
+	state := h.sharedState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	cloned := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	if len(h.attrs) > 0 {
+		cloned.AddAttrs(h.attrs...)
+	}
+	recordAttrs := make([]slog.Attr, 0, record.NumAttrs())
+	record.Attrs(func(attr slog.Attr) bool {
+		recordAttrs = append(recordAttrs, attr)
+		return true
+	})
+	if len(recordAttrs) > 0 {
+		cloned.AddAttrs(groupCaptureAttrs(h.groups, recordAttrs)...)
+	}
+	state.records = append(state.records, cloned)
+	return nil
+}
+
+func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	clone := h.clone()
+	clone.attrs = append(clone.attrs, groupCaptureAttrs(clone.groups, attrs)...)
+	return clone
+}
+
+func (h *captureHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	clone := h.clone()
+	clone.groups = append(clone.groups, name)
+	return clone
+}
+
+func (h *captureHandler) find(message string) (slog.Record, bool) {
+	state := h.sharedState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	for _, record := range state.records {
+		if record.Message == message {
+			return record, true
+		}
+	}
+	return slog.Record{}, false
+}
+
+func (h *captureHandler) clone() *captureHandler {
+	attrs := make([]slog.Attr, len(h.attrs))
+	copy(attrs, h.attrs)
+	groups := make([]string, len(h.groups))
+	copy(groups, h.groups)
+	return &captureHandler{
+		state:  h.sharedState(),
+		attrs:  attrs,
+		groups: groups,
+	}
+}
+
+func (h *captureHandler) sharedState() *captureState {
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	if h.state == nil {
+		h.state = &captureState{}
+	}
+	return h.state
+}
+
+func groupCaptureAttrs(groups []string, attrs []slog.Attr) []slog.Attr {
+	if len(groups) == 0 {
+		return attrs
+	}
+	current := attrs
+	for i := len(groups) - 1; i >= 0; i-- {
+		current = []slog.Attr{slog.Group(groups[i], captureAttrsToAny(current)...)}
+	}
+	return current
+}
+
+func captureAttrsToAny(attrs []slog.Attr) []any {
+	args := make([]any, len(attrs))
+	for i, attr := range attrs {
+		args[i] = attr
+	}
+	return args
+}
+
+func attrValue(record slog.Record, key string) any {
+	var value any
+	record.Attrs(func(attr slog.Attr) bool {
+		if attr.Key != key {
+			return true
+		}
+		value = attr.Value.Any()
+		return false
+	})
+	return value
 }

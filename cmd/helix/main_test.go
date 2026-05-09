@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +15,7 @@ func TestRunNewApp(t *testing.T) {
 
 	root := t.TempDir()
 
-	if err := run([]string{"new", "app", "my-service", "--dir", root}); err != nil {
+	if err := run(context.Background(), []string{"new", "app", "my-service", "--dir", root}); err != nil {
 		t.Fatalf("run(new app) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "my-service", "go.mod")); err != nil {
@@ -25,7 +28,7 @@ func TestRunGenerateModule(t *testing.T) {
 
 	dir := newCLIGenerateFixture(t)
 
-	if err := run([]string{"generate", "module", "user", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"generate", "module", "user", "--dir", dir}); err != nil {
 		t.Fatalf("run(generate module) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "users", "service.go")); err != nil {
@@ -38,7 +41,7 @@ func TestRunGenerateContext(t *testing.T) {
 
 	dir := newCLIGenerateFixture(t)
 
-	if err := run([]string{"generate", "context", "accounts", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"generate", "context", "accounts", "--dir", dir}); err != nil {
 		t.Fatalf("run(generate context) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "accounts", "api.go")); err != nil {
@@ -51,10 +54,10 @@ func TestRunGenerateContextThenWireCreatesWireFile(t *testing.T) {
 
 	dir := newCLIGenerateFixture(t)
 
-	if err := run([]string{"generate", "context", "accounts", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"generate", "context", "accounts", "--dir", dir}); err != nil {
 		t.Fatalf("run(generate context) error = %v", err)
 	}
-	if err := run([]string{"generate", "wire", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"generate", "wire", "--dir", dir}); err != nil {
 		t.Fatalf("run(generate wire) error = %v", err)
 	}
 	wire := readCLIFile(t, filepath.Join(dir, "helix_wire_gen.go"))
@@ -73,7 +76,7 @@ func TestRunDBMigrateCreate(t *testing.T) {
 
 	dir := newCLIGenerateFixture(t)
 
-	if err := run([]string{"db", "migrate", "create", "add_users", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"db", "migrate", "create", "add_users", "--dir", dir}); err != nil {
 		t.Fatalf("run(db migrate create) error = %v", err)
 	}
 	matches, err := filepath.Glob(filepath.Join(dir, "db", "migrations", "*_add_users.go"))
@@ -109,13 +112,13 @@ func Down(ctx context.Context, tx *sql.Tx) error {
 }
 `)
 
-	if err := run([]string{"db", "migrate", "status", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"db", "migrate", "status", "--dir", dir}); err != nil {
 		t.Fatalf("run(db migrate status) error = %v", err)
 	}
-	if err := run([]string{"db", "migrate", "up", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"db", "migrate", "up", "--dir", dir}); err != nil {
 		t.Fatalf("run(db migrate up) error = %v", err)
 	}
-	if err := run([]string{"db", "migrate", "down", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"db", "migrate", "down", "--dir", dir}); err != nil {
 		t.Fatalf("run(db migrate down) error = %v", err)
 	}
 }
@@ -143,11 +146,46 @@ func Down(ctx context.Context, tx *sql.Tx) error {
 }
 `)
 
-	if err := run([]string{"db", "migrate", "up", "--dir", dir, "--database-url", "sqlite://" + dbPath}); err != nil {
+	if err := run(context.Background(), []string{"db", "migrate", "up", "--dir", dir, "--database-url", "sqlite://" + dbPath}); err != nil {
 		t.Fatalf("run(db migrate up --database-url) error = %v", err)
 	}
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("database stat error = %v", err)
+	}
+}
+
+func TestRunDBMigrateUpCGODisabledExplainsSQLiteRequirement(t *testing.T) {
+	dir := newCLIGenerateFixture(t)
+	dbPath := filepath.Join(dir, "app.db")
+	writeCLIFile(t, filepath.Join(dir, "db", "migrations"), "20260422143000_create_users.go", `//go:build helixmigration
+
+package main
+
+import (
+	"context"
+	"database/sql"
+)
+
+func Up(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "CREATE TABLE users (id INTEGER PRIMARY KEY)")
+	return err
+}
+
+func Down(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "DROP TABLE users")
+	return err
+}
+`)
+	t.Setenv("CGO_ENABLED", "0")
+
+	err := run(context.Background(), []string{"db", "migrate", "up", "--dir", dir, "--database-url", "sqlite://" + dbPath})
+	if err == nil {
+		t.Fatal("run(db migrate up) error = nil, want CGo diagnostic")
+	}
+	for _, want := range []string{"cli: db migrate up", "go-sqlite3 requires CGo", "CGO_ENABLED=1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("run(db migrate up) error = %q, want %q", err, want)
+		}
 	}
 }
 
@@ -168,7 +206,7 @@ func TestRunDBMigrateErrors(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := run(tt.args)
+			err := run(context.Background(), tt.args)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("run(%v) error = %v, want %q", tt.args, err, tt.want)
 			}
@@ -176,10 +214,116 @@ func TestRunDBMigrateErrors(t *testing.T) {
 	}
 }
 
+func TestRunCommandsWithPositionalsAcceptFlagsBeforeAndAfterName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       func(root string) []string
+		assertPath func(root string) string
+	}{
+		{
+			name:       "new app flags before name",
+			args:       func(root string) []string { return []string{"new", "app", "--dir", root, "my-service"} },
+			assertPath: func(root string) string { return filepath.Join(root, "my-service", "go.mod") },
+		},
+		{
+			name:       "new app flags after name",
+			args:       func(root string) []string { return []string{"new", "app", "my-service", "--dir", root} },
+			assertPath: func(root string) string { return filepath.Join(root, "my-service", "go.mod") },
+		},
+		{
+			name:       "generate module flags before name",
+			args:       func(root string) []string { return []string{"generate", "module", "--dir", root, "user"} },
+			assertPath: func(root string) string { return filepath.Join(root, "users", "service.go") },
+		},
+		{
+			name:       "generate module flags after name",
+			args:       func(root string) []string { return []string{"generate", "module", "user", "--dir", root} },
+			assertPath: func(root string) string { return filepath.Join(root, "users", "service.go") },
+		},
+		{
+			name:       "generate context flags before name",
+			args:       func(root string) []string { return []string{"generate", "context", "--dir", root, "accounts"} },
+			assertPath: func(root string) string { return filepath.Join(root, "accounts", "api.go") },
+		},
+		{
+			name:       "generate context flags after name",
+			args:       func(root string) []string { return []string{"generate", "context", "accounts", "--dir", root} },
+			assertPath: func(root string) string { return filepath.Join(root, "accounts", "api.go") },
+		},
+		{
+			name:       "db migrate create flags before name",
+			args:       func(root string) []string { return []string{"db", "migrate", "create", "--dir", root, "add_users"} },
+			assertPath: func(root string) string { return filepath.Join(root, "db", "migrations") },
+		},
+		{
+			name:       "db migrate create flags after name",
+			args:       func(root string) []string { return []string{"db", "migrate", "create", "add_users", "--dir", root} },
+			assertPath: func(root string) string { return filepath.Join(root, "db", "migrations") },
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := newCLIGenerateFixture(t)
+			if strings.HasPrefix(tt.name, "new app") {
+				root = t.TempDir()
+			}
+
+			if err := run(context.Background(), tt.args(root)); err != nil {
+				t.Fatalf("run(%v) error = %v", tt.args(root), err)
+			}
+			if _, err := os.Stat(tt.assertPath(root)); err != nil {
+				t.Fatalf("expected generated path stat error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRunGenerateReportsChangedFiles(t *testing.T) {
+	dir := newCLIRepositoryGenerateFixture(t)
+	var out bytes.Buffer
+	oldStdout := cliStdout
+	cliStdout = &out
+	t.Cleanup(func() { cliStdout = oldStdout })
+
+	if err := run(context.Background(), []string{"generate", "--dir", dir}); err != nil {
+		t.Fatalf("run(generate) error = %v", err)
+	}
+	if got, want := strings.TrimSpace(out.String()), "generated user_repository_query_gen.go"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+
+	out.Reset()
+	if err := run(context.Background(), []string{"generate", "--dir", dir}); err != nil {
+		t.Fatalf("second run(generate) error = %v", err)
+	}
+	if got, want := strings.TrimSpace(out.String()), "no generated file changes"; got != want {
+		t.Fatalf("second stdout = %q, want %q", got, want)
+	}
+}
+
+func TestRunGenerateUsesProvidedContext(t *testing.T) {
+	t.Parallel()
+
+	dir := newCLIRepositoryGenerateFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := run(ctx, []string{"generate", "--dir", dir})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run(generate) error = %v, want context.Canceled", err)
+	}
+}
+
 func TestRunRootCommandErrorsMentionRunAndBuild(t *testing.T) {
 	t.Parallel()
 
-	err := run(nil)
+	err := run(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "expected subcommand new, db, generate, run, or build") {
 		t.Fatalf("run(nil) error = %v", err)
 	}
@@ -212,7 +356,7 @@ func TestParseBuildOptionsRejectsUnexpectedArgs(t *testing.T) {
 func TestRunBuildCreatesBinaryAndDockerfile(t *testing.T) {
 	dir := newMinimalBuildFixture(t)
 
-	if err := run([]string{"build", "--dir", dir, "--docker"}); err != nil {
+	if err := run(context.Background(), []string{"build", "--dir", dir, "--docker"}); err != nil {
 		t.Fatalf("run(build --docker) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "bin", "app")); err != nil {
@@ -229,7 +373,7 @@ func TestRunGenerateWireCreatesWireFile(t *testing.T) {
 
 	dir := newCLIGenerateFixture(t)
 
-	if err := run([]string{"generate", "wire", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"generate", "wire", "--dir", dir}); err != nil {
 		t.Fatalf("run(generate wire) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "helix_wire_gen.go")); err != nil {
@@ -242,7 +386,7 @@ func TestRunGenerateWithoutWireKeepsExistingBehavior(t *testing.T) {
 
 	dir := newCLIGenerateFixture(t)
 
-	if err := run([]string{"generate", "--dir", dir}); err != nil {
+	if err := run(context.Background(), []string{"generate", "--dir", dir}); err != nil {
 		t.Fatalf("run(generate) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "helix_wire_gen.go")); !os.IsNotExist(err) {
@@ -253,7 +397,7 @@ func TestRunGenerateWithoutWireKeepsExistingBehavior(t *testing.T) {
 func TestRunGenerateModuleRequiresName(t *testing.T) {
 	t.Parallel()
 
-	err := run([]string{"generate", "module"})
+	err := run(context.Background(), []string{"generate", "module"})
 	if err == nil {
 		t.Fatal("run(generate module) error = nil, want missing name")
 	}
@@ -265,7 +409,7 @@ func TestRunGenerateModuleRequiresName(t *testing.T) {
 func TestRunGenerateContextRequiresName(t *testing.T) {
 	t.Parallel()
 
-	err := run([]string{"generate", "context"})
+	err := run(context.Background(), []string{"generate", "context"})
 	if err == nil {
 		t.Fatal("run(generate context) error = nil, want missing name")
 	}
@@ -285,6 +429,34 @@ import "github.com/enokdev/helix"
 
 type Repository struct {
 	helix.Repository
+}
+`)
+	return dir
+}
+
+func newCLIRepositoryGenerateFixture(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	writeCLIFile(t, dir, "go.mod", "module example.test/clirepository\n\ngo 1.21.0\n")
+	writeCLIFile(t, dir, "repository.go", `package app
+
+import (
+	"context"
+
+	"github.com/enokdev/helix/data"
+)
+
+type User struct {
+	ID    int
+	Email string
+}
+
+type UserRepository interface {
+	data.Repository[User, int, int]
+
+	//helix:query auto
+	FindByEmail(ctx context.Context, email string) (*User, error)
 }
 `)
 	return dir

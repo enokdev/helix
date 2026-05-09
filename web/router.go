@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -16,7 +17,10 @@ import (
 	"github.com/enokdev/helix/web/internal"
 )
 
-const controllerMarkerPkgPath = "github.com/enokdev/helix"
+const (
+	controllerMarkerPkgPath  = "github.com/enokdev/helix"
+	routeGuardEvaluatorLocal = "_helix_route_guard_evaluator"
+)
 
 var (
 	contextType = reflect.TypeOf((*Context)(nil)).Elem()
@@ -72,7 +76,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	if server == nil {
 		return fmt.Errorf("web: register controller: %w", ErrInvalidController)
 	}
-	if sv := reflect.ValueOf(server); sv.Kind() == reflect.Ptr && sv.IsNil() {
+	if sv := reflect.ValueOf(server); sv.Kind() == reflect.Pointer && sv.IsNil() {
 		return fmt.Errorf("web: register controller: %w", ErrInvalidController)
 	}
 
@@ -184,7 +188,7 @@ func RegisterController(server HTTPServer, controller any) error {
 				return fmt.Errorf("web: register controller %s handler %s directives: %w", controllerType.Name(), methodName, err)
 			}
 			if _, err := validateRoute(directive.method, directive.path, handler); err != nil {
-				return fmt.Errorf("web: register controller %s directive %s %s: %w", controllerType.Name(), directive.method, directive.path, ErrInvalidDirective)
+				return fmt.Errorf("web: register controller %s directive %s %s: %w", controllerType.Name(), directive.method, directive.path, err)
 			}
 			routes = append(routes, controllerRoute{
 				method:  directive.method,
@@ -257,7 +261,22 @@ func wrapControllerHandler(server HTTPServer, directives methodDirectives, handl
 }
 
 func composeHandler(guards []Guard, interceptors []Interceptor, handler HandlerFunc) HandlerFunc {
-	wrapped := handler
+	runGuards := func(ctx Context) error {
+		for _, guard := range guards {
+			if err := guard.CanActivate(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	guarded := func(ctx Context) error {
+		if err := runGuards(ctx); err != nil {
+			return err
+		}
+		return handler(ctx)
+	}
+
+	wrapped := HandlerFunc(guarded)
 	for i := len(interceptors) - 1; i >= 0; i-- {
 		interceptor := interceptors[i]
 		next := wrapped
@@ -265,12 +284,9 @@ func composeHandler(guards []Guard, interceptors []Interceptor, handler HandlerF
 			return interceptor.Intercept(ctx, next)
 		}
 	}
-
 	return func(ctx Context) error {
-		for _, guard := range guards {
-			if err := guard.CanActivate(ctx); err != nil {
-				return err
-			}
+		if len(guards) > 0 {
+			ctx.Locals(routeGuardEvaluatorLocal, runGuards)
 		}
 		return wrapped(ctx)
 	}
@@ -470,7 +486,7 @@ func parseRouteDirective(text string) (routeDirective, error) {
 	}
 	normalizedMethod, err := validateRoute(directive.method, directive.path, func(Context) error { return nil })
 	if err != nil {
-		return routeDirective{}, ErrInvalidDirective
+		return routeDirective{}, errors.Join(err, ErrInvalidDirective)
 	}
 	directive.method = normalizedMethod
 	return directive, nil
@@ -513,7 +529,7 @@ func isDirectiveIdentifier(value string) bool {
 
 func validateController(controller any) (reflect.Value, reflect.Type, error) {
 	value := reflect.ValueOf(controller)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return reflect.Value{}, nil, fmt.Errorf("web: validate controller %T: %w", controller, ErrInvalidController)
 	}
 
@@ -538,7 +554,7 @@ func hasControllerMarker(controllerType reflect.Type) bool {
 			continue
 		}
 		fieldType := field.Type
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 		if fieldType.Kind() != reflect.Struct {
@@ -560,7 +576,7 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 			continue
 		}
 		fieldType := field.Type
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 		if fieldType.Kind() != reflect.Struct {
@@ -581,13 +597,13 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 				if strings.HasPrefix(part, "route:") {
 					route := strings.TrimSpace(strings.TrimPrefix(part, "route:"))
 					if route == "" {
-						return "", fmt.Errorf("web: invalid controller %s tag: route value cannot be empty — use helix:\"route:/v1/path\"", controllerType.Name())
+						return "", fmt.Errorf("web: invalid controller %s tag: route value cannot be empty — use helix:\"route:/v1/path\": %w", controllerType.Name(), ErrInvalidController)
 					}
 					if !strings.HasPrefix(route, "/") {
-						return "", fmt.Errorf("web: invalid controller %s tag: route must start with '/' — found %q", controllerType.Name(), route)
+						return "", fmt.Errorf("web: invalid controller %s tag: route must start with '/' — found %q: %w", controllerType.Name(), route, ErrInvalidRoute)
 					}
 					if strings.Contains(route, "..") {
-						return "", fmt.Errorf("web: invalid controller %s tag: route contains illegal '..' sequence", controllerType.Name())
+						return "", fmt.Errorf("web: invalid controller %s tag: route contains illegal '..' sequence: %w", controllerType.Name(), ErrInvalidRoute)
 					}
 					return route, nil
 				}
@@ -739,7 +755,8 @@ func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc
 		}
 		payload := results[0].Interface()
 		if errVal, ok := payload.(error); ok && errVal != nil {
-			slog.Default().With("namespace", "web").Error("error value in payload slot",
+			slog.Default().With("namespace", "web").Error(
+				"error value in payload slot",
 				"error", errVal,
 			)
 			return writeErrorResponse(ctx, errVal)
@@ -769,7 +786,7 @@ func newControllerReturnPlan(methodType reflect.Type) (controllerReturnPlan, err
 
 func isNilReflectValue(value reflect.Value) bool {
 	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
 	default:
 		return false

@@ -56,7 +56,7 @@ func NewApp(t testing.TB, options ...Option) *App {
 		}
 	}
 	for _, mock := range mocks {
-		if err := container.Register(mock.impl); err != nil {
+		if err := container.Register(mockRegistration(mock)); err != nil {
 			t.Fatalf("testutil: register mock bean %s: %v", mock.target, err)
 		}
 	}

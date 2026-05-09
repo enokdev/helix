@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
-	"go/format"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -17,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/enokdev/helix/cli/internal/gofmtx"
 )
 
 var (
@@ -29,6 +30,7 @@ var (
 // Result describes the outcome of one generation run.
 type Result struct {
 	GeneratedFiles int
+	Files          []string
 }
 
 // Generator creates repository query implementations for one directory tree.
@@ -51,19 +53,20 @@ func (g *Generator) Generate(ctx context.Context) (Result, error) {
 		root = "."
 	}
 
-	var generated int
+	var files []string
 	if err := scanPackages(ctx, root, func(pkg *packageModel) error {
-		count, err := generatePackage(pkg)
+		changed, err := generatePackage(pkg)
 		if err != nil {
 			return err
 		}
-		generated += count
+		files = append(files, changed...)
 		return nil
 	}); err != nil {
 		return Result{}, fmt.Errorf("cli/codegen: generate %s: %w", root, err)
 	}
 
-	return Result{GeneratedFiles: generated}, nil
+	sort.Strings(files)
+	return Result{GeneratedFiles: len(files), Files: files}, nil
 }
 
 type packageModel struct {
@@ -270,21 +273,21 @@ func (p *packageModel) resolveEmbeds() {
 	}
 }
 
-func generatePackage(pkg *packageModel) (int, error) {
+func generatePackage(pkg *packageModel) ([]string, error) {
 	var files []generatedFile
 
 	repositories, err := discoverRepositories(pkg)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	for _, repository := range repositories {
 		content, err := renderRepository(repository)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		formatted, err := format.Source(content)
+		formatted, err := gofmtx.Source(content)
 		if err != nil {
-			return 0, fmt.Errorf("format generated repository %s: %w", repository.Interface, err)
+			return nil, fmt.Errorf("format generated repository %s: %w", repository.Interface, err)
 		}
 		path := filepath.Join(pkg.dir, snakeName(repository.Interface)+"_query_gen.go")
 		files = append(files, generatedFile{path: path, content: formatted})
@@ -292,27 +295,33 @@ func generatePackage(pkg *packageModel) (int, error) {
 
 	services, err := discoverTransactionalServices(pkg)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	for _, service := range services {
 		content, err := renderTransactionalService(service)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		formatted, err := format.Source(content)
+		formatted, err := gofmtx.Source(content)
 		if err != nil {
-			return 0, fmt.Errorf("format generated transactional service %s: %w", service.Service, err)
+			return nil, fmt.Errorf("format generated transactional service %s: %w", service.Service, err)
 		}
 		path := filepath.Join(pkg.dir, snakeName(service.Service)+"_txn_gen.go")
 		files = append(files, generatedFile{path: path, content: formatted})
 	}
 
+	var changed []string
 	for _, file := range files {
-		if err := writeFileIfChanged(file.path, file.content); err != nil {
-			return 0, err
+		wrote, err := writeFileIfChanged(file.path, file.content)
+		if err != nil {
+			return nil, err
+		}
+		if wrote {
+			changed = append(changed, file.path)
 		}
 	}
-	return len(files), nil
+	sort.Strings(changed)
+	return changed, nil
 }
 
 func discoverRepositories(pkg *packageModel) ([]repositoryModel, error) {
@@ -733,7 +742,7 @@ func parseFindByMethod(pkg *packageModel, repository repositoryModel, name strin
 			return nil, fmt.Errorf("field %s not found on %s: %w", field, repository.Entity, errInvalidQuery)
 		}
 		if operator == operatorContains && exprString(paramTypes[i]) != "string" {
-			return nil, fmt.Errorf("Containing predicate %s requires string parameter: %w", field, errInvalidQuery)
+			return nil, fmt.Errorf("containing predicate %s requires string parameter: %w", field, errInvalidQuery)
 		}
 		predicates = append(predicates, queryPredicate{
 			Field:    field,
@@ -1083,18 +1092,18 @@ func renderTransactionalReturnValues(buffer *bytes.Buffer, resultExprs []string,
 	fmt.Fprintf(buffer, "%s", errExpr)
 }
 
-func writeFileIfChanged(path string, content []byte) error {
+func writeFileIfChanged(path string, content []byte) (bool, error) {
 	existing, err := os.ReadFile(path)
 	if err == nil && bytes.Equal(existing, content) {
-		return nil
+		return false, nil
 	}
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read existing generated file %s: %w", path, err)
+		return false, fmt.Errorf("read existing generated file %s: %w", path, err)
 	}
 
 	temp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("create temp generated file %s: %w", path, err)
+		return false, fmt.Errorf("create temp generated file %s: %w", path, err)
 	}
 	tempName := temp.Name()
 	defer func() {
@@ -1103,15 +1112,15 @@ func writeFileIfChanged(path string, content []byte) error {
 
 	if _, err := temp.Write(content); err != nil {
 		_ = temp.Close()
-		return fmt.Errorf("write temp generated file %s: %w", path, err)
+		return false, fmt.Errorf("write temp generated file %s: %w", path, err)
 	}
 	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close temp generated file %s: %w", path, err)
+		return false, fmt.Errorf("close temp generated file %s: %w", path, err)
 	}
 	if err := os.Rename(tempName, path); err != nil {
-		return fmt.Errorf("replace generated file %s: %w", path, err)
+		return false, fmt.Errorf("replace generated file %s: %w", path, err)
 	}
-	return nil
+	return true, nil
 }
 
 func exprString(expr ast.Expr) string {

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -133,13 +134,13 @@ func (c *Container) stopLifecycleComponent(component startedLifecycle, remaining
 		return timeoutErr
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), remaining)
+	defer cancel() // signals ctx.Done() at timeout expiry or early return
+
 	result := make(chan error, 1)
 	go func() {
-		result <- component.instance.OnStop()
+		result <- component.instance.OnStop(ctx)
 	}()
-
-	timer := time.NewTimer(remaining)
-	defer timer.Stop()
 
 	select {
 	case err := <-result:
@@ -150,7 +151,7 @@ func (c *Container) stopLifecycleComponent(component startedLifecycle, remaining
 		wrapped := fmt.Errorf("core: stop %s: %w", component.name, err)
 		c.logger.Error("lifecycle stop failed", "component", component.name, "error", err)
 		return wrapped
-	case <-timer.C:
+	case <-ctx.Done():
 		timeoutErr := fmt.Errorf("core: stop %s: %w", component.name, ErrShutdownTimeout)
 		c.logger.Error("lifecycle stop exceeded shutdown budget", "component", component.name, "timeout", remaining)
 		return timeoutErr

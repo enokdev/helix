@@ -280,7 +280,7 @@ func normalizeAppName(name string) (string, error) {
 		return "", errInvalidName
 	}
 	runes := []rune(name)
-	if !('a' <= runes[0] && runes[0] <= 'z') {
+	if runes[0] < 'a' || 'z' < runes[0] {
 		return "", errInvalidName
 	}
 	for _, r := range runes[1:] {

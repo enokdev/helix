@@ -1,7 +1,12 @@
 package scheduler
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"log/slog"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -53,7 +58,17 @@ func TestRegister(t *testing.T) {
 				Fn:   nil,
 			},
 			wantErr: true,
-			errIs:   ErrInvalidCron,
+			errIs:   ErrInvalidJob,
+		},
+		{
+			name: "Empty name",
+			job: Job{
+				Name: " ",
+				Expr: "@every 1s",
+				Fn:   func() {},
+			},
+			wantErr: true,
+			errIs:   ErrInvalidJob,
 		},
 	}
 
@@ -71,6 +86,170 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+func TestRegisterRejectsDuplicateJobName(t *testing.T) {
+	s := NewScheduler()
+	job := Job{Name: "same-name", Expr: "@every 1s", Fn: func() {}}
+
+	if err := s.Register(job); err != nil {
+		t.Fatalf("first Register() error = %v", err)
+	}
+
+	err := s.Register(job)
+	if err == nil {
+		t.Fatal("second Register() error = nil, want duplicate error")
+	}
+	if !errors.Is(err, ErrDuplicateJob) {
+		t.Fatalf("second Register() error = %v, want ErrDuplicateJob", err)
+	}
+}
+
+func TestUnregisterRejectsSurroundingWhitespace(t *testing.T) {
+	s := NewScheduler()
+	if err := s.Register(Job{Name: "daily", Expr: "@every 1s", Fn: func() {}}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	unregisterer, ok := s.(interface{ Unregister(string) error })
+	if !ok {
+		t.Fatal("NewScheduler() does not support Unregister")
+	}
+	err := unregisterer.Unregister(" daily ")
+	if err == nil {
+		t.Fatal("Unregister() error = nil, want invalid job error")
+	}
+	if !errors.Is(err, ErrInvalidJob) {
+		t.Fatalf("Unregister() error = %v, want ErrInvalidJob", err)
+	}
+
+	err = s.Register(Job{Name: "daily", Expr: "@every 1s", Fn: func() {}})
+	if err == nil {
+		t.Fatal("Register() after invalid Unregister = nil, want duplicate error")
+	}
+	if !errors.Is(err, ErrDuplicateJob) {
+		t.Fatalf("Register() after invalid Unregister = %v, want ErrDuplicateJob", err)
+	}
+}
+
+func TestRegisterAppliesSkipLockWhenConcurrencyDisabled(t *testing.T) {
+	s := NewScheduler()
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var runs int32
+
+	if err := s.Register(Job{
+		Name: "non-concurrent-direct",
+		Expr: "@every 1s",
+		Fn: func() {
+			atomic.AddInt32(&runs, 1)
+			started <- struct{}{}
+			<-release
+		},
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	wrapped := s.(*adapterWrapper).jobFuncForTest("non-concurrent-direct")
+	if wrapped == nil {
+		t.Fatal("registered job function = nil")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		wrapped()
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first invocation did not start")
+	}
+
+	wrapped()
+	close(release)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&runs); got != 1 {
+		t.Fatalf("runs = %d, want 1", got)
+	}
+}
+
+func TestRegisterAllowsConcurrentWhenOptedIn(t *testing.T) {
+	s := NewScheduler()
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var runs int32
+
+	if err := s.Register(Job{
+		Name:            "concurrent-direct",
+		Expr:            "@every 1s",
+		AllowConcurrent: true,
+		Fn: func() {
+			atomic.AddInt32(&runs, 1)
+			started <- struct{}{}
+			<-release
+		},
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	wrapped := s.(*adapterWrapper).jobFuncForTest("concurrent-direct")
+	if wrapped == nil {
+		t.Fatal("registered job function = nil")
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wrapped()
+		}()
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("invocation did not start")
+		}
+	}
+	close(release)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&runs); got != 2 {
+		t.Fatalf("runs = %d, want 2", got)
+	}
+}
+
+func TestRegisterRecoversAndLogsJobPanic(t *testing.T) {
+	var logs bytes.Buffer
+	setDefaultLoggerForTest(t, slog.New(slog.NewTextHandler(&logs, nil)))
+
+	s := NewScheduler()
+	if err := s.Register(Job{
+		Name: "panic-job",
+		Expr: "@every 1s",
+		Fn: func() {
+			panic("boom")
+		},
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	wrapped := s.(*adapterWrapper).jobFuncForTest("panic-job")
+	if wrapped == nil {
+		t.Fatal("registered job function = nil")
+	}
+
+	wrapped()
+
+	got := logs.String()
+	for _, want := range []string{"scheduler: job panic", "job=panic-job", "panic=boom"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("logs = %q, want to contain %q", got, want)
+		}
+	}
+}
+
 func TestLifecycleStartStop(t *testing.T) {
 	s := NewScheduler()
 
@@ -78,7 +257,9 @@ func TestLifecycleStartStop(t *testing.T) {
 		t.Fatalf("OnStart() failed: %v", err)
 	}
 
-	if err := s.OnStop(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop() failed: %v", err)
 	}
 }
@@ -109,7 +290,9 @@ func TestGracefulShutdown(t *testing.T) {
 	// wait for at least one execution (1s interval + buffer)
 	time.Sleep(1200 * time.Millisecond)
 
-	if err := s.OnStop(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop() failed: %v", err)
 	}
 
@@ -139,11 +322,34 @@ func TestJobExecutes(t *testing.T) {
 
 	time.Sleep(1200 * time.Millisecond)
 
-	if err := s.OnStop(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop() failed: %v", err)
 	}
 
 	if atomic.LoadInt32(&counter) == 0 {
 		t.Error("job never executed")
+	}
+}
+
+// TestSchedulerDoubleStopIsIdempotent verifies AC3: calling Stop(ctx) then
+// OnStop(ctx) in sequence produces no error or panic. robfig/cron.Stop() is
+// idempotent and returns an already-done context on the second call.
+func TestSchedulerDoubleStopIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	s := NewScheduler()
+	if err := s.OnStart(); err != nil {
+		t.Fatalf("OnStart() failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.Stop(ctx)
+
+	if err := s.OnStop(ctx); err != nil {
+		t.Fatalf("OnStop() after Stop() returned unexpected error: %v", err)
 	}
 }

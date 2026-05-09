@@ -2,14 +2,18 @@ package web_test
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/enokdev/helix/web"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // newTestTracerProvider returns a TracerProvider that records spans in memory
@@ -159,6 +163,138 @@ func TestWithTracerProvider_ExtractsIncomingTraceparent(t *testing.T) {
 	if !strings.Contains(parentTraceparent, traceID) {
 		t.Errorf("expected child span to share parent trace ID %q, got span trace ID %q",
 			"0af7651916cd43dd8448eb211c80319c", traceID)
+	}
+}
+
+func TestWithTracerProvider_CurrentSpanAvailableFromContext(t *testing.T) {
+	tp, _ := newTestTracerProvider(t)
+
+	srv := web.NewServer(web.WithTracerProvider(tp))
+	var spanTraceID string
+	if err := srv.RegisterRoute(http.MethodGet, "/child-span", func(ctx web.Context) error {
+		span := trace.SpanFromContext(ctx.Context())
+		if !span.SpanContext().IsValid() {
+			t.Fatal("expected current span in web.Context")
+		}
+		spanTraceID = span.SpanContext().TraceID().String()
+		ctx.Status(http.StatusOK)
+		return nil
+	}); err != nil {
+		t.Fatalf("RegisterRoute: %v", err)
+	}
+
+	resp, err := srv.ServeHTTP(httptest.NewRequest(http.MethodGet, "/child-span", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP: %v", err)
+	}
+	defer resp.Body.Close()
+	if spanTraceID == "" {
+		t.Fatal("handler did not observe a valid tracing span")
+	}
+}
+
+func TestWithTracerProvider_RecordsHandlerErrorsOnSpan(t *testing.T) {
+	tests := []struct {
+		name      string
+		path      string
+		handler   web.HandlerFunc
+		wantCode  int
+		wantEvent string
+	}{
+		{
+			name: "generic error",
+			path: "/generic-error",
+			handler: func(web.Context) error {
+				return errors.New("database down")
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantEvent: "database down",
+		},
+		{
+			name: "panic",
+			path: "/panic-error",
+			handler: func(web.Context) error {
+				panic("boom")
+			},
+			wantCode:  http.StatusInternalServerError,
+			wantEvent: "handler panic",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tp, recorder := newTestTracerProvider(t)
+			srv := web.NewServer(web.WithTracerProvider(tp))
+			if err := srv.RegisterRoute(http.MethodGet, tt.path, tt.handler); err != nil {
+				t.Fatalf("RegisterRoute: %v", err)
+			}
+
+			resp, err := srv.ServeHTTP(httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if err != nil {
+				t.Fatalf("ServeHTTP: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != tt.wantCode {
+				t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, tt.wantCode)
+			}
+
+			spans := recorder.Ended()
+			if len(spans) != 1 {
+				t.Fatalf("ended spans = %d, want 1", len(spans))
+			}
+			if spans[0].Status().Code != codes.Error {
+				t.Fatalf("span status = %v, want Error", spans[0].Status())
+			}
+			if !spanHasExceptionEvent(spans[0], tt.wantEvent) {
+				t.Fatalf("span events = %#v, want exception containing %q", spans[0].Events(), tt.wantEvent)
+			}
+		})
+	}
+}
+
+func spanHasExceptionEvent(span sdktrace.ReadOnlySpan, message string) bool {
+	for _, event := range span.Events() {
+		if event.Name != "exception" {
+			continue
+		}
+		for _, attr := range event.Attributes {
+			if strings.Contains(attr.Value.AsString(), message) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestWithTracerProvider_HandledStructuredError4xxNoSpanError verifies that a
+// cleanly-handled 4xx (e.g. 403 Forbidden) does NOT mark the span as Error,
+// per OTel HTTP semantic conventions (only 5xx → codes.Error).
+func TestWithTracerProvider_HandledStructuredError4xxNoSpanError(t *testing.T) {
+	t.Parallel()
+
+	tp, recorder := newTestTracerProvider(t)
+	srv := web.NewServer(web.WithTracerProvider(tp))
+	if err := srv.RegisterRoute(http.MethodGet, "/forbidden", func(web.Context) error {
+		return web.Forbidden("blocked")
+	}); err != nil {
+		t.Fatalf("RegisterRoute: %v", err)
+	}
+
+	resp, err := srv.ServeHTTP(httptest.NewRequest(http.MethodGet, "/forbidden", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("ended spans = %d, want 1", len(spans))
+	}
+	if spans[0].Status().Code == codes.Error {
+		t.Fatalf("span status = Error, want Unset for handled 4xx (OTel HTTP semconv)")
 	}
 }
 

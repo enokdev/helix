@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -39,6 +40,7 @@ func TestControllerRouteOverride(t *testing.T) {
 			err := web.RegisterController(newMockHTTPServer(), tt.controller)
 			if tt.expectedErr {
 				assert.Error(t, err)
+				assert.True(t, errors.Is(err, web.ErrInvalidController) || errors.Is(err, web.ErrInvalidRoute))
 			} else {
 				assert.NoError(t, err)
 			}

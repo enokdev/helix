@@ -3,11 +3,14 @@ package web
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	helixconfig "github.com/enokdev/helix/config"
@@ -24,9 +27,14 @@ const (
 	defaultShutdownTimeout = 30 * time.Second
 )
 
+// ErrInvalidPort is returned when server.port is outside the valid TCP port range.
+var ErrInvalidPort = errors.New("invalid port")
+
 // Starter auto-configures the HTTP server when Fiber is available.
 type Starter struct {
-	cfg helixconfig.Loader
+	cfg           helixconfig.Loader
+	mu            sync.Mutex
+	configuredFor *core.Container
 }
 
 // New creates a Starter using the provided configuration loader.
@@ -65,12 +73,20 @@ func (s *Starter) Configure(container *core.Container) error {
 		return nil
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.configuredFor == container {
+		return nil
+	}
+
 	port := defaultServerPort
 	if s.cfg != nil {
 		if value, ok := s.cfg.Lookup(serverPortKey); ok {
-			if configuredPort := formatPort(value); configuredPort != "" {
-				port = configuredPort
+			configuredPort, err := parsePort(value)
+			if err != nil {
+				return err
 			}
+			port = configuredPort
 		}
 	}
 
@@ -88,12 +104,13 @@ func (s *Starter) Configure(container *core.Container) error {
 		addr:            ":" + port,
 		shutdownTimeout: shutdownTimeout,
 	}
-	if err := container.Register(lifecycle); err != nil {
-		return fmt.Errorf("web starter: register lifecycle: %w", err)
-	}
 	if err := container.Register(lifecycle.server); err != nil {
 		return fmt.Errorf("web starter: register server: %w", err)
 	}
+	if err := container.Register(lifecycle); err != nil {
+		return fmt.Errorf("web starter: register lifecycle: %w", err)
+	}
+	s.configuredFor = container
 	return nil
 }
 
@@ -110,15 +127,15 @@ func (l *serverLifecycle) OnStart() error {
 	return nil
 }
 
-func (l *serverLifecycle) OnStop() error {
+func (l *serverLifecycle) OnStop(ctx context.Context) error {
 	timeout := l.shutdownTimeout
 	if timeout <= 0 {
 		timeout = defaultShutdownTimeout
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	stopCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	if err := l.server.Stop(ctx); err != nil {
+	if err := l.server.Stop(stopCtx); err != nil {
 		return fmt.Errorf("web starter: stop: %w", err)
 	}
 	return nil
@@ -173,34 +190,67 @@ func parseBool(value any) (bool, bool) {
 	return false, false
 }
 
-func formatPort(value any) string {
+func parsePort(value any) (string, error) {
 	switch v := value.(type) {
 	case string:
-		return strings.TrimSpace(v)
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return "", invalidPort(value)
+		}
+		port, err := strconv.ParseInt(trimmed, 10, 64)
+		if err != nil {
+			return "", invalidPort(value)
+		}
+		return formatPortInt(port, value)
 	case float32:
-		return strconv.Itoa(int(v))
+		return parseFloatPort(float64(v), value)
 	case float64:
-		return strconv.Itoa(int(v))
+		return parseFloatPort(v, value)
 	case int:
-		return strconv.Itoa(v)
+		return formatPortInt(int64(v), value)
 	case int8:
-		return strconv.FormatInt(int64(v), 10)
+		return formatPortInt(int64(v), value)
 	case int16:
-		return strconv.FormatInt(int64(v), 10)
+		return formatPortInt(int64(v), value)
 	case int32:
-		return strconv.FormatInt(int64(v), 10)
+		return formatPortInt(int64(v), value)
 	case int64:
-		return strconv.FormatInt(v, 10)
+		return formatPortInt(v, value)
 	case uint:
-		return strconv.FormatUint(uint64(v), 10)
+		return formatPortUint(uint64(v), value)
 	case uint8:
-		return strconv.FormatUint(uint64(v), 10)
+		return formatPortUint(uint64(v), value)
 	case uint16:
-		return strconv.FormatUint(uint64(v), 10)
+		return formatPortUint(uint64(v), value)
 	case uint32:
-		return strconv.FormatUint(uint64(v), 10)
+		return formatPortUint(uint64(v), value)
 	case uint64:
-		return strconv.FormatUint(v, 10)
+		return formatPortUint(v, value)
 	}
-	return ""
+	return "", invalidPort(value)
+}
+
+func parseFloatPort(port float64, original any) (string, error) {
+	if math.IsNaN(port) || math.IsInf(port, 0) || math.Trunc(port) != port {
+		return "", invalidPort(original)
+	}
+	return formatPortInt(int64(port), original)
+}
+
+func formatPortInt(port int64, original any) (string, error) {
+	if port < 1 || port > 65535 {
+		return "", invalidPort(original)
+	}
+	return strconv.FormatInt(port, 10), nil
+}
+
+func formatPortUint(port uint64, original any) (string, error) {
+	if port < 1 || port > 65535 {
+		return "", invalidPort(original)
+	}
+	return strconv.FormatUint(port, 10), nil
+}
+
+func invalidPort(value any) error {
+	return fmt.Errorf("web starter: %s %v: %w", serverPortKey, value, ErrInvalidPort)
 }

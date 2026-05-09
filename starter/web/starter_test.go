@@ -2,10 +2,12 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +31,29 @@ func (f fakeConfig) ActiveProfiles() []string    { return nil }
 type fakeHTTPServer struct {
 	startAddr string
 	stopCtx   context.Context
+}
+
+var cwdMu sync.Mutex
+
+func chdirForTest(t *testing.T, dir string) {
+	t.Helper()
+
+	cwdMu.Lock()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		cwdMu.Unlock()
+		t.Fatalf("get cwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		cwdMu.Unlock()
+		t.Fatalf("chdir %q: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		defer cwdMu.Unlock()
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
 }
 
 func (f *fakeHTTPServer) Start(addr string) error {
@@ -129,19 +154,8 @@ require github.com/spf13/viper v1.20.1
 }
 
 func TestStarterConditionMissingGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir temp dir: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(oldDir); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	})
+	chdirForTest(t, tmpDir)
 
 	if got := New(nil).Condition(); got {
 		t.Fatal("Condition() = true, want false")
@@ -149,11 +163,6 @@ func TestStarterConditionMissingGoMod(t *testing.T) {
 }
 
 func TestStarterConditionWalkUpDetectsGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-
 	tmpDir := t.TempDir()
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	goModContent := goModWithFiber()
@@ -166,15 +175,7 @@ func TestStarterConditionWalkUpDetectsGoMod(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("chdir to subdir: %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := os.Chdir(oldDir); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	})
+	chdirForTest(t, subDir)
 
 	if got := New(nil).Condition(); !got {
 		t.Fatal("Condition() = false, want true (should find go.mod in parent)")
@@ -216,6 +217,71 @@ func TestStarterConfigureRegistersLifecycleWithConfiguredPort(t *testing.T) {
 	}
 }
 
+func TestStarterConfigure_InvalidPortReturnsErrInvalidPort(t *testing.T) {
+	tests := []struct {
+		name string
+		port any
+	}{
+		{name: "too high string", port: "99999"},
+		{name: "zero int", port: 0},
+		{name: "negative int", port: -1},
+		{name: "non numeric string", port: "abc"},
+		{name: "empty string", port: "  "},
+		{name: "tcp suffix", port: "8080/tcp"},
+		{name: "fractional float", port: float64(8080.5)},
+		{name: "too high uint", port: uint64(65536)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			container := newTestContainer()
+			cfg := fakeConfig{values: map[string]any{"server.port": tt.port}}
+
+			err := New(cfg).Configure(container)
+			if err == nil {
+				t.Fatal("Configure() error = nil, want ErrInvalidPort")
+			}
+			if !errors.Is(err, ErrInvalidPort) {
+				t.Fatalf("Configure() error = %v, want ErrInvalidPort", err)
+			}
+		})
+	}
+}
+
+func TestStarterConfigure_PropagatesRegisterLifecycleError(t *testing.T) {
+	container := core.NewContainer()
+
+	err := New(nil).Configure(container)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want register error")
+	}
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Configure() error = %v, want ErrUnresolvable", err)
+	}
+	if !strings.Contains(err.Error(), "web starter: register server") {
+		t.Fatalf("Configure() error = %q, want server register context", err.Error())
+	}
+}
+
+func TestStarterConfigure_IdempotentDoesNotReplaceLifecycle(t *testing.T) {
+	container := newTestContainer()
+	starter := New(nil)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("first Configure() error = %v", err)
+	}
+	first := singleLifecycle(t, container)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("second Configure() error = %v", err)
+	}
+	second := singleLifecycle(t, container)
+
+	if first != second {
+		t.Fatalf("second Configure() replaced lifecycle: first=%p second=%p", first, second)
+	}
+}
+
 func TestStarterConfigureRegistersHTTPServer(t *testing.T) {
 	container := newTestContainer()
 
@@ -243,7 +309,7 @@ func TestServerLifecycleStartStop(t *testing.T) {
 		t.Fatalf("start addr = %q, want %q", server.startAddr, ":9090")
 	}
 
-	if err := lifecycle.OnStop(); err != nil {
+	if err := lifecycle.OnStop(context.Background()); err != nil {
 		t.Fatalf("OnStop() error = %v", err)
 	}
 	if server.stopCtx == nil {
@@ -278,7 +344,7 @@ func TestServerLifecycle_ShutdownTimeout(t *testing.T) {
 				shutdownTimeout: tt.shutdownTimeout,
 			}
 
-			if err := lifecycle.OnStop(); err != nil {
+			if err := lifecycle.OnStop(context.Background()); err != nil {
 				t.Fatalf("OnStop() error = %v", err)
 			}
 			if server.stopCtx == nil {
@@ -289,6 +355,30 @@ func TestServerLifecycle_ShutdownTimeout(t *testing.T) {
 				t.Fatalf("context hasDeadline = %v, want %v", hasDeadline, tt.wantDeadline)
 			}
 		})
+	}
+}
+
+func TestServerLifecycleOnStopPropagatesParentContextCancellation(t *testing.T) {
+	server := &fakeHTTPServer{}
+	lifecycle := &serverLifecycle{
+		server:          server,
+		shutdownTimeout: 10 * time.Second,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := lifecycle.OnStop(ctx); err != nil {
+		t.Fatalf("OnStop() error = %v", err)
+	}
+	if server.stopCtx == nil {
+		t.Fatal("OnStop() did not pass a context to server.Stop")
+	}
+
+	select {
+	case <-server.stopCtx.Done():
+	default:
+		t.Fatal("server.Stop context was not cancelled with parent context")
 	}
 }
 
@@ -381,22 +471,11 @@ func TestStarterConfigure_ShutdownTimeoutFromConfig(t *testing.T) {
 func chdirWithGoMod(t *testing.T, contents string) {
 	t.Helper()
 
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
 	tmpDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir temp dir: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(oldDir); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	})
+	chdirForTest(t, tmpDir)
 }
 
 func goModWithFiber() string {

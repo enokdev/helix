@@ -1,25 +1,25 @@
 installation:
-  version: 6.3.0
+  version: 6.6.0
   installDate: 2026-04-14T18:07:02.691Z
-  lastUpdated: 2026-04-15T10:31:56.495Z
+  lastUpdated: 2026-05-06T10:37:31.430Z
 modules:
   - name: core
-    version: 6.3.0
+    version: 6.6.0
     installDate: 2026-04-14T18:07:02.681Z
-    lastUpdated: 2026-04-15T10:31:56.495Z
+    lastUpdated: 2026-05-06T10:37:31.430Z
     source: built-in
     npmPackage: null
     repoUrl: null
   - name: bmm
-    version: 6.3.0
+    version: 6.6.0
     installDate: 2026-04-14T18:50:16.829Z
-    lastUpdated: 2026-04-15T10:31:56.495Z
+    lastUpdated: 2026-05-06T10:37:31.430Z
     source: built-in
     npmPackage: null
     repoUrl: null
 ides:
   - claude-code
-  - gemini
-  - github-copilot
   - codex
+  - github-copilot
+  - gemini
   - opencode

@@ -1,6 +1,8 @@
 package security
 
 import (
+	"fmt"
+	"sync"
 	"time"
 
 	helixconfig "github.com/enokdev/helix/config"
@@ -17,7 +19,9 @@ const (
 
 // Starter auto-configures the security stack when security configuration is present.
 type Starter struct {
-	cfg helixconfig.Loader
+	cfg           helixconfig.Loader
+	mu            sync.Mutex
+	configuredFor *core.Container
 }
 
 // New creates a Starter using the provided configuration loader.
@@ -82,6 +86,12 @@ func (s *Starter) Configure(container *core.Container) error {
 		return nil
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.configuredFor == container {
+		return nil
+	}
+
 	secret := ""
 	expiry := 24 * time.Hour
 
@@ -101,7 +111,10 @@ func (s *Starter) Configure(container *core.Container) error {
 	}
 
 	if svc, err := helixsecurity.NewJWTService(secret, expiry); err == nil {
-		_ = container.Register(svc)
+		if err := container.Register(svc); err != nil {
+			return fmt.Errorf("security starter: register JWTService: %w", err)
+		}
+		s.configuredFor = container
 	}
 	return nil
 }

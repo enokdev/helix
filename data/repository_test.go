@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -95,6 +96,23 @@ func TestPageCarriesPaginationMetadata(t *testing.T) {
 	}
 	if page.PageSize != 20 {
 		t.Fatalf("expected page size 20, got %d", page.PageSize)
+	}
+}
+
+func TestErrInvalidPaginationIsPublicSentinel(t *testing.T) {
+	if ErrInvalidPagination == nil {
+		t.Fatal("ErrInvalidPagination must be a non-nil sentinel")
+	}
+
+	wrapped := fmt.Errorf("data/gorm: paginate: %w", ErrInvalidPagination)
+	if !errors.Is(wrapped, ErrInvalidPagination) {
+		t.Fatalf("errors.Is on wrapped sentinel failed: %v", wrapped)
+	}
+
+	for _, other := range []error{ErrRecordNotFound, ErrDuplicateKey, ErrInvalidFilter, ErrInvalidCondition} {
+		if errors.Is(ErrInvalidPagination, other) {
+			t.Fatalf("ErrInvalidPagination must be distinct from %v", other)
+		}
 	}
 }
 
@@ -255,5 +273,43 @@ func TestNewFilterValidatesConditions(t *testing.T) {
 	_, err = NewFilter(LogicalAnd, Condition{Field: "age", Operator: OperatorGreaterThan})
 	if !errors.Is(err, ErrInvalidFilter) {
 		t.Fatalf("expected ErrInvalidFilter, got %v", err)
+	}
+}
+
+func TestConditionValidateFieldNamePattern(t *testing.T) {
+	tests := []struct {
+		name       string
+		field      string
+		wantErr    error
+		wantFilter bool
+	}{
+		{name: "lowercase field", field: "name"},
+		{name: "exported Go field", field: "Name"},
+		{name: "leading underscore", field: "_internal"},
+		{name: "contains digit after first character", field: "name_1"},
+		{name: "missing field", field: "", wantErr: ErrInvalidCondition, wantFilter: true},
+		{name: "sql statement separator", field: "name; DROP", wantErr: ErrInvalidCondition, wantFilter: true},
+		{name: "nested path", field: "user.name"},
+		{name: "sql order fragment", field: "name DESC", wantErr: ErrInvalidCondition, wantFilter: true},
+		{name: "quoted identifier", field: "`name`", wantErr: ErrInvalidCondition, wantFilter: true},
+		{name: "starts with digit", field: "1name", wantErr: ErrInvalidCondition, wantFilter: true},
+		{name: "contains dash", field: "name-name", wantErr: ErrInvalidCondition, wantFilter: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := (Condition{
+				Field:    tt.field,
+				Operator: OperatorEqual,
+				Value:    "Ada",
+			}).Validate()
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("expected error %v, got %v", tt.wantErr, err)
+			}
+			if tt.wantFilter && !errors.Is(err, ErrInvalidFilter) {
+				t.Fatalf("expected invalid field error to match ErrInvalidFilter, got %v", err)
+			}
+		})
 	}
 }

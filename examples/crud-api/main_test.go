@@ -127,6 +127,38 @@ func TestUsersCRUD(t *testing.T) {
 	}
 }
 
+func TestUserRepositoryFindAllAfterSparseDelete(t *testing.T) {
+	repo := NewUserRepository()
+	first := repo.Save(userInput{Name: "Ada", Email: "ada@example.com"})
+	second := repo.Save(userInput{Name: "Grace", Email: "grace@example.com"})
+	third := repo.Save(userInput{Name: "Katherine", Email: "katherine@example.com"})
+
+	if first.ID != 1 || second.ID != 2 || third.ID != 3 {
+		t.Fatalf("seeded IDs = %d,%d,%d, want 1,2,3", first.ID, second.ID, third.ID)
+	}
+	if !repo.Delete(second.ID) {
+		t.Fatal("Delete(second) = false, want true")
+	}
+
+	users := repo.FindAll()
+	if len(users) != 2 {
+		t.Fatalf("FindAll() returned %d users, want 2", len(users))
+	}
+	if users[0].ID != first.ID || users[1].ID != third.ID {
+		t.Fatalf("FindAll() IDs = %d,%d, want %d,%d", users[0].ID, users[1].ID, first.ID, third.ID)
+	}
+}
+
+func TestUserRepositoryFindAllDoesNotScanSparseIDRange(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	if strings.Contains(string(data), "for id := 1; id < r.nextID; id++") {
+		t.Fatal("FindAll must iterate existing users instead of scanning 1..nextID")
+	}
+}
+
 func TestNegativePaths(t *testing.T) {
 	server, err := newServer()
 	if err != nil {

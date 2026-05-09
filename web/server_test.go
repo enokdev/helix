@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	helix "github.com/enokdev/helix"
@@ -537,6 +538,17 @@ func (h *InterfaceArgErrorHandler) Handle(_ error) (any, int) {
 	return nil, http.StatusBadRequest
 }
 
+type FailingWriteValidationErrorHandler struct {
+	helix.ErrorHandler
+}
+
+//helix:handles ValidationError
+func (h *FailingWriteValidationErrorHandler) Handle(_ web.Context, _ helix.ValidationError) (any, int) {
+	// func() is not JSON-serialisable: the invoker will set the status to
+	// http.StatusTeapot and then fail to write the body.
+	return func() {}, http.StatusTeapot
+}
+
 func newTestServer(t *testing.T) web.HTTPServer {
 	t.Helper()
 	return web.NewServer()
@@ -672,6 +684,39 @@ func TestWithRouteObserver_CaptureStatusErreurGenerique(t *testing.T) {
 	}
 }
 
+func TestWithRouteObserver_CaptureStatusEffectivementEnvoyeQuandErrorHandlerEchoue(t *testing.T) {
+	t.Parallel()
+
+	obs := &testObserver{}
+	server := web.NewServer(web.WithRouteObserver(obs))
+	if err := web.RegisterErrorHandler(server, &FailingWriteValidationErrorHandler{}); err != nil {
+		t.Fatalf("RegisterErrorHandler() error = %v", err)
+	}
+	if err := server.RegisterRoute(http.MethodGet, "/handled-write-failure", func(web.Context) error {
+		return helix.ValidationError{Message: "bad user", Field: "id"}
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/handled-write-failure", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if len(obs.calls) != 1 {
+		t.Fatalf("observer received %d calls, want 1", len(obs.calls))
+	}
+	// The observer must capture the status committed by the error handler (418),
+	// NOT the 500 that Fiber writes when the body serialisation error bubbles up.
+	if obs.calls[0].StatusCode != http.StatusTeapot {
+		t.Fatalf("observed status = %d, want %d (status committed by error handler before write failure)", obs.calls[0].StatusCode, http.StatusTeapot)
+	}
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("HTTP response status = %d, want %d (Fiber fallback after serialisation error)", resp.StatusCode, http.StatusInternalServerError)
+	}
+}
+
 // ---------- SetHeader / Send tests ----------
 
 func TestContext_SetHeaderEtSend(t *testing.T) {
@@ -778,4 +823,131 @@ func TestServer_JSONSerializationFailure(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertErrorResponse(t, resp, http.StatusInternalServerError, "INTERNAL_ERROR", "")
+}
+
+// TestRegisterRouteDuplicate verifies that registering the same METHOD+path twice
+// returns ErrDuplicateRoute on the second call.
+func TestRegisterRouteDuplicate(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	if err := srv.RegisterRoute(http.MethodGet, "/items", handler); err != nil {
+		t.Fatalf("first RegisterRoute() error = %v", err)
+	}
+
+	err := srv.RegisterRoute(http.MethodGet, "/items", handler)
+	if !errors.Is(err, web.ErrDuplicateRoute) {
+		t.Fatalf("second RegisterRoute() error = %v, want ErrDuplicateRoute", err)
+	}
+}
+
+// TestRegisterRouteDuplicateCaseInsensitiveMethod verifies that method normalisation
+// is applied before the duplicate check (e.g. "get" and "GET" are the same route).
+func TestRegisterRouteDuplicateCaseInsensitiveMethod(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	if err := srv.RegisterRoute("GET", "/ping", handler); err != nil {
+		t.Fatalf("first RegisterRoute() error = %v", err)
+	}
+
+	err := srv.RegisterRoute("get", "/ping", handler)
+	if !errors.Is(err, web.ErrDuplicateRoute) {
+		t.Fatalf("RegisterRoute(\"get\") error = %v, want ErrDuplicateRoute", err)
+	}
+}
+
+// TestRegisterRouteDistinctMethodsSamePathAllowed verifies that different methods
+// on the same path are not considered duplicates.
+func TestRegisterRouteDistinctMethodsSamePathAllowed(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	if err := srv.RegisterRoute(http.MethodGet, "/items", handler); err != nil {
+		t.Fatalf("RegisterRoute(GET) error = %v", err)
+	}
+
+	if err := srv.RegisterRoute(http.MethodPost, "/items", handler); err != nil {
+		t.Fatalf("RegisterRoute(POST) error = %v, want nil", err)
+	}
+}
+
+// TestServerConcurrentRegistration verifies that guards and interceptors can be
+// registered from multiple goroutines without triggering the race detector.
+func TestServerConcurrentRegistration(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 40)
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func(n int) {
+			defer wg.Done()
+			errs <- web.RegisterGuard(srv,
+				fmt.Sprintf("guard-%d", n),
+				web.GuardFunc(func(web.Context) error { return nil }),
+			)
+		}(i)
+		go func(n int) {
+			defer wg.Done()
+			errs <- web.RegisterInterceptor(srv,
+				fmt.Sprintf("interceptor-%d", n),
+				web.InterceptorFunc(func(ctx web.Context, next web.HandlerFunc) error { return next(ctx) }),
+			)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent registration error = %v", err)
+		}
+	}
+}
+
+func TestServerConcurrentRouteRegistration(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t)
+	handler := func(web.Context) error { return nil }
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- srv.RegisterRoute(http.MethodGet, "/concurrent-route", handler)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	duplicates := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, web.ErrDuplicateRoute):
+			duplicates++
+		default:
+			t.Fatalf("RegisterRoute() error = %v, want nil or ErrDuplicateRoute", err)
+		}
+	}
+
+	if successes != 1 {
+		t.Fatalf("successful RegisterRoute() calls = %d, want 1", successes)
+	}
+	if duplicates != 19 {
+		t.Fatalf("duplicate RegisterRoute() calls = %d, want 19", duplicates)
+	}
 }

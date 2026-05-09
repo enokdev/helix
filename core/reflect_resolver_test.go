@@ -16,6 +16,10 @@ type testService struct {
 	Dependency *testDependency `inject:"true"`
 }
 
+type parentService struct {
+	Service *testService `inject:"true"`
+}
+
 type greeter interface {
 	Greet() string
 }
@@ -32,8 +36,36 @@ func (g *greeterImplAlt) Greet() string {
 	return "hello-alt"
 }
 
+type greeterAuditor interface {
+	Audit() string
+}
+
+type greeterImplWithAudit struct{}
+
+func (g *greeterImplWithAudit) Greet() string {
+	return "hello-audit"
+}
+
+func (g *greeterImplWithAudit) Audit() string {
+	return "audit"
+}
+
+type targetedGreeterImpl struct{}
+
+func (g *targetedGreeterImpl) Greet() string {
+	return "targeted"
+}
+
+func (g *targetedGreeterImpl) Audit() string {
+	return "targeted-audit"
+}
+
 type interfaceConsumer struct {
 	Greeter greeter `inject:"true"`
+}
+
+type auditorConsumer struct {
+	Auditor greeterAuditor `inject:"true"`
 }
 
 type invalidInjectConsumer struct {
@@ -110,9 +142,10 @@ func TestReflectResolver_Register(t *testing.T) {
 	type nonStruct int
 
 	tests := []struct {
-		name      string
-		component any
-		wantErr   error
+		name            string
+		component       any
+		wantErr         error
+		wantErrContains []string
 	}{
 		{
 			name:      "nil component",
@@ -140,13 +173,17 @@ func TestReflectResolver_Register(t *testing.T) {
 			wantErr:   nil,
 		},
 		{
-			name: "valid component registration metadata",
+			name: "prototype registration cannot be lazy",
 			component: ComponentRegistration{
 				Component: &testDependency{Name: "registered"},
 				Scope:     ScopePrototype,
 				Lazy:      true,
 			},
-			wantErr: nil,
+			wantErr: ErrUnresolvable,
+			wantErrContains: []string{
+				"ScopePrototype",
+				"Lazy",
+			},
 		},
 		{
 			name: "component registration with invalid scope",
@@ -164,6 +201,11 @@ func TestReflectResolver_Register(t *testing.T) {
 			err := resolver.Register(tt.component)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Register() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			for _, want := range tt.wantErrContains {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("Register() error = %v, want substring %q", err, want)
+				}
 			}
 
 			if tt.wantErr != nil {
@@ -384,6 +426,73 @@ func TestReflectResolver_InjectDependenciesAndGraph(t *testing.T) {
 	}
 }
 
+func TestReflectResolver_RegisterInvalidatesResolvedDependents(t *testing.T) {
+	resolver := NewReflectResolver()
+	firstDependency := &testDependency{Name: "first"}
+	if err := resolver.Register(firstDependency); err != nil {
+		t.Fatalf("Register(firstDependency) error = %v", err)
+	}
+	if err := resolver.Register(&testService{}); err != nil {
+		t.Fatalf("Register(service) error = %v", err)
+	}
+
+	var firstService *testService
+	if err := resolver.Resolve(&firstService); err != nil {
+		t.Fatalf("Resolve(firstService) error = %v", err)
+	}
+	if firstService.Dependency != firstDependency {
+		t.Fatalf("firstService.Dependency = %p, want %p", firstService.Dependency, firstDependency)
+	}
+
+	secondDependency := &testDependency{Name: "second"}
+	if err := resolver.Register(secondDependency); err != nil {
+		t.Fatalf("Register(secondDependency) error = %v", err)
+	}
+
+	var secondService *testService
+	if err := resolver.Resolve(&secondService); err != nil {
+		t.Fatalf("Resolve(secondService) error = %v", err)
+	}
+	if secondService.Dependency != secondDependency {
+		t.Fatalf("secondService.Dependency = %p, want %p", secondService.Dependency, secondDependency)
+	}
+}
+
+func TestReflectResolver_RegisterInvalidatesTransitiveResolvedDependents(t *testing.T) {
+	resolver := NewReflectResolver()
+	firstDependency := &testDependency{Name: "first"}
+	if err := resolver.Register(firstDependency); err != nil {
+		t.Fatalf("Register(firstDependency) error = %v", err)
+	}
+	if err := resolver.Register(&testService{}); err != nil {
+		t.Fatalf("Register(service) error = %v", err)
+	}
+	if err := resolver.Register(&parentService{}); err != nil {
+		t.Fatalf("Register(parentService) error = %v", err)
+	}
+
+	var firstParent *parentService
+	if err := resolver.Resolve(&firstParent); err != nil {
+		t.Fatalf("Resolve(firstParent) error = %v", err)
+	}
+	if firstParent.Service.Dependency != firstDependency {
+		t.Fatalf("firstParent.Service.Dependency = %p, want %p", firstParent.Service.Dependency, firstDependency)
+	}
+
+	secondDependency := &testDependency{Name: "second"}
+	if err := resolver.Register(secondDependency); err != nil {
+		t.Fatalf("Register(secondDependency) error = %v", err)
+	}
+
+	var secondParent *parentService
+	if err := resolver.Resolve(&secondParent); err != nil {
+		t.Fatalf("Resolve(secondParent) error = %v", err)
+	}
+	if secondParent.Service.Dependency != secondDependency {
+		t.Fatalf("secondParent.Service.Dependency = %p, want %p", secondParent.Service.Dependency, secondDependency)
+	}
+}
+
 func TestReflectResolver_InjectAssignableInterface(t *testing.T) {
 	resolver := NewReflectResolver()
 
@@ -405,6 +514,87 @@ func TestReflectResolver_InjectAssignableInterface(t *testing.T) {
 	if got := consumer.Greeter.Greet(); got != "hello" {
 		t.Fatalf("Greeter.Greet() = %q, want %q", got, "hello")
 	}
+}
+
+func TestReflectResolver_RegistrationInterfaceFilters(t *testing.T) {
+	t.Run("resolve as limits additional interfaces", func(t *testing.T) {
+		resolver := NewReflectResolver()
+		if err := resolver.Register(ComponentRegistration{
+			Component: &targetedGreeterImpl{},
+			ResolveAs: []reflect.Type{
+				reflect.TypeOf((*greeter)(nil)).Elem(),
+			},
+		}); err != nil {
+			t.Fatalf("Register(targetedGreeterImpl) error = %v", err)
+		}
+		if err := resolver.Register(ComponentRegistration{
+			Component: &greeterImplWithAudit{},
+			ExcludeFrom: []reflect.Type{
+				reflect.TypeOf((*greeter)(nil)).Elem(),
+			},
+		}); err != nil {
+			t.Fatalf("Register(greeterImplWithAudit) error = %v", err)
+		}
+		if err := resolver.Register(&interfaceConsumer{}); err != nil {
+			t.Fatalf("Register(interfaceConsumer) error = %v", err)
+		}
+		if err := resolver.Register(&auditorConsumer{}); err != nil {
+			t.Fatalf("Register(auditorConsumer) error = %v", err)
+		}
+
+		var greeterConsumer *interfaceConsumer
+		if err := resolver.Resolve(&greeterConsumer); err != nil {
+			t.Fatalf("Resolve(interfaceConsumer) error = %v", err)
+		}
+		if got := greeterConsumer.Greeter.Greet(); got != "targeted" {
+			t.Fatalf("Greeter.Greet() = %q, want targeted", got)
+		}
+
+		var auditConsumer *auditorConsumer
+		if err := resolver.Resolve(&auditConsumer); err != nil {
+			t.Fatalf("Resolve(auditorConsumer) error = %v", err)
+		}
+		if got := auditConsumer.Auditor.Audit(); got != "audit" {
+			t.Fatalf("Auditor.Audit() = %q, want audit", got)
+		}
+	})
+
+	t.Run("exclude from preserves other interfaces", func(t *testing.T) {
+		resolver := NewReflectResolver()
+		if err := resolver.Register(ComponentRegistration{
+			Component: &greeterImplWithAudit{},
+			ExcludeFrom: []reflect.Type{
+				reflect.TypeOf((*greeter)(nil)).Elem(),
+			},
+		}); err != nil {
+			t.Fatalf("Register(greeterImplWithAudit) error = %v", err)
+		}
+		if err := resolver.Register(&greeterImpl{}); err != nil {
+			t.Fatalf("Register(greeterImpl) error = %v", err)
+		}
+		if err := resolver.Register(&interfaceConsumer{}); err != nil {
+			t.Fatalf("Register(interfaceConsumer) error = %v", err)
+		}
+		if err := resolver.Register(&auditorConsumer{}); err != nil {
+			t.Fatalf("Register(auditorConsumer) error = %v", err)
+		}
+
+		var greeterConsumer *interfaceConsumer
+		if err := resolver.Resolve(&greeterConsumer); err != nil {
+			t.Fatalf("Resolve(interfaceConsumer) error = %v", err)
+		}
+		if got := greeterConsumer.Greeter.Greet(); got != "hello" {
+			t.Fatalf("Greeter.Greet() = %q, want hello", got)
+		}
+
+		var auditConsumer *auditorConsumer
+		if err := resolver.Resolve(&auditConsumer); err != nil {
+			t.Fatalf("Resolve(auditorConsumer) error = %v", err)
+		}
+		if got := auditConsumer.Auditor.Audit(); got != "audit" {
+			t.Fatalf("Auditor.Audit() = %q, want audit", got)
+		}
+	})
 }
 
 func TestReflectResolver_InjectErrors(t *testing.T) {

@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ func (l *testLifecycle) OnStart() error {
 	return nil
 }
 
-func (l *testLifecycle) OnStop() error {
+func (l *testLifecycle) OnStop(_ context.Context) error {
 	l.Stopped++
 	return nil
 }
@@ -42,7 +43,7 @@ func (l *failingLifecycle) OnStart() error {
 	return nil
 }
 
-func (l *failingLifecycle) OnStop() error {
+func (l *failingLifecycle) OnStop(_ context.Context) error {
 	return l.stopErr
 }
 

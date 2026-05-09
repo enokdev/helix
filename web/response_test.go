@@ -27,18 +27,16 @@ func (m *mockContext) IP() string                    { return "" }
 func (m *mockContext) Body() []byte                  { return nil }
 func (m *mockContext) Status(code int)               { m.statusCode = code }
 func (m *mockContext) SetHeader(_, _ string)         {}
+func (m *mockContext) AppendHeader(_, _ string)      {}
 func (m *mockContext) Send(_ []byte) error           { return nil }
 func (m *mockContext) JSON(_ any) error              { return m.jsonErr }
 func (m *mockContext) Locals(_ string, _ ...any) any { return nil }
 func (m *mockContext) Context() context.Context      { return context.Background() }
 
 func TestWriteSuccessResponse_JSONError_IsLoggedWithWebNamespace(t *testing.T) {
-	orig := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(orig) })
-
 	var buf bytes.Buffer
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	slog.SetDefault(slog.New(handler))
+	setDefaultLoggerForTest(t, slog.New(handler))
 
 	jsonErr := errors.New("json: unsupported type: chan int")
 	ctx := &mockContext{method: "GET", jsonErr: jsonErr}

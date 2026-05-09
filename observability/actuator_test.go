@@ -96,6 +96,44 @@ func TestRegisterActuatorRoutesServesExactUpHealthWithoutComponents(t *testing.T
 	}
 }
 
+func TestRegisterActuatorRoutesPropagatesRequestContextToHealth(t *testing.T) {
+	t.Parallel()
+
+	server := &captureHTTPServer{}
+	indicator := &blockingHealthIndicator{name: "io", ready: make(chan struct{})}
+	checker, err := NewCompositeHealthChecker(indicator)
+	if err != nil {
+		t.Fatalf("NewCompositeHealthChecker() error = %v", err)
+	}
+	if err := RegisterActuatorRoutes(server, checker, NewInfoProvider(nil)); err != nil {
+		t.Fatalf("RegisterActuatorRoutes() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reqCtx := &actuatorTestContext{ctx: ctx}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = server.routes[http.MethodGet+" "+healthPath](reqCtx)
+	}()
+
+	// Wait until the indicator is blocking inside Health(), then cancel.
+	<-indicator.ready
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("health handler did not return after context cancellation")
+	}
+
+	if !errors.Is(indicator.ctxErr, context.Canceled) {
+		t.Fatalf("HealthIndicator ctx.Err() = %v, want context.Canceled", indicator.ctxErr)
+	}
+}
+
 func TestRegisterActuatorRoutesRejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
@@ -202,4 +240,70 @@ func (s failingHTTPServer) IsGeneratedOnly() bool {
 
 func (s failingHTTPServer) ServeHTTP(*http.Request) (*http.Response, error) {
 	return nil, nil
+}
+
+type captureHTTPServer struct {
+	routes map[string]web.HandlerFunc
+}
+
+func (s *captureHTTPServer) Start(string) error {
+	return nil
+}
+
+func (s *captureHTTPServer) Stop(context.Context) error {
+	return nil
+}
+
+func (s *captureHTTPServer) RegisterRoute(method, path string, handler web.HandlerFunc) error {
+	if s.routes == nil {
+		s.routes = make(map[string]web.HandlerFunc)
+	}
+	s.routes[method+" "+path] = handler
+	return nil
+}
+
+func (s *captureHTTPServer) IsGeneratedOnly() bool {
+	return false
+}
+
+func (s *captureHTTPServer) ServeHTTP(*http.Request) (*http.Response, error) {
+	return nil, nil
+}
+
+type actuatorTestContext struct {
+	ctx context.Context
+}
+
+func (c *actuatorTestContext) Method() string              { return http.MethodGet }
+func (c *actuatorTestContext) Path() string                { return healthPath }
+func (c *actuatorTestContext) OriginalURL() string         { return healthPath }
+func (c *actuatorTestContext) Param(string) string         { return "" }
+func (c *actuatorTestContext) Query(string) string         { return "" }
+func (c *actuatorTestContext) Header(string) string        { return "" }
+func (c *actuatorTestContext) IP() string                  { return "" }
+func (c *actuatorTestContext) Body() []byte                { return nil }
+func (c *actuatorTestContext) Status(int)                  {}
+func (c *actuatorTestContext) SetHeader(string, string)    {}
+func (c *actuatorTestContext) AppendHeader(string, string) {}
+func (c *actuatorTestContext) Send([]byte) error           { return nil }
+func (c *actuatorTestContext) JSON(any) error              { return nil }
+func (c *actuatorTestContext) Context() context.Context    { return c.ctx }
+func (c *actuatorTestContext) Locals(string, ...any) any   { return nil }
+
+// blockingHealthIndicator blocks inside Health() until the context is
+// cancelled, allowing tests to verify that the request context is correctly
+// propagated and that cancellation is observable from within the indicator.
+type blockingHealthIndicator struct {
+	name   string
+	ready  chan struct{} // closed once Health() is entered
+	ctxErr error
+}
+
+func (i *blockingHealthIndicator) Name() string { return i.name }
+
+func (i *blockingHealthIndicator) Health(ctx context.Context) ComponentHealth {
+	close(i.ready) // signal: now blocking
+	<-ctx.Done()   // wait for cancellation
+	i.ctxErr = ctx.Err()
+	return ComponentHealth{Status: StatusUp}
 }

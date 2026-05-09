@@ -5,10 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -188,6 +191,250 @@ func TestUpStopsOnFailedMigration(t *testing.T) {
 	assertMigrationCount(t, dbPath, 1)
 }
 
+func TestUpSerializesConcurrentProcesses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping subprocess test in -short mode")
+	}
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	writeConfig(t, root, "sqlite://"+dbPath)
+	writeMigration(t, root, "20260422143000_create_users.go", "users")
+	writeMigration(t, root, "20260422143100_create_posts.go", "posts")
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			cmd := exec.Command(exe, "-test.run=TestUpSubprocessHelper", "-test.v")
+			cmd.Env = append(os.Environ(), "HELIX_TEST_ROOT="+root)
+			out, runErr := cmd.CombinedOutput()
+			if runErr != nil {
+				errs <- fmt.Errorf("subprocess failed: %w\n%s", runErr, strings.TrimSpace(string(out)))
+			} else {
+				errs <- nil
+			}
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertTableExists(t, dbPath, "users", true)
+	assertTableExists(t, dbPath, "posts", true)
+	assertMigrationCount(t, dbPath, 2)
+}
+
+// TestUpSubprocessHelper is invoked as a subprocess by TestUpSerializesConcurrentProcesses.
+// It skips itself when run in a normal test suite (env var absent).
+func TestUpSubprocessHelper(t *testing.T) {
+	root := os.Getenv("HELIX_TEST_ROOT")
+	if root == "" {
+		t.Skip("not a subprocess invocation")
+	}
+	if err := Up(context.Background(), Options{RootDir: root}); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+}
+
+func TestUpConcurrentCallsApplyEachMigrationOnce(t *testing.T) {
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	writeConfig(t, root, "sqlite://"+dbPath)
+	writeMigration(t, root, "20260422143000_create_users.go", "users")
+	writeMigration(t, root, "20260422143100_create_posts.go", "posts")
+
+	var ready sync.WaitGroup
+	var attempts int32
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		ready.Add(1)
+		go func() {
+			atomic.AddInt32(&attempts, 1)
+			ready.Done() // signal just before calling Up so both goroutines are scheduled
+			var out bytes.Buffer
+			errs <- Up(context.Background(), Options{RootDir: root, Output: &out})
+		}()
+	}
+	ready.Wait()
+
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent Up() error = %v", err)
+		}
+	}
+	if got := atomic.LoadInt32(&attempts); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+	assertTableExists(t, dbPath, "users", true)
+	assertTableExists(t, dbPath, "posts", true)
+	assertMigrationCount(t, dbPath, 2)
+}
+
+func TestMigrationLockUsesDatabaseStateAcrossConnections(t *testing.T) {
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	db1, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open db1: %v", err)
+	}
+	defer db1.Close()
+	db2, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open db2: %v", err)
+	}
+	defer db2.Close()
+
+	release, err := acquireMigrationLock(context.Background(), db1)
+	if err != nil {
+		t.Fatalf("acquireMigrationLock(db1) error = %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := acquireMigrationLock(waitCtx, db2); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("acquireMigrationLock(db2) error = %v, want context deadline", err)
+	}
+
+	release()
+	release2, err := acquireMigrationLock(context.Background(), db2)
+	if err != nil {
+		t.Fatalf("acquireMigrationLock(db2 after release) error = %v", err)
+	}
+	release2()
+}
+
+func TestUpCanceledBeforeNextMigrationReportsAppliedThisRun(t *testing.T) {
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	writeConfig(t, root, "sqlite://"+dbPath)
+	writeMigration(t, root, "20260422143000_create_users.go", "users")
+	writeMigration(t, root, "20260422143100_create_posts.go", "posts")
+
+	ctx := &cancelAfterAppliedContext{Context: context.Background(), dbPath: dbPath}
+	err := Up(ctx, Options{RootDir: root})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Up() error = %v, want context.Canceled", err)
+	}
+	for _, want := range []string{"20260422143000", "create_users", "context canceled"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Up() error = %q, want %q", err, want)
+		}
+	}
+	assertTableExists(t, dbPath, "users", true)
+	assertTableExists(t, dbPath, "posts", false)
+	assertMigrationCount(t, dbPath, 1)
+}
+
+func TestRunMigrationSQLiteCGODisabledReturnsActionableError(t *testing.T) {
+	root := newProjectFixture(t)
+	writeMigration(t, root, "20260422143000_create_users.go", "users")
+	migrations, err := discover(root)
+	if err != nil {
+		t.Fatalf("discover() error = %v", err)
+	}
+	t.Setenv("CGO_ENABLED", "0")
+
+	err = runMigration(context.Background(), root, databaseTarget{Driver: "sqlite3", DSN: filepath.Join(root, "app.db")}, "up", migrations[0])
+	if err == nil {
+		t.Fatal("runMigration() error = nil, want CGo diagnostic")
+	}
+	for _, want := range []string{"go-sqlite3 requires CGo", "CGO_ENABLED=1", "C compiler"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("runMigration() error = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestRunMigrationHostModuleImportReturnsActionableSingleLineError(t *testing.T) {
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	writeConfig(t, root, "sqlite://"+dbPath)
+	writeFile(t, root, filepath.Join("db", "migrations", "20260422143000_import_host.go"), `//go:build helixmigration
+
+package main
+
+import (
+	"context"
+	"database/sql"
+
+	"example.test/app/internal/users"
+)
+
+func Up(ctx context.Context, tx *sql.Tx) error {
+	_ = users.User{}
+	return nil
+}
+
+func Down(ctx context.Context, tx *sql.Tx) error {
+	return nil
+}
+`)
+	migrations, err := discover(root)
+	if err != nil {
+		t.Fatalf("discover() error = %v", err)
+	}
+
+	err = runMigration(context.Background(), root, databaseTarget{Driver: "sqlite3", DSN: dbPath}, "up", migrations[0])
+	if err == nil {
+		t.Fatal("runMigration() error = nil, want host import diagnostic")
+	}
+	for _, want := range []string{"host module imports are not supported", "runner module is isolated"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("runMigration() error = %q, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "\n") {
+		t.Fatalf("runMigration() error contains newline: %q", err)
+	}
+}
+
+func TestImportsHostModule(t *testing.T) {
+	t.Parallel()
+
+	root := newProjectFixture(t) // module = "example.test/app"
+
+	cases := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{
+			name:   "sub-package import detected",
+			source: `import "example.test/app/internal/users"`,
+			want:   true,
+		},
+		{
+			name:   "root-package import detected",
+			source: `import "example.test/app"`,
+			want:   true,
+		},
+		{
+			name:   "unrelated import not detected",
+			source: `import "example.test/other"`,
+			want:   false,
+		},
+		{
+			name:   "prefix match does not false-positive",
+			source: `import "example.test/appended/pkg"`,
+			want:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := importsHostModule([]byte(tc.source), root)
+			if got != tc.want {
+				t.Errorf("importsHostModule(%q) = %v, want %v", tc.source, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestStatusRejectsDuplicateMigrationVersions(t *testing.T) {
 	root := newProjectFixture(t)
 	dbPath := filepath.Join(root, "app.db")
@@ -199,6 +446,25 @@ func TestStatusRejectsDuplicateMigrationVersions(t *testing.T) {
 	if !errors.Is(err, errDuplicateVersion) {
 		t.Fatalf("Status() error = %v, want errDuplicateVersion", err)
 	}
+}
+
+type cancelAfterAppliedContext struct {
+	context.Context
+	dbPath string
+}
+
+func (c *cancelAfterAppliedContext) Err() error {
+	db, err := sql.Open("sqlite3", c.dbPath)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM helix_migrations").Scan(&count)
+	if err == nil && count > 0 {
+		return context.Canceled
+	}
+	return nil
 }
 
 func TestRunnerSourceReadsDSNFromEnvironment(t *testing.T) {

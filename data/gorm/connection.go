@@ -108,7 +108,7 @@ func (d *DB) AutoMigrate(models ...any) error {
 			return fmt.Errorf("data/gorm: auto migrate: %w", errNilModel)
 		}
 		rv := reflect.ValueOf(m)
-		if rv.Kind() == reflect.Ptr && rv.IsNil() {
+		if rv.Kind() == reflect.Pointer && rv.IsNil() {
 			return fmt.Errorf("data/gorm: auto migrate: %w", errNilModel)
 		}
 	}

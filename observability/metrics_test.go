@@ -218,6 +218,41 @@ func TestRegisterMetricsRoute_ExpositionTextePrometheus(t *testing.T) {
 	}
 }
 
+func TestRegisterMetricsRoute_DisablePrometheusInternalCompression(t *testing.T) {
+	t.Parallel()
+
+	reg, _ := observability.NewRegistry()
+	g := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "helix_compression_guard",
+		Help: "A gauge for compression guard test.",
+	})
+	if err := reg.Register(g); err != nil {
+		t.Fatalf("reg.Register() error = %v", err)
+	}
+	g.Set(1)
+
+	server := web.NewServer()
+	if err := observability.RegisterMetricsRoute(server, reg); err != nil {
+		t.Fatalf("RegisterMetricsRoute() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/actuator/metrics", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := server.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("Content-Encoding"); got == "gzip" {
+		t.Fatalf("Content-Encoding = %q, want uncompressed Prometheus bridge response", got)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "helix_compression_guard") {
+		t.Fatalf("body does not contain plain Prometheus metrics:\n%s", body)
+	}
+}
+
 func TestRegisterMetricsRoute_CollectorCustomApparait(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 
@@ -18,27 +19,52 @@ var (
 	errInvalidEntity      = errors.New("invalid entity")
 	errInvalidContext     = errors.New("invalid context")
 	errInvalidTransaction = errors.New("invalid transaction")
-	errInvalidPage        = errors.New("invalid page request")
+	errInvalidPage        = data.ErrInvalidPagination
 	errInvalidTotal       = errors.New("invalid total")
 )
+
+const defaultFindAllLimit = 1000
 
 // Compile-time check that *Repository[T, ID] implements data.Repository[T, ID, *gormlib.DB].
 var _ data.Repository[any, any, *gormlib.DB] = (*Repository[any, any])(nil)
 
+// Option customizes a GORM repository.
+type Option func(*repositoryOptions)
+
+type repositoryOptions struct {
+	findAllLimit int
+}
+
 // Repository implements data.Repository using a GORM database handle.
 type Repository[T any, ID any] struct {
-	db  *gormlib.DB
-	err error
+	db      *gormlib.DB
+	err     error
+	options repositoryOptions
+}
+
+// WithoutLimit disables the default FindAll safety limit for callers that
+// explicitly need to load every record.
+func WithoutLimit() Option {
+	return func(opts *repositoryOptions) {
+		opts.findAllLimit = 0
+	}
 }
 
 // NewRepository creates a GORM-backed repository.
 // If db is nil, the returned repository is invalid: every method call will
 // return an error wrapping errInvalidDB without panicking.
-func NewRepository[T, ID any](db *gormlib.DB) *Repository[T, ID] {
-	if db == nil {
-		return &Repository[T, ID]{err: errInvalidDB}
+func NewRepository[T, ID any](db *gormlib.DB, opts ...Option) *Repository[T, ID] {
+	options := defaultRepositoryOptions()
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
 	}
-	return &Repository[T, ID]{db: db}
+
+	if db == nil {
+		return &Repository[T, ID]{err: errInvalidDB, options: options}
+	}
+	return &Repository[T, ID]{db: db, options: options}
 }
 
 // FindAll returns all records for T.
@@ -49,8 +75,24 @@ func (r *Repository[T, ID]) FindAll(ctx context.Context) ([]T, error) {
 	}
 
 	var items []T
-	if err := db.Find(&items).Error; err != nil {
+	limit := r.options.findAllLimit
+	query := db
+	if limit > 0 {
+		// Fetch one extra row to detect truncation without a COUNT query.
+		// A table with exactly `limit` rows will return limit items (not limit+1),
+		// so no false-positive warning is emitted.
+		query = query.Limit(limit + 1)
+	}
+	if err := query.Find(&items).Error; err != nil {
 		return nil, wrapError("find all", err)
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+		slog.WarnContext(ctx, "data/gorm: find all limit applied",
+			"action", "find all",
+			"limit", limit,
+			"repository", fmt.Sprintf("%T", r),
+		)
 	}
 	return items, nil
 }
@@ -170,7 +212,11 @@ func (r *Repository[T, ID]) WithTransaction(tx data.Transaction[*gormlib.DB]) da
 	if db == nil {
 		return &Repository[T, ID]{err: errInvalidDB}
 	}
-	return &Repository[T, ID]{db: db}
+	options := defaultRepositoryOptions()
+	if r != nil {
+		options = r.options
+	}
+	return &Repository[T, ID]{db: db, options: options}
 }
 
 func (r *Repository[T, ID]) database(ctx context.Context, action string) (*gormlib.DB, error) {
@@ -291,6 +337,10 @@ func (r *Repository[T, ID]) expressionFor(db *gormlib.DB, condition data.Conditi
 
 // ColumnFor resolves field to a validated GORM column for T.
 func ColumnFor[T any](db *gormlib.DB, field string) (clause.Column, error) {
+	if err := data.ValidateFieldName(field); err != nil {
+		return clause.Column{}, err
+	}
+
 	stmt := &gormlib.Statement{DB: db}
 	if err := stmt.Parse(new(T)); err != nil {
 		return clause.Column{}, err
@@ -324,16 +374,9 @@ func wrapError(action string, err error) error {
 		return fmt.Errorf("data/gorm: %s: %w", action, data.ErrRecordNotFound)
 	case errors.Is(err, gormlib.ErrDuplicatedKey), errors.Is(err, data.ErrDuplicateKey):
 		return fmt.Errorf("data/gorm: %s: %w", action, data.ErrDuplicateKey)
-	case errors.Is(err, data.ErrInvalidFilter):
-		return fmt.Errorf("data/gorm: %s: %w", action, data.ErrInvalidFilter)
 	default:
 		return fmt.Errorf("data/gorm: %s: %w", action, err)
 	}
-}
-
-// EscapeLike escapes SQL LIKE wildcard characters for generated queries.
-func EscapeLike(value string) string {
-	return escapeLike(value)
 }
 
 func valuesForIN(value any) []any {
@@ -349,12 +392,23 @@ func valuesForIN(value any) []any {
 	return values
 }
 
+// EscapeLike escapes SQL LIKE wildcard characters (%, _, \) so that a user-
+// supplied value can be used safely in a LIKE expression. It is intentionally
+// exported for use in generated repository query code.
+func EscapeLike(value string) string {
+	return escapeLike(value)
+}
+
 func escapeLike(value string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }
 
 func maxInt() int {
 	return int(^uint(0) >> 1)
+}
+
+func defaultRepositoryOptions() repositoryOptions {
+	return repositoryOptions{findAllLimit: defaultFindAllLimit}
 }
 
 // isNilValue reports whether v is a typed nil (e.g. (*T)(nil) wrapped in an interface).
@@ -366,7 +420,7 @@ func isNilValue(v any) bool {
 	}
 	rv := reflect.ValueOf(v)
 	switch rv.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return rv.IsNil()
 	default:
 		return false

@@ -8,17 +8,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/enokdev/helix/config"
 	"github.com/enokdev/helix/observability"
 )
 
-// restoreDefault enregistre slog.Default() courant et le restaure après le test.
+var defaultLoggerMu sync.Mutex
+
+// restoreDefault enregistre slog.Default() courant et le restaure apres le test.
 func restoreDefault(t *testing.T) {
 	t.Helper()
+	defaultLoggerMu.Lock()
 	orig := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(orig) })
+	t.Cleanup(func() {
+		defer defaultLoggerMu.Unlock()
+		slog.SetDefault(orig)
+	})
 }
 
 // decodeLogLine décode une ligne JSON de log.
@@ -362,6 +369,79 @@ func TestLogger_SetsNamespaceAttr(t *testing.T) {
 	entry := decodeLogLine(t, firstLine(&buf))
 	if entry["namespace"] != "myns" {
 		t.Errorf("namespace = %v, want myns", entry["namespace"])
+	}
+}
+
+func TestLogger_WithAttrsAndGroupPreservesSlogHandlerContract(t *testing.T) {
+	restoreDefault(t)
+
+	var buf bytes.Buffer
+	_, err := observability.ConfigureLogging(nil,
+		observability.WithLoggingOutput(&buf),
+		observability.WithLoggingConfig(observability.LoggingConfig{
+			Level:  "warn",
+			Levels: map[string]string{"web": "debug"},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("ConfigureLogging() error = %v", err)
+	}
+
+	observability.Logger("web").
+		With("request_id", "req-1").
+		WithGroup("http").
+		Debug("request completed", "status", 200)
+
+	entry := decodeLogLine(t, firstLine(&buf))
+	if entry["namespace"] != "web" {
+		t.Fatalf("namespace = %v, want web; entry = %v", entry["namespace"], entry)
+	}
+	if entry["request_id"] != "req-1" {
+		t.Fatalf("request_id = %v, want req-1; entry = %v", entry["request_id"], entry)
+	}
+	group, ok := entry["http"].(map[string]any)
+	if !ok {
+		t.Fatalf("http group missing or wrong type: %v", entry["http"])
+	}
+	if group["status"] != float64(200) {
+		t.Fatalf("http.status = %v, want 200", group["status"])
+	}
+	if _, ok := group["namespace"]; ok {
+		t.Fatalf("namespace must remain top-level, got http group %v", group)
+	}
+}
+
+// TestLogger_WithGroupThenWithNoDuplicateKey ensures that attrs added after
+// WithGroup are not emitted as a duplicate JSON key alongside record attrs.
+func TestLogger_WithGroupThenWithNoDuplicateKey(t *testing.T) {
+	restoreDefault(t)
+
+	var buf bytes.Buffer
+	_, err := observability.ConfigureLogging(nil,
+		observability.WithLoggingOutput(&buf),
+		observability.WithLoggingConfig(observability.LoggingConfig{Level: "debug"}),
+	)
+	if err != nil {
+		t.Fatalf("ConfigureLogging() error = %v", err)
+	}
+
+	// With("method") is set AFTER WithGroup("http"), so it must land inside the group.
+	slog.Default().WithGroup("http").With("method", "GET").Debug("request", "status", 200)
+
+	entry := decodeLogLine(t, firstLine(&buf))
+	group, ok := entry["http"].(map[string]any)
+	if !ok {
+		t.Fatalf("http group missing or wrong type; entry = %v", entry)
+	}
+	if group["method"] != "GET" {
+		t.Fatalf("http.method = %v, want GET", group["method"])
+	}
+	if group["status"] != float64(200) {
+		t.Fatalf("http.status = %v, want 200", group["status"])
+	}
+	// Both attrs must be inside a single "http" group — not at top level.
+	if _, topLevel := entry["method"]; topLevel {
+		t.Fatalf("method must be inside http group, got top-level entry = %v", entry)
 	}
 }
 

@@ -1,10 +1,13 @@
 package data
 
 import (
+	"context"
+	"errors"
 	"go/build"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/enokdev/helix/core"
@@ -30,26 +33,38 @@ func newTestContainer() *core.Container {
 	return core.NewContainer(core.WithResolver(core.NewReflectResolver()))
 }
 
-// chdirWithGoMod creates a temp dir with the given go.mod content and changes into it.
-func chdirWithGoMod(t *testing.T, contents string) {
+var cwdMu sync.Mutex
+
+func chdirForTest(t *testing.T, dir string) {
 	t.Helper()
 
+	cwdMu.Lock()
 	oldDir, err := os.Getwd()
 	if err != nil {
+		cwdMu.Unlock()
 		t.Fatalf("get cwd: %v", err)
 	}
-	tmpDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir temp dir: %v", err)
+	if err := os.Chdir(dir); err != nil {
+		cwdMu.Unlock()
+		t.Fatalf("chdir %q: %v", dir, err)
 	}
 	t.Cleanup(func() {
+		defer cwdMu.Unlock()
 		if err := os.Chdir(oldDir); err != nil {
 			t.Fatalf("restore cwd: %v", err)
 		}
 	})
+}
+
+// chdirWithGoMod creates a temp dir with the given go.mod content and changes into it.
+func chdirWithGoMod(t *testing.T, contents string) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	chdirForTest(t, tmpDir)
 }
 
 func goModWithSQLite() string {
@@ -149,17 +164,8 @@ func TestCondition(t *testing.T) {
 }
 
 func TestConditionMissingGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(oldDir)
-	})
+	chdirForTest(t, tmpDir)
 
 	s := New(fakeConfig{values: map[string]any{"database.url": ":memory:"}})
 	if s.Condition() {
@@ -168,11 +174,6 @@ func TestConditionMissingGoMod(t *testing.T) {
 }
 
 func TestConditionWalkUpDetectsGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-
 	tmpDir := t.TempDir()
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	goModContent := `module example.com/app
@@ -188,13 +189,7 @@ require gorm.io/driver/sqlite v1.5.4
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("chdir to subdir: %v", err)
-	}
-
-	t.Cleanup(func() {
-		_ = os.Chdir(oldDir)
-	})
+	chdirForTest(t, subDir)
 
 	s := New(fakeConfig{values: map[string]any{"database.url": ":memory:"}})
 	if !s.Condition() {
@@ -226,6 +221,46 @@ func TestConfigureRegistersLifecycle(t *testing.T) {
 	}
 }
 
+func TestConfigure_PropagatesRegisterComponentError(t *testing.T) {
+	chdirWithGoMod(t, goModWithSQLite())
+
+	cfg := fakeConfig{values: map[string]any{"database.url": ":memory:"}}
+	container := core.NewContainer()
+
+	err := New(cfg).Configure(container)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want register error")
+	}
+	if !errors.Is(err, core.ErrUnresolvable) {
+		t.Fatalf("Configure() error = %v, want ErrUnresolvable", err)
+	}
+	if !strings.Contains(err.Error(), "data starter: register") {
+		t.Fatalf("Configure() error = %q, want register context", err.Error())
+	}
+}
+
+func TestConfigure_IdempotentDoesNotReplaceLifecycle(t *testing.T) {
+	chdirWithGoMod(t, goModWithSQLite())
+
+	cfg := fakeConfig{values: map[string]any{"database.url": ":memory:"}}
+	container := newTestContainer()
+	starter := New(cfg)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("first Configure() error = %v", err)
+	}
+	first := singleLifecycle(t, container)
+
+	if err := starter.Configure(container); err != nil {
+		t.Fatalf("second Configure() error = %v", err)
+	}
+	second := singleLifecycle(t, container)
+
+	if first != second {
+		t.Fatalf("second Configure() replaced lifecycle: first=%p second=%p", first, second)
+	}
+}
+
 func TestConfigureRegistersDBComponents(t *testing.T) {
 	chdirWithGoMod(t, goModWithSQLite())
 
@@ -240,6 +275,19 @@ func TestConfigureRegistersDBComponents(t *testing.T) {
 		t.Fatalf("container.Start() error = %v", err)
 	}
 	_ = container.Shutdown()
+}
+
+func singleLifecycle(t *testing.T, container *core.Container) core.Lifecycle {
+	t.Helper()
+
+	lifecycles, err := core.ResolveAll[core.Lifecycle](container)
+	if err != nil {
+		t.Fatalf("ResolveAll[core.Lifecycle] error = %v", err)
+	}
+	if len(lifecycles) != 1 {
+		t.Fatalf("registered lifecycles = %d, want 1", len(lifecycles))
+	}
+	return lifecycles[0]
 }
 
 func TestContainerStartFailsOnOpenError(t *testing.T) {
@@ -265,7 +313,7 @@ func TestLifecycleOnStartWithError(t *testing.T) {
 
 func TestLifecycleOnStopNilDB(t *testing.T) {
 	lc := &databaseLifecycle{}
-	if err := lc.OnStop(); err != nil {
+	if err := lc.OnStop(context.Background()); err != nil {
 		t.Fatalf("OnStop() with nil db error = %v", err)
 	}
 }

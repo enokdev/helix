@@ -1,6 +1,7 @@
 package helix
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -435,16 +436,9 @@ type SomeService struct {
 }
 `)
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatalf("Chdir(%q) error = %v", root, err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	chdirForTest(t, root)
 
-	err = Run(App{
+	err := Run(App{
 		Scan:          []string{"./internal/..."},
 		awaitShutdown: func() error { return nil },
 	})
@@ -491,16 +485,9 @@ func TestRun_ZeroParams_NoConfigFile_UsesDefaults(t *testing.T) {
 	// Write a config that disables the web starter so no port bind is attempted.
 	writeTestFile(t, root, "application.yaml", "helix:\n  starters:\n    web:\n      enabled: false\n")
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatalf("Chdir(%q) error = %v", root, err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	chdirForTest(t, root)
 
-	err = Run(App{
+	err := Run(App{
 		awaitShutdown: func() error { return nil },
 	})
 	if err != nil {
@@ -519,16 +506,9 @@ func TestRun_ZeroParams_LoadsConfig(t *testing.T) {
 	writeTestFile(t, configDir, "application.yaml",
 		"helix:\n  starters:\n    web:\n      enabled: false\n")
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatalf("Chdir(%q) error = %v", root, err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	chdirForTest(t, root)
 
-	err = Run(App{
+	err := Run(App{
 		awaitShutdown: func() error { return nil },
 	})
 	if err != nil {
@@ -546,16 +526,9 @@ func TestRun_ZeroParams_StartsServer(t *testing.T) {
 	// in the test environment while still exercising the full auto-bootstrap path.
 	writeTestFile(t, root, "application.yaml", "helix:\n  starters:\n    web:\n      enabled: false\n")
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatalf("Chdir(%q) error = %v", root, err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	chdirForTest(t, root)
 
-	err = Run(App{
+	err := Run(App{
 		awaitShutdown: func() error { return nil },
 	})
 	if err != nil {
@@ -574,9 +547,7 @@ func BenchmarkRun_ZeroParams(b *testing.B) {
 	if err := os.WriteFile(filepath.Join(root, "application.yaml"), cfg, 0o644); err != nil {
 		b.Fatalf("WriteFile: %v", err)
 	}
-	origDir, _ := os.Getwd()
-	_ = os.Chdir(root)
-	b.Cleanup(func() { _ = os.Chdir(origDir) })
+	chdirForTest(b, root)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -657,7 +628,7 @@ func (s *runLifecycleService) OnStart() error {
 	return nil
 }
 
-func (s *runLifecycleService) OnStop() error {
+func (s *runLifecycleService) OnStop(_ context.Context) error {
 	s.stopped <- "stop"
 	return nil
 }
@@ -671,7 +642,7 @@ func (s *failingRunLifecycleService) OnStart() error {
 	return s.startErr
 }
 
-func (s *failingRunLifecycleService) OnStop() error {
+func (s *failingRunLifecycleService) OnStop(_ context.Context) error {
 	return nil
 }
 
@@ -685,7 +656,7 @@ func (c *lazyRunLifecycleComponent) OnStart() error {
 	return nil
 }
 
-func (c *lazyRunLifecycleComponent) OnStop() error {
+func (c *lazyRunLifecycleComponent) OnStop(_ context.Context) error {
 	c.events <- "stop"
 	return nil
 }
@@ -696,7 +667,7 @@ type shutdownVerifyService struct {
 }
 
 func (s *shutdownVerifyService) OnStart() error { return nil }
-func (s *shutdownVerifyService) OnStop() error {
+func (s *shutdownVerifyService) OnStop(_ context.Context) error {
 	if s.onStop != nil {
 		s.onStop()
 	}

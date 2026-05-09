@@ -10,9 +10,12 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	fiberinternal "github.com/enokdev/helix/web/internal"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // HTTPServer exposes Helix's minimal HTTP server contract.
@@ -29,6 +32,7 @@ type HTTPServer interface {
 }
 
 type server struct {
+	mu                   sync.RWMutex
 	adapter              fiberinternal.Adapter
 	errorHandlers        map[string]errorHandlerInvoker
 	errorHandlerOrder    []string
@@ -37,6 +41,7 @@ type server struct {
 	guardFactories       map[string]GuardFactory
 	interceptors         map[string]Interceptor
 	interceptorFactories map[string]InterceptorFactory
+	registeredRoutes     map[string]struct{}
 	cache                *cacheStore
 	routeObserver        RouteObserver
 	generatedOnly        bool
@@ -58,6 +63,7 @@ func NewServer(opts ...Option) HTTPServer {
 		guardFactories:       make(map[string]GuardFactory),
 		interceptors:         make(map[string]Interceptor),
 		interceptorFactories: make(map[string]InterceptorFactory),
+		registeredRoutes:     make(map[string]struct{}),
 		cache:                newCacheStore(),
 		routeObserver:        options.routeObserver,
 		generatedOnly:        options.generatedOnly,
@@ -97,6 +103,16 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
+	routeKey := normalizedMethod + " " + path
+	s.mu.Lock()
+	_, duplicate := s.registeredRoutes[routeKey]
+	if duplicate {
+		s.mu.Unlock()
+		return fmt.Errorf("web: register route %s %s: %w", normalizedMethod, path, ErrDuplicateRoute)
+	}
+	s.registeredRoutes[routeKey] = struct{}{}
+	s.mu.Unlock()
+
 	observer := s.routeObserver
 	routePath := path
 
@@ -105,7 +121,11 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 		observed := &observingContext{BaseContext: ctx}
 
 		// Run global guards before the handler.
-		for _, g := range s.globalGuards {
+		s.mu.RLock()
+		guards := make([]Guard, len(s.globalGuards))
+		copy(guards, s.globalGuards)
+		s.mu.RUnlock()
+		for _, g := range guards {
 			if guardErr := g.CanActivate(observed); guardErr != nil {
 				return writeErrorResponse(observed, guardErr)
 			}
@@ -121,23 +141,31 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 						"panic", fmt.Sprintf("%v", r),
 						"stack", string(debug.Stack()),
 					)
-					handlerErr = writeErrorResponse(observed, fmt.Errorf("handler panic"))
+					handlerErr = fmt.Errorf("handler panic: %v", r)
 				}
 			}()
 			handlerErr = handler(observed)
 		}()
 		if handlerErr != nil {
+			originalErr := handlerErr
 			if handled, handleErr := s.writeRegisteredError(observed, handlerErr); handled {
 				handlerErr = handleErr
 			} else {
 				handlerErr = writeErrorResponse(observed, handlerErr)
 			}
+			if ctx.StatusCode() >= http.StatusInternalServerError {
+				recordSpanError(observed.Context(), originalErr)
+			}
 		}
 
 		if observer != nil {
-			statusCode := observed.statusCode
+			statusCode := ctx.StatusCode()
 			if statusCode == 0 {
-				statusCode = http.StatusOK
+				if handlerErr != nil {
+					statusCode = http.StatusInternalServerError
+				} else {
+					statusCode = http.StatusOK
+				}
 			}
 			observer.Observe(RouteObservation{
 				Method:     ctx.Method(),
@@ -150,16 +178,30 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 		return handlerErr
 	})
 	if err != nil {
+		s.mu.Lock()
+		delete(s.registeredRoutes, routeKey)
+		s.mu.Unlock()
 		return fmt.Errorf("web: register route %s %s: %w", normalizedMethod, path, err)
 	}
 	return nil
+}
+
+func recordSpanError(ctx context.Context, err error) {
+	if ctx == nil || err == nil {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	if !span.SpanContext().IsValid() {
+		return
+	}
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
 }
 
 // observingContext wraps a Context to intercept Status calls and record the
 // final status code set during handler execution.
 type observingContext struct {
 	BaseContext fiberinternal.Context
-	statusCode  int // 0 means no explicit Status call; interpret as 200
 }
 
 func (o *observingContext) Method() string      { return o.BaseContext.Method() }
@@ -179,12 +221,15 @@ func (o *observingContext) Header(key string) string {
 func (o *observingContext) IP() string   { return o.BaseContext.IP() }
 func (o *observingContext) Body() []byte { return o.BaseContext.Body() }
 func (o *observingContext) Status(code int) {
-	o.statusCode = code
 	o.BaseContext.Status(code)
 }
 
 func (o *observingContext) SetHeader(key, value string) {
 	o.BaseContext.SetHeader(key, value)
+}
+
+func (o *observingContext) AppendHeader(key, value string) {
+	o.BaseContext.AppendHeader(key, value)
 }
 
 func (o *observingContext) Send(body []byte) error {
@@ -209,6 +254,9 @@ func (s *server) registerErrorHandler(handler any) error {
 		return err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for errorType := range handlers {
 		if _, exists := s.errorHandlers[errorType]; exists {
 			return fmt.Errorf("web: register error handler duplicate %s: %w", errorType, ErrInvalidErrorHandler)
@@ -232,6 +280,10 @@ func (s *server) registerGuard(name string, guard Guard) error {
 	if name == "" || guard == nil || isNilValue(guard) {
 		return fmt.Errorf("web: validate guard %q: %w", name, ErrInvalidDirective)
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if _, exists := s.guards[name]; exists {
 		return fmt.Errorf("web: validate guard duplicate %s: %w", name, ErrInvalidDirective)
 	}
@@ -243,7 +295,9 @@ func (s *server) registerGuard(name string, guard Guard) error {
 }
 
 func (s *server) addGlobalGuard(guard Guard) {
+	s.mu.Lock()
 	s.globalGuards = append(s.globalGuards, guard)
+	s.mu.Unlock()
 }
 
 func (s *server) registerGuardFactory(name string, factory GuardFactory) error {
@@ -251,6 +305,10 @@ func (s *server) registerGuardFactory(name string, factory GuardFactory) error {
 	if name == "" || factory == nil {
 		return fmt.Errorf("web: validate guard factory %q: %w", name, ErrInvalidDirective)
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if _, exists := s.guards[name]; exists {
 		return fmt.Errorf("web: validate guard duplicate %s: %w", name, ErrInvalidDirective)
 	}
@@ -266,6 +324,10 @@ func (s *server) registerInterceptor(name string, interceptor Interceptor) error
 	if name == "" || interceptor == nil || isNilValue(interceptor) {
 		return fmt.Errorf("web: validate interceptor %q: %w", name, ErrInvalidDirective)
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if _, exists := s.interceptors[name]; exists {
 		return fmt.Errorf("web: validate interceptor duplicate %s: %w", name, ErrInvalidDirective)
 	}
@@ -281,6 +343,10 @@ func (s *server) registerInterceptorFactory(name string, factory InterceptorFact
 	if name == "" || factory == nil {
 		return fmt.Errorf("web: validate interceptor factory %q: %w", name, ErrInvalidDirective)
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if _, exists := s.interceptors[name]; exists {
 		return fmt.Errorf("web: validate interceptor duplicate %s: %w", name, ErrInvalidDirective)
 	}
@@ -292,14 +358,17 @@ func (s *server) registerInterceptorFactory(name string, factory InterceptorFact
 }
 
 func (s *server) resolveGuard(directive namedDirective) (Guard, error) {
+	s.mu.RLock()
 	if directive.argument == "" {
 		guard, ok := s.guards[directive.name]
+		s.mu.RUnlock()
 		if !ok {
 			return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, ErrInvalidDirective)
 		}
 		return guard, nil
 	}
 	factory, ok := s.guardFactories[directive.name]
+	s.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("web: resolve guard %s: %w", directive.raw, ErrInvalidDirective)
 	}
@@ -314,17 +383,22 @@ func (s *server) resolveGuard(directive namedDirective) (Guard, error) {
 }
 
 func (s *server) resolveInterceptor(directive namedDirective) (Interceptor, error) {
+	s.mu.RLock()
 	if directive.argument == "" {
 		interceptor, ok := s.interceptors[directive.name]
 		if !ok {
 			if _, isFactory := s.interceptorFactories[directive.name]; isFactory {
+				s.mu.RUnlock()
 				return nil, fmt.Errorf("web: resolve interceptor %s: %q requires an argument (use %s:<value>): %w", directive.raw, directive.name, directive.name, ErrInvalidDirective)
 			}
+			s.mu.RUnlock()
 			return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, ErrInvalidDirective)
 		}
+		s.mu.RUnlock()
 		return interceptor, nil
 	}
 	factory, ok := s.interceptorFactories[directive.name]
+	s.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("web: resolve interceptor %s: %w", directive.raw, ErrInvalidDirective)
 	}
@@ -341,7 +415,7 @@ func (s *server) resolveInterceptor(directive namedDirective) (Interceptor, erro
 func isNilValue(value any) bool {
 	reflected := reflect.ValueOf(value)
 	switch reflected.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return reflected.IsNil()
 	default:
 		return false
@@ -349,8 +423,15 @@ func isNilValue(value any) bool {
 }
 
 func (s *server) writeRegisteredError(ctx Context, err error) (bool, error) {
-	for _, errorType := range s.errorHandlerOrder {
+	s.mu.RLock()
+	order := make([]string, len(s.errorHandlerOrder))
+	copy(order, s.errorHandlerOrder)
+	s.mu.RUnlock()
+
+	for _, errorType := range order {
+		s.mu.RLock()
 		handler := s.errorHandlers[errorType]
+		s.mu.RUnlock()
 		if handled, writeErr := handler(ctx, err); handled {
 			return true, writeErr
 		}

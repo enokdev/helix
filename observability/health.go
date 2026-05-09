@@ -17,6 +17,9 @@ const (
 	StatusUp Status = "UP"
 	// StatusDown means a component is unhealthy.
 	StatusDown Status = "DOWN"
+	// StatusUnknown means a component's health could not be determined (e.g.
+	// the check was interrupted by context cancellation).
+	StatusUnknown Status = "UNKNOWN"
 )
 
 // ComponentHealth describes the health of one named component.
@@ -33,6 +36,13 @@ type HealthResponse struct {
 }
 
 // HealthIndicator is implemented by components that contribute to health.
+//
+// Implementations should handle context cancellation gracefully. A cancelled
+// context typically means the health-probe client disconnected (e.g. a
+// load-balancer timeout) rather than that the service is actually unhealthy.
+// When ctx.Err() returns context.Canceled, prefer returning StatusUp or
+// StatusUnknown instead of StatusDown to avoid false-positive evictions from
+// rotation.
 type HealthIndicator interface {
 	Name() string
 	Health(context.Context) ComponentHealth
@@ -140,7 +150,7 @@ func isNilHealthIndicator(indicator HealthIndicator) bool {
 	}
 	value := reflect.ValueOf(indicator)
 	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
 	default:
 		return false

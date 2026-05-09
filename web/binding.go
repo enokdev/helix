@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"mime"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -15,6 +18,9 @@ import (
 )
 
 const (
+	// bindingErrorType is used for structural binding failures (JSON parse, query param parse).
+	// It is distinct from requestErrorType which is reserved for business-logic validation.
+	bindingErrorType      = "BindingError"
 	requestErrorType      = "ValidationError"
 	codeValidationFailed  = "VALIDATION_FAILED"
 	codeInvalidQueryParam = "INVALID_QUERY_PARAM"
@@ -43,10 +49,11 @@ type bindingPlan struct {
 }
 
 type fieldBinding struct {
-	indexPath    []int
-	name         string
-	defaultValue string
-	maxValue     string
+	indexPath       []int
+	name            string
+	defaultValue    string
+	maxValue        string
+	unsupportedType string
 }
 
 func newRequestValidator() *validator.Validate {
@@ -96,8 +103,12 @@ func hasJSONTags(t reflect.Type) bool {
 		if externalTagName(f.Tag.Get("json")) != "" {
 			return true
 		}
-		if f.Anonymous && f.Type.Kind() == reflect.Struct {
-			if hasJSONTags(f.Type) {
+		ft := f.Type
+		if ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if f.Anonymous && ft.Kind() == reflect.Struct {
+			if hasJSONTags(ft) {
 				return true
 			}
 		}
@@ -105,11 +116,21 @@ func hasJSONTags(t reflect.Type) bool {
 	return false
 }
 
-// hasAllowUnknownTag rapporte si t possède un champ avec le tag helix:"allow-unknown".
+// hasAllowUnknownTag rapporte si t possède un champ avec le tag helix:"allow-unknown" (éventuellement dans un embedded struct).
 func hasAllowUnknownTag(t reflect.Type) bool {
 	for i := 0; i < t.NumField(); i++ {
-		if t.Field(i).Tag.Get("helix") == "allow-unknown" {
+		f := t.Field(i)
+		if f.Tag.Get("helix") == "allow-unknown" {
 			return true
+		}
+		ft := f.Type
+		if ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if f.Anonymous && ft.Kind() == reflect.Struct {
+			if hasAllowUnknownTag(ft) {
+				return true
+			}
 		}
 	}
 	return false
@@ -128,8 +149,13 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 		copy(currentPath, basePath)
 		currentPath[len(basePath)] = i
 
-		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			if err := collectQueryFields(field.Type, currentPath, hasQuery, fields); err != nil {
+		ft := field.Type
+		if ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+
+		if field.Anonymous && ft.Kind() == reflect.Struct {
+			if err := collectQueryFields(ft, currentPath, hasQuery, fields); err != nil {
 				return err
 			}
 			continue
@@ -141,8 +167,10 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 		}
 
 		*hasQuery = true
-		if !isSupportedQueryField(field.Type) {
-			return fmt.Errorf("web: adapt handler query field %s: %w", field.Name, ErrUnsupportedHandler)
+		unsupportedType := ""
+		supported := isSupportedQueryField(field.Type)
+		if !supported {
+			unsupportedType = field.Type.String()
 		}
 		maxVal := field.Tag.Get("max")
 		if maxVal != "" {
@@ -154,10 +182,11 @@ func collectQueryFields(t reflect.Type, basePath []int, hasQuery *bool, fields *
 			}
 		}
 		*fields = append(*fields, fieldBinding{
-			indexPath:    currentPath,
-			name:         queryName,
-			defaultValue: field.Tag.Get("default"),
-			maxValue:     maxVal,
+			indexPath:       currentPath,
+			name:            queryName,
+			defaultValue:    field.Tag.Get("default"),
+			maxValue:        maxVal,
+			unsupportedType: unsupportedType,
 		})
 	}
 	return nil
@@ -226,40 +255,92 @@ func (p *bindingPlan) bind(ctx Context) (reflect.Value, error) {
 }
 
 func (p *bindingPlan) bindQuery(ctx Context, value reflect.Value) error {
+	validationErrors := make([]FieldError, 0)
 	for _, field := range p.fields {
 		raw := ctx.Query(field.name)
-		if raw == "" {
+		present := queryParamPresent(ctx, field.name)
+		if raw == "" && !present {
 			raw = field.defaultValue
 		}
-		if raw == "" {
+		if raw == "" && !present && field.defaultValue == "" {
 			continue
 		}
+		if field.unsupportedType != "" {
+			return newBindingError(
+				http.StatusBadRequest,
+				codeInvalidQueryParam,
+				field.name,
+				fmt.Sprintf("%s has unsupported query type %s", field.name, field.unsupportedType),
+			)
+		}
 
-		target := value.FieldByIndex(field.indexPath)
+		target := fieldByIndexSafe(value, field.indexPath)
 		if err := setQueryValue(target, raw); err != nil {
-			return newRequestError(http.StatusBadRequest, codeInvalidQueryParam, field.name, fmt.Sprintf("%s has invalid value", field.name))
+			return newBindingError(http.StatusBadRequest, codeInvalidQueryParam, field.name, fmt.Sprintf("%s has invalid value", field.name))
 		}
 		if field.maxValue != "" && exceedsMax(target, field.maxValue) {
-			return newRequestError(http.StatusBadRequest, codeValidationFailed, field.name, fmt.Sprintf("%s must be at most %s", field.name, field.maxValue))
+			validationErrors = append(validationErrors, FieldError{
+				Field: field.name,
+				Msg:   fmt.Sprintf("%s must be at most %s", field.name, field.maxValue),
+			})
 		}
 	}
+	if len(validationErrors) > 1 {
+		return newMultiFieldValidationError(validationErrors)
+	}
+	if len(validationErrors) == 1 {
+		validationErr := validationErrors[0]
+		return newRequestError(http.StatusBadRequest, codeValidationFailed, validationErr.Field, validationErr.Msg)
+	}
 	return nil
+}
+
+func queryParamPresent(ctx Context, name string) bool {
+	originalURL := ctx.OriginalURL()
+	if originalURL == "" {
+		return false
+	}
+	queryStart := strings.IndexByte(originalURL, '?')
+	if queryStart < 0 || queryStart == len(originalURL)-1 {
+		return false
+	}
+	values, err := url.ParseQuery(originalURL[queryStart+1:])
+	if err != nil {
+		return false
+	}
+	_, ok := values[name]
+	return ok
+}
+
+func fieldByIndexSafe(v reflect.Value, index []int) reflect.Value {
+	res := v
+	for _, i := range index {
+		if res.Kind() == reflect.Pointer {
+			if res.IsNil() {
+				res.Set(reflect.New(res.Type().Elem()))
+			}
+			res = res.Elem()
+		}
+		res = res.Field(i)
+	}
+	return res
 }
 
 func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
 	ct := ctx.Header("Content-Type")
 	if ct == "" {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type header is required (application/json)")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type header is required (application/json)")
 	}
-	if !strings.Contains(strings.ToLower(ct), "application/json") {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
+	mediaType, _, err := mime.ParseMediaType(ct)
+	if err != nil || mediaType != "application/json" {
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "Content-Type must be application/json")
 	}
 	body := bytes.TrimSpace(ctx.Body())
 	if len(body) == 0 {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body is required")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "request body is required")
 	}
 	if bytes.Equal(body, []byte("null")) {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body must not be null")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "request body must not be null")
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -268,10 +349,10 @@ func (p *bindingPlan) bindJSON(ctx Context, value reflect.Value) error {
 	}
 	if err := decoder.Decode(value.Addr().Interface()); err != nil {
 		field := jsonErrorField(err)
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, field, "request body is invalid")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, field, "request body is invalid")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return newRequestError(http.StatusBadRequest, codeInvalidJSON, "", "request body must contain a single JSON value")
+		return newBindingError(http.StatusBadRequest, codeInvalidJSON, "", "request body must contain a single JSON value")
 	}
 	return nil
 }
@@ -316,7 +397,7 @@ func validationErrorMessage(ve validator.FieldError) string {
 
 func setQueryValue(value reflect.Value, raw string) error {
 	target := value
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		target = reflect.New(value.Type().Elem())
 		value.Set(target)
 		target = target.Elem()
@@ -343,15 +424,45 @@ func setQueryValue(value reflect.Value, raw string) error {
 			return err
 		}
 		target.SetUint(parsed)
+	case reflect.Float32, reflect.Float64:
+		parsed, err := strconv.ParseFloat(raw, target.Type().Bits())
+		if err != nil {
+			return err
+		}
+		if !isFiniteFloat(parsed) {
+			return strconv.ErrSyntax
+		}
+		target.SetFloat(parsed)
+	case reflect.Slice:
+		return setQuerySliceValue(target, raw)
 	default:
 		return ErrUnsupportedHandler
 	}
 	return nil
 }
 
+// setQuerySliceValue parses a comma-separated query param string into a slice.
+// Only slices of supported primitive element types are accepted.
+func setQuerySliceValue(slice reflect.Value, raw string) error {
+	if raw == "" {
+		slice.Set(reflect.MakeSlice(slice.Type(), 0, 0))
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	result := reflect.MakeSlice(slice.Type(), len(parts), len(parts))
+	for i, part := range parts {
+		elem := result.Index(i)
+		if err := setQueryValue(elem, strings.TrimSpace(part)); err != nil {
+			return fmt.Errorf("element %d: %w", i, err)
+		}
+	}
+	slice.Set(result)
+	return nil
+}
+
 func validateMaxTagValue(maxValue string, fieldType reflect.Type) error {
 	ft := fieldType
-	if ft.Kind() == reflect.Ptr {
+	if ft.Kind() == reflect.Pointer {
 		ft = ft.Elem()
 	}
 	switch ft.Kind() {
@@ -361,6 +472,15 @@ func validateMaxTagValue(maxValue string, fieldType reflect.Type) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		_, err := strconv.ParseUint(maxValue, 10, ft.Bits())
 		return err
+	case reflect.Float32, reflect.Float64:
+		parsed, err := strconv.ParseFloat(maxValue, ft.Bits())
+		if err != nil {
+			return err
+		}
+		if !isFiniteFloat(parsed) {
+			return strconv.ErrSyntax
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported numeric kind %s", ft.Kind())
 	}
@@ -368,7 +488,7 @@ func validateMaxTagValue(maxValue string, fieldType reflect.Type) error {
 
 func exceedsMax(value reflect.Value, maxValue string) bool {
 	target := value
-	if target.Kind() == reflect.Ptr {
+	if target.Kind() == reflect.Pointer {
 		if target.IsNil() {
 			return false
 		}
@@ -382,31 +502,61 @@ func exceedsMax(value reflect.Value, maxValue string) bool {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		maxUint, err := strconv.ParseUint(maxValue, 10, target.Type().Bits())
 		return err != nil || target.Uint() > maxUint
+	case reflect.Float32, reflect.Float64:
+		maxFloat, err := strconv.ParseFloat(maxValue, target.Type().Bits())
+		return err != nil || !isFiniteFloat(maxFloat) || !isFiniteFloat(target.Float()) || target.Float() > maxFloat
 	default:
 		return false
 	}
+}
+
+func isFiniteFloat(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func isSupportedQueryField(fieldType reflect.Type) bool {
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 	switch fieldType.Kind() {
-	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return true
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return isBuiltinPrimitive(fieldType)
+	case reflect.Slice:
+		return isSupportedSliceElement(fieldType.Elem())
 	default:
 		return false
 	}
 }
 
+// isSupportedSliceElement reports whether elem is a type that can appear in a
+// comma-separated query slice. Only flat, primitive element types are accepted.
+func isSupportedSliceElement(elem reflect.Type) bool {
+	switch elem.Kind() {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return isBuiltinPrimitive(elem)
+	default:
+		return false
+	}
+}
+
+func isBuiltinPrimitive(fieldType reflect.Type) bool {
+	return fieldType.PkgPath() == ""
+}
+
 func isNumericField(fieldType reflect.Type) bool {
-	if fieldType.Kind() == reflect.Ptr {
+	if fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 	switch fieldType.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
 		return true
 	default:
 		return false
