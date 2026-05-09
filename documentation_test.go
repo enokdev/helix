@@ -55,7 +55,15 @@ func TestReadmeBadgesUseRealSignals(t *testing.T) {
 	}
 
 	coverage := readTextFile(t, filepath.Join(".github", "workflows", "coverage.yml"))
-	coverageChecks := []string{"name: Coverage", "-coverprofile=coverage.out ./...", "go-version: \"1.21\""}
+	coverageChecks := []string{
+		"name: Coverage",
+		"-coverprofile=coverage.out ./...",
+		"-coverprofile=core-coverage.out ./core/...",
+		"actions/upload-artifact@v4",
+		"name: coverage-reports",
+		"if-no-files-found: error",
+		"go-version: \"1.21\"",
+	}
 	for _, want := range coverageChecks {
 		if !strings.Contains(coverage, want) {
 			t.Fatalf("coverage workflow should contain %q", want)

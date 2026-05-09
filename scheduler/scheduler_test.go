@@ -222,9 +222,7 @@ func TestRegisterAllowsConcurrentWhenOptedIn(t *testing.T) {
 
 func TestRegisterRecoversAndLogsJobPanic(t *testing.T) {
 	var logs bytes.Buffer
-	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	t.Cleanup(func() { slog.SetDefault(original) })
+	setDefaultLoggerForTest(t, slog.New(slog.NewTextHandler(&logs, nil)))
 
 	s := NewScheduler()
 	if err := s.Register(Job{

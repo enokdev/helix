@@ -104,25 +104,37 @@ func newTestContainer() *core.Container {
 	return core.NewContainer(core.WithResolver(core.NewReflectResolver()))
 }
 
-func chdirWithGoMod(t *testing.T, contents string) {
+var cwdMu sync.Mutex
+
+func chdirForTest(t *testing.T, dir string) {
 	t.Helper()
 
+	cwdMu.Lock()
 	oldDir, err := os.Getwd()
 	if err != nil {
+		cwdMu.Unlock()
 		t.Fatalf("get cwd: %v", err)
 	}
-	tmpDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir: %v", err)
+	if err := os.Chdir(dir); err != nil {
+		cwdMu.Unlock()
+		t.Fatalf("chdir %q: %v", dir, err)
 	}
 	t.Cleanup(func() {
+		defer cwdMu.Unlock()
 		if err := os.Chdir(oldDir); err != nil {
 			t.Fatalf("restore cwd: %v", err)
 		}
 	})
+}
+
+func chdirWithGoMod(t *testing.T, contents string) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	chdirForTest(t, tmpDir)
 }
 
 func goModWithCron() string {
@@ -152,17 +164,8 @@ func TestConditionCronAbsent(t *testing.T) {
 }
 
 func TestConditionMissingGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(oldDir)
-	})
+	chdirForTest(t, tmpDir)
 
 	if got := New(nil).Condition(); got {
 		t.Fatal("Condition() = true, want false (no go.mod)")
@@ -170,11 +173,6 @@ func TestConditionMissingGoMod(t *testing.T) {
 }
 
 func TestConditionWalkUpDetectsGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-
 	tmpDir := t.TempDir()
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModWithCron()), 0o644); err != nil {
@@ -186,13 +184,7 @@ func TestConditionWalkUpDetectsGoMod(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("chdir to subdir: %v", err)
-	}
-
-	t.Cleanup(func() {
-		_ = os.Chdir(oldDir)
-	})
+	chdirForTest(t, subDir)
 
 	if got := New(nil).Condition(); !got {
 		t.Fatal("Condition() = false with go.mod in parent, want true")

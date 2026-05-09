@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,29 @@ func (f fakeConfig) ActiveProfiles() []string    { return nil }
 type fakeHTTPServer struct {
 	startAddr string
 	stopCtx   context.Context
+}
+
+var cwdMu sync.Mutex
+
+func chdirForTest(t *testing.T, dir string) {
+	t.Helper()
+
+	cwdMu.Lock()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		cwdMu.Unlock()
+		t.Fatalf("get cwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		cwdMu.Unlock()
+		t.Fatalf("chdir %q: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		defer cwdMu.Unlock()
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
 }
 
 func (f *fakeHTTPServer) Start(addr string) error {
@@ -130,19 +154,8 @@ require github.com/spf13/viper v1.20.1
 }
 
 func TestStarterConditionMissingGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir temp dir: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(oldDir); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	})
+	chdirForTest(t, tmpDir)
 
 	if got := New(nil).Condition(); got {
 		t.Fatal("Condition() = true, want false")
@@ -150,11 +163,6 @@ func TestStarterConditionMissingGoMod(t *testing.T) {
 }
 
 func TestStarterConditionWalkUpDetectsGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-
 	tmpDir := t.TempDir()
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	goModContent := goModWithFiber()
@@ -167,15 +175,7 @@ func TestStarterConditionWalkUpDetectsGoMod(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("chdir to subdir: %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := os.Chdir(oldDir); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	})
+	chdirForTest(t, subDir)
 
 	if got := New(nil).Condition(); !got {
 		t.Fatal("Condition() = false, want true (should find go.mod in parent)")
@@ -471,22 +471,11 @@ func TestStarterConfigure_ShutdownTimeoutFromConfig(t *testing.T) {
 func chdirWithGoMod(t *testing.T, contents string) {
 	t.Helper()
 
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
 	tmpDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir temp dir: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(oldDir); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	})
+	chdirForTest(t, tmpDir)
 }
 
 func goModWithFiber() string {

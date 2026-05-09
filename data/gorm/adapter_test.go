@@ -1,7 +1,12 @@
 package gorm
 
 import (
+	"errors"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/enokdev/helix/data"
 )
 
 func TestEscapeLikeEscapesWildcards(t *testing.T) {
@@ -22,5 +27,23 @@ func TestEscapeLikeEscapesWildcards(t *testing.T) {
 				t.Fatalf("escapeLike(%q) = %q, want %q", tt.value, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestWrapErrorPreservesInvalidFilterSentinelWithoutSpecialCase(t *testing.T) {
+	err := WrapError("find where", data.ErrInvalidFilter)
+	if !errors.Is(err, data.ErrInvalidFilter) {
+		t.Fatalf("WrapError() = %v, want data.ErrInvalidFilter", err)
+	}
+	if !strings.Contains(err.Error(), "data/gorm: find where") {
+		t.Fatalf("WrapError() = %q, want action context", err.Error())
+	}
+
+	source, readErr := os.ReadFile("adapter.go")
+	if readErr != nil {
+		t.Fatalf("read adapter.go: %v", readErr)
+	}
+	if strings.Contains(string(source), "case errors.Is(err, data.ErrInvalidFilter)") {
+		t.Fatal("wrapError must not keep an ErrInvalidFilter case identical to default")
 	}
 }

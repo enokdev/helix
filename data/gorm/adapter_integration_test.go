@@ -97,11 +97,7 @@ func TestRepositoryRejectsNilInputs(t *testing.T) {
 func TestRepositoryFindAllAppliesDefaultLimitAndWarns(t *testing.T) {
 	ctx := context.Background()
 	handler := &captureHandler{}
-	previousLogger := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	t.Cleanup(func() {
-		slog.SetDefault(previousLogger)
-	})
+	setDefaultLoggerForTest(t, slog.New(handler))
 
 	db := openIntegrationDB(t)
 	truncateUsers(t, db)
@@ -134,11 +130,7 @@ func TestRepositoryFindAllAppliesDefaultLimitAndWarns(t *testing.T) {
 func TestRepositoryFindAllDoesNotWarnAtExactLimitBoundary(t *testing.T) {
 	ctx := context.Background()
 	handler := &captureHandler{}
-	previousLogger := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	t.Cleanup(func() {
-		slog.SetDefault(previousLogger)
-	})
+	setDefaultLoggerForTest(t, slog.New(handler))
 
 	db := openIntegrationDB(t)
 	truncateUsers(t, db)
@@ -160,11 +152,7 @@ func TestRepositoryFindAllDoesNotWarnAtExactLimitBoundary(t *testing.T) {
 func TestRepositoryFindAllWithoutLimitReturnsAllRowsAndSkipsWarning(t *testing.T) {
 	ctx := context.Background()
 	handler := &captureHandler{}
-	previousLogger := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	t.Cleanup(func() {
-		slog.SetDefault(previousLogger)
-	})
+	setDefaultLoggerForTest(t, slog.New(handler))
 
 	db := openIntegrationDB(t)
 	truncateUsers(t, db)
@@ -601,6 +589,13 @@ func assertEmailCount(t *testing.T, repo *datagorm.Repository[integrationUser, i
 }
 
 type captureHandler struct {
+	state   *captureState
+	attrs   []slog.Attr
+	groups  []string
+	stateMu sync.Mutex
+}
+
+type captureState struct {
 	mu      sync.Mutex
 	records []slog.Record
 }
@@ -610,31 +605,92 @@ func (h *captureHandler) Enabled(context.Context, slog.Level) bool {
 }
 
 func (h *captureHandler) Handle(_ context.Context, record slog.Record) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	state := h.sharedState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	h.records = append(h.records, record.Clone())
+	cloned := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	if len(h.attrs) > 0 {
+		cloned.AddAttrs(h.attrs...)
+	}
+	recordAttrs := make([]slog.Attr, 0, record.NumAttrs())
+	record.Attrs(func(attr slog.Attr) bool {
+		recordAttrs = append(recordAttrs, attr)
+		return true
+	})
+	if len(recordAttrs) > 0 {
+		cloned.AddAttrs(groupCaptureAttrs(h.groups, recordAttrs)...)
+	}
+	state.records = append(state.records, cloned)
 	return nil
 }
 
-func (h *captureHandler) WithAttrs([]slog.Attr) slog.Handler {
-	return h
+func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	clone := h.clone()
+	clone.attrs = append(clone.attrs, groupCaptureAttrs(clone.groups, attrs)...)
+	return clone
 }
 
-func (h *captureHandler) WithGroup(string) slog.Handler {
-	return h
+func (h *captureHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	clone := h.clone()
+	clone.groups = append(clone.groups, name)
+	return clone
 }
 
 func (h *captureHandler) find(message string) (slog.Record, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	state := h.sharedState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	for _, record := range h.records {
+	for _, record := range state.records {
 		if record.Message == message {
 			return record, true
 		}
 	}
 	return slog.Record{}, false
+}
+
+func (h *captureHandler) clone() *captureHandler {
+	attrs := make([]slog.Attr, len(h.attrs))
+	copy(attrs, h.attrs)
+	groups := make([]string, len(h.groups))
+	copy(groups, h.groups)
+	return &captureHandler{
+		state:  h.sharedState(),
+		attrs:  attrs,
+		groups: groups,
+	}
+}
+
+func (h *captureHandler) sharedState() *captureState {
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	if h.state == nil {
+		h.state = &captureState{}
+	}
+	return h.state
+}
+
+func groupCaptureAttrs(groups []string, attrs []slog.Attr) []slog.Attr {
+	if len(groups) == 0 {
+		return attrs
+	}
+	current := attrs
+	for i := len(groups) - 1; i >= 0; i-- {
+		current = []slog.Attr{slog.Group(groups[i], captureAttrsToAny(current)...)}
+	}
+	return current
+}
+
+func captureAttrsToAny(attrs []slog.Attr) []any {
+	args := make([]any, len(attrs))
+	for i, attr := range attrs {
+		args[i] = attr
+	}
+	return args
 }
 
 func attrValue(record slog.Record, key string) any {

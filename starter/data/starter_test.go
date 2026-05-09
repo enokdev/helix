@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/enokdev/helix/core"
@@ -32,26 +33,38 @@ func newTestContainer() *core.Container {
 	return core.NewContainer(core.WithResolver(core.NewReflectResolver()))
 }
 
-// chdirWithGoMod creates a temp dir with the given go.mod content and changes into it.
-func chdirWithGoMod(t *testing.T, contents string) {
+var cwdMu sync.Mutex
+
+func chdirForTest(t *testing.T, dir string) {
 	t.Helper()
 
+	cwdMu.Lock()
 	oldDir, err := os.Getwd()
 	if err != nil {
+		cwdMu.Unlock()
 		t.Fatalf("get cwd: %v", err)
 	}
-	tmpDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir temp dir: %v", err)
+	if err := os.Chdir(dir); err != nil {
+		cwdMu.Unlock()
+		t.Fatalf("chdir %q: %v", dir, err)
 	}
 	t.Cleanup(func() {
+		defer cwdMu.Unlock()
 		if err := os.Chdir(oldDir); err != nil {
 			t.Fatalf("restore cwd: %v", err)
 		}
 	})
+}
+
+// chdirWithGoMod creates a temp dir with the given go.mod content and changes into it.
+func chdirWithGoMod(t *testing.T, contents string) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(contents), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	chdirForTest(t, tmpDir)
 }
 
 func goModWithSQLite() string {
@@ -151,17 +164,8 @@ func TestCondition(t *testing.T) {
 }
 
 func TestConditionMissingGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(oldDir)
-	})
+	chdirForTest(t, tmpDir)
 
 	s := New(fakeConfig{values: map[string]any{"database.url": ":memory:"}})
 	if s.Condition() {
@@ -170,11 +174,6 @@ func TestConditionMissingGoMod(t *testing.T) {
 }
 
 func TestConditionWalkUpDetectsGoMod(t *testing.T) {
-	oldDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-
 	tmpDir := t.TempDir()
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	goModContent := `module example.com/app
@@ -190,13 +189,7 @@ require gorm.io/driver/sqlite v1.5.4
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	if err := os.Chdir(subDir); err != nil {
-		t.Fatalf("chdir to subdir: %v", err)
-	}
-
-	t.Cleanup(func() {
-		_ = os.Chdir(oldDir)
-	})
+	chdirForTest(t, subDir)
 
 	s := New(fakeConfig{values: map[string]any{"database.url": ":memory:"}})
 	if !s.Condition() {

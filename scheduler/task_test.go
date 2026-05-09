@@ -39,9 +39,7 @@ func TestWrapError(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs bytes.Buffer
-			original := slog.Default()
-			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-			t.Cleanup(func() { slog.SetDefault(original) })
+			setDefaultLoggerForTest(t, slog.New(slog.NewTextHandler(&logs, nil)))
 
 			WrapError("daily-report", tc.fn)()
 

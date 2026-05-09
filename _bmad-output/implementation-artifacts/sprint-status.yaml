@@ -1,5 +1,5 @@
 # generated: 2026-04-14
-last_updated: 2026-05-09 - story 15.5 done
+last_updated: 2026-05-09 - story 15.6 done
 # project: helix
 # project_key: NOKEY
 # tracking_system: file-system
@@ -37,7 +37,7 @@ last_updated: 2026-05-09 - story 15.5 done
 # - Once a story reaches 'done', its spec file is moved to archives/ (see archive_location above)
 
 generated: 2026-04-14
-last_updated: 2026-05-09 - story 15.5 done
+last_updated: 2026-05-09 - story 15.6 done
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -207,5 +207,5 @@ development_status:
   15-3-interceptors-cache-comportement-production-grade: done
   15-4-cli-codegen-ergonomie-annulation-sorties-fiables: done
   15-5-scheduling-starters-contrats-dexecution-stricts: done
-  15-6-test-ci-nettoyage-mineur-pre-release: backlog
+  15-6-test-ci-nettoyage-mineur-pre-release: done
   epic-15-retrospective: optional

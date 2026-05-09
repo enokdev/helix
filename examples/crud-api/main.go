@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -53,12 +54,15 @@ func (r *UserRepository) FindAll() []User {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	ids := make([]int, 0, len(r.users))
+	for id := range r.users {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
 	users := make([]User, 0, len(r.users))
-	for id := 1; id < r.nextID; id++ {
-		user, ok := r.users[id]
-		if ok {
-			users = append(users, user)
-		}
+	for _, id := range ids {
+		users = append(users, r.users[id])
 	}
 	return users
 }

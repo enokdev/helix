@@ -34,12 +34,9 @@ func (m *mockContext) Locals(_ string, _ ...any) any { return nil }
 func (m *mockContext) Context() context.Context      { return context.Background() }
 
 func TestWriteSuccessResponse_JSONError_IsLoggedWithWebNamespace(t *testing.T) {
-	orig := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(orig) })
-
 	var buf bytes.Buffer
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	slog.SetDefault(slog.New(handler))
+	setDefaultLoggerForTest(t, slog.New(handler))
 
 	jsonErr := errors.New("json: unsupported type: chan int")
 	ctx := &mockContext{method: "GET", jsonErr: jsonErr}

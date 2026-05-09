@@ -23,15 +23,8 @@ func TestFindGoModPath(t *testing.T) {
 				err := os.WriteFile(goModPath, []byte("module github.com/example/test\n"), 0o644)
 				require.NoError(t, err)
 
-				oldCwd, err := os.Getwd()
-				require.NoError(t, err)
-				err = os.Chdir(tmpDir)
-				require.NoError(t, err)
-
-				cleanup := func() {
-					_ = os.Chdir(oldCwd)
-				}
-				return tmpDir, cleanup
+				chdirForTest(t, tmpDir)
+				return tmpDir, func() {}
 			},
 			expectedErr: false,
 		},
@@ -47,15 +40,8 @@ func TestFindGoModPath(t *testing.T) {
 				err = os.MkdirAll(subDir, 0o755)
 				require.NoError(t, err)
 
-				oldCwd, err := os.Getwd()
-				require.NoError(t, err)
-				err = os.Chdir(subDir)
-				require.NoError(t, err)
-
-				cleanup := func() {
-					_ = os.Chdir(oldCwd)
-				}
-				return tmpDir, cleanup
+				chdirForTest(t, subDir)
+				return tmpDir, func() {}
 			},
 			expectedErr: false,
 		},
@@ -67,15 +53,8 @@ func TestFindGoModPath(t *testing.T) {
 				err := os.MkdirAll(subDir, 0o755)
 				require.NoError(t, err)
 
-				oldCwd, err := os.Getwd()
-				require.NoError(t, err)
-				err = os.Chdir(subDir)
-				require.NoError(t, err)
-
-				cleanup := func() {
-					_ = os.Chdir(oldCwd)
-				}
-				return tmpDir, cleanup
+				chdirForTest(t, subDir)
+				return tmpDir, func() {}
 			},
 			expectedErr: true,
 		},

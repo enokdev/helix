@@ -374,8 +374,6 @@ func wrapError(action string, err error) error {
 		return fmt.Errorf("data/gorm: %s: %w", action, data.ErrRecordNotFound)
 	case errors.Is(err, gormlib.ErrDuplicatedKey), errors.Is(err, data.ErrDuplicateKey):
 		return fmt.Errorf("data/gorm: %s: %w", action, data.ErrDuplicateKey)
-	case errors.Is(err, data.ErrInvalidFilter):
-		return fmt.Errorf("data/gorm: %s: %w", action, err)
 	default:
 		return fmt.Errorf("data/gorm: %s: %w", action, err)
 	}
