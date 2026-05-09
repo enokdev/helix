@@ -155,8 +155,12 @@ type namespaceLevelHandler struct {
 	globalLevel     *slog.LevelVar
 	namespaceLevels map[string]slog.Level
 	defaultNS       string
-	// preAttrs are attributes carried by Logger.With before any record is handled.
-	preAttrs []slog.Attr
+	// flatPreAttrs holds attrs added before any WithGroup call; injected at top level.
+	flatPreAttrs []slog.Attr
+	// groupedPreAttrs holds attrs added after WithGroup calls; combined with record attrs
+	// and group-wrapped once in Handle to avoid duplicate JSON keys.
+	groupedPreAttrs []slog.Attr
+	groups          []string
 }
 
 func (h *namespaceLevelHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -171,10 +175,8 @@ func (h *namespaceLevelHandler) Enabled(_ context.Context, level slog.Level) boo
 }
 
 func (h *namespaceLevelHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Determine effective namespace from pre-attrs and record attrs.
 	ns := h.resolveNamespace(r)
 
-	// Apply the correct level threshold.
 	threshold := h.globalLevel.Level()
 	if lvl, ok := h.namespaceLevels[ns]; ok {
 		threshold = lvl
@@ -183,26 +185,33 @@ func (h *namespaceLevelHandler) Handle(ctx context.Context, r slog.Record) error
 		return nil
 	}
 
-	// Build a new record that injects exactly one top-level "namespace" field
-	// without duplicating it.
 	nr := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
 
-	// Carry over record attrs, skipping any existing "namespace" key.
-	r.Attrs(func(a slog.Attr) bool {
-		if a.Key != "namespace" {
-			nr.AddAttrs(a)
-		}
-		return true
-	})
-
-	// Append pre-attrs (from With calls), again skipping "namespace".
-	for _, a := range h.preAttrs {
-		if a.Key != "namespace" {
-			nr.AddAttrs(a)
+	// Flat pre-attrs (added before any WithGroup) → injected at top level.
+	for _, attr := range h.flatPreAttrs {
+		if attr.Key != "namespace" {
+			nr.AddAttrs(attr)
 		}
 	}
 
-	// Inject the resolved namespace at the end so it appears in the JSON output.
+	// Grouped pre-attrs (added after WithGroup) + record attrs → combined and
+	// group-wrapped exactly once to avoid duplicate JSON keys.
+	grouped := make([]slog.Attr, 0, len(h.groupedPreAttrs)+r.NumAttrs())
+	for _, attr := range h.groupedPreAttrs {
+		if attr.Key != "namespace" {
+			grouped = append(grouped, attr)
+		}
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key != "namespace" {
+			grouped = append(grouped, a)
+		}
+		return true
+	})
+	if len(grouped) > 0 {
+		nr.AddAttrs(groupAttrs(h.groups, grouped)...)
+	}
+
 	nr.AddAttrs(slog.String("namespace", ns))
 
 	return h.inner.Handle(ctx, nr)
@@ -210,13 +219,20 @@ func (h *namespaceLevelHandler) Handle(ctx context.Context, r slog.Record) error
 
 func (h *namespaceLevelHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	clone := h.clone()
-	clone.preAttrs = append(clone.preAttrs, attrs...)
+	if len(h.groups) == 0 {
+		clone.flatPreAttrs = append(clone.flatPreAttrs, attrs...)
+	} else {
+		clone.groupedPreAttrs = append(clone.groupedPreAttrs, attrs...)
+	}
 	return clone
 }
 
 func (h *namespaceLevelHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
 	clone := h.clone()
-	clone.inner = h.inner.WithGroup(name)
+	clone.groups = append(clone.groups, name)
 	return clone
 }
 
@@ -225,27 +241,52 @@ func (h *namespaceLevelHandler) clone() *namespaceLevelHandler {
 	for k, v := range h.namespaceLevels {
 		levels[k] = v
 	}
-	preAttrs := make([]slog.Attr, len(h.preAttrs))
-	copy(preAttrs, h.preAttrs)
+	flat := make([]slog.Attr, len(h.flatPreAttrs))
+	copy(flat, h.flatPreAttrs)
+	grouped := make([]slog.Attr, len(h.groupedPreAttrs))
+	copy(grouped, h.groupedPreAttrs)
+	groups := make([]string, len(h.groups))
+	copy(groups, h.groups)
 	return &namespaceLevelHandler{
 		inner:           h.inner,
 		globalLevel:     h.globalLevel,
 		namespaceLevels: levels,
 		defaultNS:       h.defaultNS,
-		preAttrs:        preAttrs,
+		flatPreAttrs:    flat,
+		groupedPreAttrs: grouped,
+		groups:          groups,
 	}
 }
 
+func groupAttrs(groups []string, attrs []slog.Attr) []slog.Attr {
+	if len(groups) == 0 {
+		return attrs
+	}
+	current := attrs
+	for i := len(groups) - 1; i >= 0; i-- {
+		current = []slog.Attr{slog.Group(groups[i], attrsToAny(current)...)}
+	}
+	return current
+}
+
+func attrsToAny(attrs []slog.Attr) []any {
+	args := make([]any, len(attrs))
+	for i, attr := range attrs {
+		args[i] = attr
+	}
+	return args
+}
+
 // resolveNamespace finds the "namespace" value from pre-attrs or record attrs.
-// When multiple "namespace" attrs are present in pre-attrs, the last one wins.
+// When multiple "namespace" attrs are present, the last one wins.
 func (h *namespaceLevelHandler) resolveNamespace(r slog.Record) string {
-	// Check pre-attrs in reverse so the last With("namespace",...) wins.
-	for i := len(h.preAttrs) - 1; i >= 0; i-- {
-		if h.preAttrs[i].Key == "namespace" {
-			return h.preAttrs[i].Value.String()
+	// Check flat pre-attrs in reverse so the last With("namespace",...) wins.
+	for i := len(h.flatPreAttrs) - 1; i >= 0; i-- {
+		if h.flatPreAttrs[i].Key == "namespace" {
+			return h.flatPreAttrs[i].Value.String()
 		}
 	}
-	// Then check record attrs.
+	// Check record attrs.
 	ns := ""
 	r.Attrs(func(a slog.Attr) bool {
 		if a.Key == "namespace" {

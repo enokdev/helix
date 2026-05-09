@@ -21,3 +21,12 @@ jobs:
           coverage=$(go tool cover -func=core-coverage.out | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
           if [ -z "$coverage" ]; then echo "coverage: could not determine"; exit 1; fi
           awk "BEGIN { exit !($coverage >= 80) }"
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage.out
+            core-coverage.out
+          if-no-files-found: error
