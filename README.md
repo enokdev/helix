@@ -36,6 +36,20 @@ go get github.com/enokdev/helix
 
 Helix est publie comme module Go. `go get github.com/enokdev/helix` ajoute le framework a votre `go.mod` et telecharge les dependances necessaires.
 
+### CLI
+
+```bash
+go install github.com/enokdev/helix/cmd/helix@latest
+helix --version
+```
+
+> **`helix: command not found`** — `go install` place le binaire dans `$GOPATH/bin` (par defaut `~/go/bin`). Ajoutez ce chemin a votre `PATH` :
+> ```bash
+> export PATH="$PATH:$HOME/go/bin"   # a ajouter dans ~/.zshrc ou ~/.bashrc
+> ```
+
+> **`compile: version mismatch`** — votre binaire `go` et `GOROOT` pointent vers deux installations differentes (typique avec govm + Homebrew). Verifiez avec `go env GOROOT` et corrigez avec `unset GOROOT` avant de reinstaller.
+
 ## Quick Start
 
 ### Creer votre premiere application Helix

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -27,7 +28,11 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("helix: expected subcommand new, db, generate, run, or build")
+		return fmt.Errorf("helix: expected subcommand new, db, generate, run, build, or version")
+	}
+
+	if args[0] == "--version" || args[0] == "-version" {
+		args = []string{"version"}
 	}
 
 	switch args[0] {
@@ -51,8 +56,15 @@ func run(ctx context.Context, args []string) error {
 			return runGenerateContext(ctx, restArgs[1:])
 		}
 		return runGenerate(ctx, restArgs)
+	case "version":
+		version := "unknown"
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+			version = info.Main.Version
+		}
+		fmt.Fprintln(cliStdout, "helix", version)
+		return nil
 	default:
-		return fmt.Errorf("helix: expected subcommand new, db, generate, run, or build")
+		return fmt.Errorf("helix: expected subcommand new, db, generate, run, build, or version")
 	}
 }
 
