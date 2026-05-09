@@ -73,6 +73,12 @@ type Lifecycle interface {
 > ```
 > Le projet cible **go1.25.5** (govm). Ne pas utiliser le `go` du PATH sans vérifier `go version`.
 
+> ⚠️ **Ne jamais bumper la directive `go` dans `go.mod`** : En Go 1.21+, `go mod tidy` réécrit automatiquement la directive `go` pour qu'elle corresponde à la version de l'outil courant (ex: `go 1.25.5`). Cela casse `go install` pour les utilisateurs qui ont une version différente. Après chaque `go mod tidy`, vérifier que la directive reste `go 1.21.0` et la rétablir si elle a été modifiée :
+> ```bash
+> /Users/yacoubakone/.govm/go/bin/go mod tidy
+> grep "^go " go.mod   # doit afficher: go 1.21.0 — rétablir si différent
+> ```
+
 ```bash
 /Users/yacoubakone/.govm/go/bin/go mod tidy    # sync dependencies
 /Users/yacoubakone/.govm/go/bin/go build ./... # build all packages
