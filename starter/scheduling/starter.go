@@ -3,6 +3,7 @@ package scheduling
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -117,51 +118,82 @@ func (s *Starter) Configure(container *core.Container) error {
 type scheduledJobRegistrar struct {
 	container *core.Container
 	sched     scheduler.Scheduler
-	once      sync.Once
+	mu        sync.Mutex
+	started   bool
 	startErr  error
 }
 
 var _ core.Lifecycle = (*scheduledJobRegistrar)(nil)
+
+type jobUnregisterer interface {
+	Unregister(name string) error
+}
 
 func newScheduledJobRegistrar(container *core.Container, sched scheduler.Scheduler) *scheduledJobRegistrar {
 	return &scheduledJobRegistrar{container: container, sched: sched}
 }
 
 func (r *scheduledJobRegistrar) OnStart() error {
-	r.once.Do(func() {
-		r.startErr = r.doStart()
-	})
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.started {
+		return nil
+	}
+	r.startErr = r.doStart()
+	if r.startErr == nil {
+		r.started = true
+	}
 	return r.startErr
 }
 
-func (r *scheduledJobRegistrar) doStart() error {
+func (r *scheduledJobRegistrar) doStart() (doErr error) {
 	providers, err := core.ResolveAll[scheduler.ScheduledJobProvider](r.container)
 	if err != nil {
 		return fmt.Errorf("scheduler: resolve scheduled job providers: %w", err)
 	}
 
+	registered := make([]string, 0)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			panicErr := fmt.Errorf("scheduler: job provider panicked: %v", recovered)
+			if rollbackErr := r.rollbackRegisteredJobs(registered); rollbackErr != nil {
+				doErr = errors.Join(panicErr, rollbackErr)
+				return
+			}
+			doErr = panicErr
+		}
+	}()
 	for _, provider := range providers {
 		for _, job := range provider.ScheduledJobs() {
-			if job.Fn == nil {
-				return fmt.Errorf("scheduler: job %q has nil Fn", job.Name)
+			if err := r.sched.Register(job); err != nil {
+				registerErr := fmt.Errorf("scheduler: register job %q: %w", job.Name, err)
+				if rollbackErr := r.rollbackRegisteredJobs(registered); rollbackErr != nil {
+					return errors.Join(registerErr, rollbackErr)
+				}
+				return registerErr
 			}
-			fn := job.Fn
-			allowConcurrent := job.AllowConcurrent
-			if !job.AllowConcurrent {
-				fn = scheduler.WrapSkipIfBusy(fn)
-				allowConcurrent = true
-			}
-			if err := r.sched.Register(scheduler.Job{
-				Name:            job.Name,
-				Expr:            job.Expr,
-				Fn:              fn,
-				AllowConcurrent: allowConcurrent,
-			}); err != nil {
-				return fmt.Errorf("scheduler: register job %q: %w", job.Name, err)
-			}
+			registered = append(registered, job.Name)
 		}
 	}
 	return nil
+}
+
+func (r *scheduledJobRegistrar) rollbackRegisteredJobs(names []string) error {
+	unregisterer, ok := r.sched.(jobUnregisterer)
+	if !ok {
+		return fmt.Errorf("scheduler: rollback unavailable: %T cannot unregister jobs", r.sched)
+	}
+
+	var rollbackErr error
+	for i := len(names) - 1; i >= 0; i-- {
+		if err := unregisterer.Unregister(names[i]); err != nil {
+			if errors.Is(err, scheduler.ErrJobNotFound) {
+				continue
+			}
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("scheduler: rollback job %q: %w", names[i], err))
+		}
+	}
+	return rollbackErr
 }
 
 func (r *scheduledJobRegistrar) OnStop(_ context.Context) error {

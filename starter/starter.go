@@ -1,12 +1,24 @@
 package starter
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 
 	"github.com/enokdev/helix/core"
 )
+
+// starterConfigError carries the offending entry's metadata so callers can
+// emit structured log fields (starter name, order) alongside the error.
+type starterConfigError struct {
+	name  string
+	order Order
+	cause error
+}
+
+func (e *starterConfigError) Error() string { return e.cause.Error() }
+func (e *starterConfigError) Unwrap() error { return e.cause }
 
 // Starter is the contract that auto-configuration modules must implement.
 type Starter interface {
@@ -84,15 +96,9 @@ func Configure(container *core.Container, entries []Entry, opts ...Option) error
 	}
 
 	// Validate all entries up-front so no starter is partially configured.
-	for _, e := range entries {
-		if err := validateEntry(e); err != nil {
-			o.logger.Warn("starter validation failed",
-				slog.String("starter", e.Name),
-				slog.Int("order", int(e.Order)),
-				slog.String("error", err.Error()),
-			)
-			return err
-		}
+	if err := validateEntries(entries); err != nil {
+		logValidationFailure(o.logger, err)
+		return err
 	}
 
 	// Stable sort preserves the relative order of entries sharing the same Order.
@@ -108,7 +114,10 @@ func Configure(container *core.Container, entries []Entry, opts ...Option) error
 		if _, ok := e.Starter.(MarkerAwareStarter); ok {
 			continue
 		}
-		active, reason := evaluateCondition(e.Starter, nil)
+		active, reason, err := evaluateCondition(e.Name, e.Starter, nil)
+		if err != nil {
+			return err
+		}
 		o.logger.Debug("starter evaluated",
 			slog.String("starter", e.Name),
 			slog.Int("order", int(e.Order)),
@@ -116,8 +125,8 @@ func Configure(container *core.Container, entries []Entry, opts ...Option) error
 			slog.String("reason", string(reason)),
 		)
 		if active {
-			if err := e.Starter.Configure(container); err != nil {
-				return fmt.Errorf("starter: configure %q: %w", e.Name, err)
+			if err := configureStarter(e.Name, e.Starter, container); err != nil {
+				return err
 			}
 		}
 	}
@@ -138,15 +147,9 @@ func ConfigureMarkerAware(container *core.Container, entries []Entry, opts ...Op
 	}
 
 	// Validate all entries up-front — same fail-fast guarantee as Configure.
-	for _, e := range entries {
-		if err := validateEntry(e); err != nil {
-			o.logger.Warn("starter validation failed",
-				slog.String("starter", e.Name),
-				slog.Int("order", int(e.Order)),
-				slog.String("error", err.Error()),
-			)
-			return err
-		}
+	if err := validateEntries(entries); err != nil {
+		logValidationFailure(o.logger, err)
+		return err
 	}
 
 	sorted := make([]Entry, len(entries))
@@ -160,7 +163,10 @@ func ConfigureMarkerAware(container *core.Container, entries []Entry, opts ...Op
 		if !ok {
 			continue
 		}
-		active, reason := evaluateCondition(mas, container)
+		active, reason, err := evaluateCondition(e.Name, mas, container)
+		if err != nil {
+			return err
+		}
 		o.logger.Debug("starter evaluated",
 			slog.String("starter", e.Name),
 			slog.Int("order", int(e.Order)),
@@ -168,8 +174,8 @@ func ConfigureMarkerAware(container *core.Container, entries []Entry, opts ...Op
 			slog.String("reason", string(reason)),
 		)
 		if active {
-			if err := e.Starter.Configure(container); err != nil {
-				return fmt.Errorf("starter: configure %q: %w", e.Name, err)
+			if err := configureStarter(e.Name, e.Starter, container); err != nil {
+				return err
 			}
 		}
 	}
@@ -179,14 +185,52 @@ func ConfigureMarkerAware(container *core.Container, entries []Entry, opts ...Op
 // evaluateCondition determines whether a starter should be activated and why.
 // If container is non-nil and the starter implements [MarkerAwareStarter],
 // ConditionFromContainer is used; otherwise Condition is used.
-func evaluateCondition(s Starter, container *core.Container) (bool, ActivationReason) {
+func evaluateCondition(name string, s Starter, container *core.Container) (active bool, reason ActivationReason, err error) {
 	if container != nil {
 		if mas, ok := s.(MarkerAwareStarter); ok {
-			active := mas.ConditionFromContainer(container)
-			return active, ReasonComponentMarker
+			defer recoverStarterPanic(name, "condition-from-container", &err)
+			active = mas.ConditionFromContainer(container)
+			return active, ReasonComponentMarker, nil
 		}
 	}
-	return s.Condition(), ReasonConfigKey
+	defer recoverStarterPanic(name, "condition", &err)
+	active = s.Condition()
+	return active, ReasonConfigKey, nil
+}
+
+func configureStarter(name string, s Starter, container *core.Container) (err error) {
+	defer recoverStarterPanic(name, "configure", &err)
+	if err := s.Configure(container); err != nil {
+		return fmt.Errorf("starter: configure %q: %w", name, err)
+	}
+	return nil
+}
+
+func recoverStarterPanic(name, phase string, err *error) {
+	if recovered := recover(); recovered != nil {
+		*err = fmt.Errorf("starter: %s %q panicked: %v: %w", phase, name, recovered, ErrInvalidStarter)
+	}
+}
+
+func validateEntries(entries []Entry) error {
+	seenNames := make(map[string]struct{}, len(entries))
+	seenOrders := make(map[Order]string, len(entries))
+	for _, e := range entries {
+		if err := validateEntry(e); err != nil {
+			return &starterConfigError{name: e.Name, order: e.Order, cause: err}
+		}
+		if _, ok := seenNames[e.Name]; ok {
+			cause := fmt.Errorf("starter: configure %q: duplicate name: %w", e.Name, ErrInvalidStarter)
+			return &starterConfigError{name: e.Name, order: e.Order, cause: cause}
+		}
+		seenNames[e.Name] = struct{}{}
+		if previous, ok := seenOrders[e.Order]; ok {
+			cause := fmt.Errorf("starter: configure %q: duplicate order %d also used by %q: %w", e.Name, e.Order, previous, ErrInvalidStarter)
+			return &starterConfigError{name: e.Name, order: e.Order, cause: cause}
+		}
+		seenOrders[e.Order] = e.Name
+	}
+	return nil
 }
 
 func validateEntry(e Entry) error {
@@ -200,4 +244,17 @@ func validateEntry(e Entry) error {
 		return fmt.Errorf("starter: configure %q: unknown order %d: %w", e.Name, e.Order, ErrInvalidStarter)
 	}
 	return nil
+}
+
+func logValidationFailure(logger *slog.Logger, err error) {
+	var sce *starterConfigError
+	if errors.As(err, &sce) {
+		logger.Warn("starter validation failed",
+			slog.String("starter", sce.name),
+			slog.Int("order", int(sce.order)),
+			slog.String("error", sce.cause.Error()),
+		)
+		return
+	}
+	logger.Warn("starter validation failed", slog.String("error", err.Error()))
 }

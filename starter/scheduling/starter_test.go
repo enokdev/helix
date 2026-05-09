@@ -27,15 +27,54 @@ func (p *testScheduledProvider) ScheduledJobs() []scheduler.Job {
 	return []scheduler.Job{p.job}
 }
 
-type recordingScheduler struct {
-	mu   sync.Mutex
+type multiScheduledProvider struct {
 	jobs []scheduler.Job
+}
+
+func (p *multiScheduledProvider) ScheduledJobs() []scheduler.Job {
+	return p.jobs
+}
+
+type panicScheduledProvider struct {
+	value any
+}
+
+func (p *panicScheduledProvider) ScheduledJobs() []scheduler.Job {
+	panic(p.value)
+}
+
+type recordingScheduler struct {
+	mu              sync.Mutex
+	jobs            []scheduler.Job
+	unregistered    []string
+	registerErrName string
+	registerErr     error
+	unregisterErr   error
 }
 
 func (s *recordingScheduler) Register(job scheduler.Job) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if job.Name == s.registerErrName {
+		return s.registerErr
+	}
 	s.jobs = append(s.jobs, job)
+	return nil
+}
+
+func (s *recordingScheduler) Unregister(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unregistered = append(s.unregistered, name)
+	if s.unregisterErr != nil {
+		return s.unregisterErr
+	}
+	for i, job := range s.jobs {
+		if job.Name == name {
+			s.jobs = append(s.jobs[:i], s.jobs[i+1:]...)
+			return nil
+		}
+	}
 	return nil
 }
 
@@ -315,22 +354,15 @@ func TestStarter_Configure_NoProviders_NoError(t *testing.T) {
 	}
 }
 
-func TestScheduledJobRegistrar_WrapsJobsWithSkipLockByDefault(t *testing.T) {
+func TestScheduledJobRegistrar_LeavesConcurrencyEnforcementToScheduler(t *testing.T) {
 	container := newTestContainer()
 	sched := &recordingScheduler{}
-	started := make(chan struct{})
-	release := make(chan struct{})
-	var runs int32
 
 	if err := container.Register(&testScheduledProvider{
 		job: scheduler.Job{
 			Name: "non-concurrent-report",
 			Expr: "@every 1s",
-			Fn: func() {
-				atomic.AddInt32(&runs, 1)
-				started <- struct{}{}
-				<-release
-			},
+			Fn:   func() {},
 		},
 	}); err != nil {
 		t.Fatalf("Register provider error = %v", err)
@@ -344,26 +376,8 @@ func TestScheduledJobRegistrar_WrapsJobsWithSkipLockByDefault(t *testing.T) {
 	if len(sched.jobs) != 1 {
 		t.Fatalf("registered jobs = %d, want 1", len(sched.jobs))
 	}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		sched.jobs[0].Fn()
-	}()
-
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("job did not start within 1s")
-	}
-
-	sched.jobs[0].Fn()
-	close(release)
-	wg.Wait()
-
-	if got := atomic.LoadInt32(&runs); got != 1 {
-		t.Fatalf("runs = %d, want 1", got)
+	if sched.jobs[0].AllowConcurrent {
+		t.Fatal("AllowConcurrent = true, want false preserved for scheduler enforcement")
 	}
 }
 
@@ -412,6 +426,67 @@ func TestScheduledJobRegistrar_AllowsConcurrentWhenOptedIn(t *testing.T) {
 
 	if got := atomic.LoadInt32(&runs); got != 2 {
 		t.Fatalf("runs = %d, want 2", got)
+	}
+}
+
+func TestScheduledJobRegistrar_RollsBackRegisteredJobsOnError(t *testing.T) {
+	container := newTestContainer()
+	sentinel := errors.New("register failed")
+	sched := &recordingScheduler{
+		registerErrName: "second-job",
+		registerErr:     sentinel,
+	}
+
+	if err := container.Register(&multiScheduledProvider{jobs: []scheduler.Job{
+		{Name: "first-job", Expr: "@every 1s", Fn: func() {}},
+		{Name: "second-job", Expr: "invalid cron", Fn: func() {}},
+	}}); err != nil {
+		t.Fatalf("Register provider error = %v", err)
+	}
+
+	registrar := newScheduledJobRegistrar(container, sched)
+	err := registrar.OnStart()
+	if err == nil {
+		t.Fatal("OnStart() error = nil, want register error")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("OnStart() error = %v, want sentinel", err)
+	}
+	if len(sched.jobs) != 0 {
+		t.Fatalf("registered jobs after rollback = %d, want 0", len(sched.jobs))
+	}
+	if len(sched.unregistered) != 1 || sched.unregistered[0] != "first-job" {
+		t.Fatalf("unregistered = %v, want [first-job]", sched.unregistered)
+	}
+}
+
+func TestScheduledJobRegistrar_ReportsRollbackErrorOnProviderPanic(t *testing.T) {
+	container := newTestContainer()
+	rollbackErr := errors.New("unregister failed")
+	sched := &recordingScheduler{unregisterErr: rollbackErr}
+
+	if err := container.Register(&testScheduledProvider{
+		job: scheduler.Job{Name: "first-job", Expr: "@every 1s", Fn: func() {}},
+	}); err != nil {
+		t.Fatalf("Register first provider error = %v", err)
+	}
+	if err := container.Register(&panicScheduledProvider{value: "boom"}); err != nil {
+		t.Fatalf("Register panic provider error = %v", err)
+	}
+
+	registrar := newScheduledJobRegistrar(container, sched)
+	err := registrar.OnStart()
+	if err == nil {
+		t.Fatal("OnStart() error = nil, want panic and rollback error")
+	}
+	if !strings.Contains(err.Error(), "job provider panicked: boom") {
+		t.Fatalf("OnStart() error = %v, want provider panic context", err)
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("OnStart() error = %v, want rollback error", err)
+	}
+	if len(sched.unregistered) != 1 || sched.unregistered[0] != "first-job" {
+		t.Fatalf("unregistered = %v, want [first-job]", sched.unregistered)
 	}
 }
 

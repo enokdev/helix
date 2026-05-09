@@ -1,8 +1,12 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,7 +58,17 @@ func TestRegister(t *testing.T) {
 				Fn:   nil,
 			},
 			wantErr: true,
-			errIs:   ErrInvalidCron,
+			errIs:   ErrInvalidJob,
+		},
+		{
+			name: "Empty name",
+			job: Job{
+				Name: " ",
+				Expr: "@every 1s",
+				Fn:   func() {},
+			},
+			wantErr: true,
+			errIs:   ErrInvalidJob,
 		},
 	}
 
@@ -69,6 +83,172 @@ func TestRegister(t *testing.T) {
 				t.Errorf("Register() err = %v, expected to wrap %v", err, tt.errIs)
 			}
 		})
+	}
+}
+
+func TestRegisterRejectsDuplicateJobName(t *testing.T) {
+	s := NewScheduler()
+	job := Job{Name: "same-name", Expr: "@every 1s", Fn: func() {}}
+
+	if err := s.Register(job); err != nil {
+		t.Fatalf("first Register() error = %v", err)
+	}
+
+	err := s.Register(job)
+	if err == nil {
+		t.Fatal("second Register() error = nil, want duplicate error")
+	}
+	if !errors.Is(err, ErrDuplicateJob) {
+		t.Fatalf("second Register() error = %v, want ErrDuplicateJob", err)
+	}
+}
+
+func TestUnregisterRejectsSurroundingWhitespace(t *testing.T) {
+	s := NewScheduler()
+	if err := s.Register(Job{Name: "daily", Expr: "@every 1s", Fn: func() {}}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	unregisterer, ok := s.(interface{ Unregister(string) error })
+	if !ok {
+		t.Fatal("NewScheduler() does not support Unregister")
+	}
+	err := unregisterer.Unregister(" daily ")
+	if err == nil {
+		t.Fatal("Unregister() error = nil, want invalid job error")
+	}
+	if !errors.Is(err, ErrInvalidJob) {
+		t.Fatalf("Unregister() error = %v, want ErrInvalidJob", err)
+	}
+
+	err = s.Register(Job{Name: "daily", Expr: "@every 1s", Fn: func() {}})
+	if err == nil {
+		t.Fatal("Register() after invalid Unregister = nil, want duplicate error")
+	}
+	if !errors.Is(err, ErrDuplicateJob) {
+		t.Fatalf("Register() after invalid Unregister = %v, want ErrDuplicateJob", err)
+	}
+}
+
+func TestRegisterAppliesSkipLockWhenConcurrencyDisabled(t *testing.T) {
+	s := NewScheduler()
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var runs int32
+
+	if err := s.Register(Job{
+		Name: "non-concurrent-direct",
+		Expr: "@every 1s",
+		Fn: func() {
+			atomic.AddInt32(&runs, 1)
+			started <- struct{}{}
+			<-release
+		},
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	wrapped := s.(*adapterWrapper).jobFuncForTest("non-concurrent-direct")
+	if wrapped == nil {
+		t.Fatal("registered job function = nil")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		wrapped()
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first invocation did not start")
+	}
+
+	wrapped()
+	close(release)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&runs); got != 1 {
+		t.Fatalf("runs = %d, want 1", got)
+	}
+}
+
+func TestRegisterAllowsConcurrentWhenOptedIn(t *testing.T) {
+	s := NewScheduler()
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var runs int32
+
+	if err := s.Register(Job{
+		Name:            "concurrent-direct",
+		Expr:            "@every 1s",
+		AllowConcurrent: true,
+		Fn: func() {
+			atomic.AddInt32(&runs, 1)
+			started <- struct{}{}
+			<-release
+		},
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	wrapped := s.(*adapterWrapper).jobFuncForTest("concurrent-direct")
+	if wrapped == nil {
+		t.Fatal("registered job function = nil")
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wrapped()
+		}()
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("invocation did not start")
+		}
+	}
+	close(release)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&runs); got != 2 {
+		t.Fatalf("runs = %d, want 2", got)
+	}
+}
+
+func TestRegisterRecoversAndLogsJobPanic(t *testing.T) {
+	var logs bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	s := NewScheduler()
+	if err := s.Register(Job{
+		Name: "panic-job",
+		Expr: "@every 1s",
+		Fn: func() {
+			panic("boom")
+		},
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	wrapped := s.(*adapterWrapper).jobFuncForTest("panic-job")
+	if wrapped == nil {
+		t.Fatal("registered job function = nil")
+	}
+
+	wrapped()
+
+	got := logs.String()
+	for _, want := range []string{"scheduler: job panic", "job=panic-job", "panic=boom"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("logs = %q, want to contain %q", got, want)
+		}
 	}
 }
 

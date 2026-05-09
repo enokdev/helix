@@ -1,4 +1,11 @@
 
+## Deferred from: code review of story-15-5 (2026-05-07)
+
+- [D-15.5-1] Partial-failure dans `Starter.Configure` laisse un scheduler orphelin dans le container — si `container.Register(sched)` réussit mais `container.Register(registrar)` échoue, le scheduler est registered sans registrar associé. Pré-existant, hors scope story 15.5. [starter/scheduling/starter.go:Configure]
+- [D-15.5-2] `evaluateCondition` retourne toujours `ReasonComponentMarker` pour tout `MarkerAwareStarter`, même quand l'inactivité est due à un override config. Limitation architecturale de l'interface `bool` — résoudre quand l'interface `Condition()` sera enrichie d'un motif. [starter/starter.go:evaluateCondition]
+- [D-15.5-3] `runtime.Goexit()` dans un job planifié tue le goroutine worker cron — `recover()` ne peut pas intercepter `Goexit`. Cas théorique (typiquement via `testing.T.FailNow()`), non actionnable en production. [scheduler/scheduler.go:recoverPanic]
+- [D-15.5-4] Mutex `adapterWrapper` tenu pendant tout l'appel `RegisterRaw` (incl. parse cron + acquisition lock interne robfig) — sous très forte charge de `Register`/`Unregister` simultanés, crée une contention. Optimisation future : séparer la validation sous lock de l'appel à l'adaptateur. [scheduler/scheduler.go:Register]
+
 ## Deferred from: code review of 14-5-starters-erreurs-idempotence (2026-05-06)
 
 - [D-14.5-1] `wrapError` case `ErrInvalidFilter` identique à `default` — dead code après l'ajout de `ErrInvalidCondition`. Les deux branches produisent `fmt.Errorf("data/gorm: %s: %w", action, err)`. Pas de bug, mais le case spécialisé peut être supprimé lors d'un nettoyage futur. [data/gorm/adapter.go:331-332]

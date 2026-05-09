@@ -7,6 +7,9 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// EntryID is the internal handle returned by robfig/cron for a registered job.
+type EntryID = cron.EntryID
+
 // CronAdapter isolates the robfig/cron/v3 dependency.
 type CronAdapter struct {
 	cron *cron.Cron
@@ -20,14 +23,20 @@ func NewCronAdapter() *CronAdapter {
 }
 
 // RegisterRaw registers a cron function directly.
-func (a *CronAdapter) RegisterRaw(name, expr string, fn func()) error {
+func (a *CronAdapter) RegisterRaw(name, expr string, fn func()) (EntryID, error) {
 	if fn == nil {
-		return fmt.Errorf("scheduler: job %q: fn must not be nil", name)
+		return 0, fmt.Errorf("scheduler: job %q: fn must not be nil", name)
 	}
-	if _, err := a.cron.AddFunc(expr, fn); err != nil {
-		return err
+	id, err := a.cron.AddFunc(expr, fn)
+	if err != nil {
+		return 0, err
 	}
-	return nil
+	return id, nil
+}
+
+// Remove deletes a previously registered cron entry.
+func (a *CronAdapter) Remove(id EntryID) {
+	a.cron.Remove(id)
 }
 
 // Start begins the background cron runner (non-blocking).

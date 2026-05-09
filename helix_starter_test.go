@@ -17,6 +17,7 @@ import (
 type markerAwareStarter struct {
 	conditionFromContainerCalls int
 	conditionFromContainerRet   bool
+	conditionFromContainerPanic any
 	configureCalls              int
 }
 
@@ -28,6 +29,9 @@ func (m *markerAwareStarter) Configure(_ *core.Container) error {
 
 func (m *markerAwareStarter) ConditionFromContainer(_ *core.Container) bool {
 	m.conditionFromContainerCalls++
+	if m.conditionFromContainerPanic != nil {
+		panic(m.conditionFromContainerPanic)
+	}
 	return m.conditionFromContainerRet
 }
 
@@ -36,13 +40,17 @@ func (m *markerAwareStarter) ConditionFromContainer(_ *core.Container) bool {
 // providerStarter registers a dependency into the container so that a
 // component with inject:"true" can receive it during registerAppComponents.
 type providerStarter struct {
-	active bool
-	dep    any
-	err    error
+	active     bool
+	dep        any
+	err        error
+	panicValue any
 }
 
 func (p *providerStarter) Condition() bool { return p.active }
 func (p *providerStarter) Configure(c *core.Container) error {
+	if p.panicValue != nil {
+		panic(p.panicValue)
+	}
 	if p.err != nil {
 		return p.err
 	}
@@ -196,6 +204,29 @@ func TestRunWrapsStarterConfigureError(t *testing.T) {
 	}
 }
 
+func TestRunWrapsStarterConfigurePanic(t *testing.T) {
+	t.Parallel()
+
+	err := Run(App{
+		Starters: []starter.Entry{
+			{Name: "panic-starter", Order: starter.OrderConfig, Starter: &providerStarter{active: true, panicValue: "boom"}},
+		},
+		awaitShutdown: func() error { return nil },
+	})
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("Run() error = %v, want ErrInvalidStarter", err)
+	}
+	if got := err.Error(); !strings.Contains(got, "helix: configure starters") ||
+		!strings.Contains(got, "panic-starter") ||
+		!strings.Contains(got, "boom") {
+		t.Fatalf("Run() error = %q, want helix context, starter name and panic value", got)
+	}
+}
+
 // TestRun_MarkerAwareStarterIsCalledAfterRegisterAppComponents verifies that
 // ConditionFromContainer is invoked (second pass) after registerAppComponents,
 // and not during the first-pass Configure call.
@@ -290,5 +321,36 @@ func TestRun_MarkerAwareStarterLogsReason(t *testing.T) {
 	if !found {
 		t.Errorf("expected log entry with starter=marker-mod reason=%s, got: %s",
 			starter.ReasonComponentMarker, buf.String())
+	}
+}
+
+// TestRunWrapsMarkerAwareStarterConditionFromContainerPanic verifies that a
+// panic inside ConditionFromContainer is recovered and wrapped by Run() via
+// the ConfigureMarkerAware code path.
+func TestRunWrapsMarkerAwareStarterConditionFromContainerPanic(t *testing.T) {
+	t.Parallel()
+
+	err := Run(App{
+		Starters: []starter.Entry{
+			{Name: "panic-marker-aware", Order: starter.OrderSecurity, Starter: &markerAwareStarter{conditionFromContainerPanic: "boom"}},
+		},
+		awaitShutdown: func() error { return nil },
+	})
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("Run() error = %v, want ErrInvalidStarter", err)
+	}
+	got := err.Error()
+	if !strings.Contains(got, "helix: configure marker-aware starters") {
+		t.Errorf("Run() error = %q, missing helix context", got)
+	}
+	if !strings.Contains(got, "panic-marker-aware") {
+		t.Errorf("Run() error = %q, missing starter name", got)
+	}
+	if !strings.Contains(got, "boom") {
+		t.Errorf("Run() error = %q, missing panic value", got)
 	}
 }

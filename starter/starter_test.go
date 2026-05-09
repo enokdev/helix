@@ -17,17 +17,25 @@ import (
 type fakeStarter struct {
 	condition      bool
 	configureErr   error
+	conditionPanic any
+	configurePanic any
 	conditionCalls int
 	configureCalls int
 }
 
 func (f *fakeStarter) Condition() bool {
 	f.conditionCalls++
+	if f.conditionPanic != nil {
+		panic(f.conditionPanic)
+	}
 	return f.condition
 }
 
 func (f *fakeStarter) Configure(_ *core.Container) error {
 	f.configureCalls++
+	if f.configurePanic != nil {
+		panic(f.configurePanic)
+	}
 	return f.configureErr
 }
 
@@ -91,20 +99,45 @@ func TestConfigure_DisabledStarter(t *testing.T) {
 	}
 }
 
-// --- stable order for same Order level --------------------------------------
+// --- global uniqueness validation -------------------------------------------
 
-func TestConfigure_StableOrderSameLevel(t *testing.T) {
-	var seq []string
+func TestConfigure_RejectsDuplicateOrdersBeforeEvaluation(t *testing.T) {
+	first := &fakeStarter{condition: true}
+	second := &fakeStarter{condition: true}
 	entries := []starter.Entry{
-		{Name: "first", Order: starter.OrderObservability, Starter: &recorderStarter{seq: &seq, name: "first"}},
-		{Name: "second", Order: starter.OrderObservability, Starter: &recorderStarter{seq: &seq, name: "second"}},
+		{Name: "first", Order: starter.OrderObservability, Starter: first},
+		{Name: "second", Order: starter.OrderObservability, Starter: second},
 	}
 
-	if err := starter.Configure(newContainer(), entries); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	err := starter.Configure(newContainer(), entries)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want duplicate order error")
 	}
-	if len(seq) != 2 || seq[0] != "first" || seq[1] != "second" {
-		t.Errorf("configure sequence = %v, want [first second]", seq)
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("Configure() error = %v, want ErrInvalidStarter", err)
+	}
+	if first.conditionCalls != 0 || second.conditionCalls != 0 {
+		t.Fatalf("condition calls = %d/%d, want 0/0", first.conditionCalls, second.conditionCalls)
+	}
+}
+
+func TestConfigure_RejectsDuplicateNamesBeforeEvaluation(t *testing.T) {
+	first := &fakeStarter{condition: true}
+	second := &fakeStarter{condition: true}
+	entries := []starter.Entry{
+		{Name: "duplicate", Order: starter.OrderWeb, Starter: first},
+		{Name: "duplicate", Order: starter.OrderData, Starter: second},
+	}
+
+	err := starter.Configure(newContainer(), entries)
+	if err == nil {
+		t.Fatal("Configure() error = nil, want duplicate name error")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("Configure() error = %v, want ErrInvalidStarter", err)
+	}
+	if first.conditionCalls != 0 || second.conditionCalls != 0 {
+		t.Fatalf("condition calls = %d/%d, want 0/0", first.conditionCalls, second.conditionCalls)
 	}
 }
 
@@ -150,6 +183,40 @@ func TestConfigure_ValidationErrors(t *testing.T) {
 				t.Errorf("error %v does not wrap ErrInvalidStarter", err)
 			}
 		})
+	}
+}
+
+func TestConfigure_RecoversConditionPanic(t *testing.T) {
+	err := starter.Configure(newContainer(), []starter.Entry{
+		{Name: "panic-condition", Order: starter.OrderWeb, Starter: &fakeStarter{conditionPanic: "boom"}},
+	})
+	if err == nil {
+		t.Fatal("Configure() error = nil, want panic recovery error")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("Configure() error = %v, want ErrInvalidStarter", err)
+	}
+	for _, want := range []string{"panic-condition", "condition", "boom"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Configure() error = %q, want to contain %q", err.Error(), want)
+		}
+	}
+}
+
+func TestConfigure_RecoversConfigurePanic(t *testing.T) {
+	err := starter.Configure(newContainer(), []starter.Entry{
+		{Name: "panic-configure", Order: starter.OrderWeb, Starter: &fakeStarter{condition: true, configurePanic: "boom"}},
+	})
+	if err == nil {
+		t.Fatal("Configure() error = nil, want panic recovery error")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("Configure() error = %v, want ErrInvalidStarter", err)
+	}
+	for _, want := range []string{"panic-configure", "configure", "boom"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Configure() error = %q, want to contain %q", err.Error(), want)
+		}
 	}
 }
 
@@ -228,6 +295,7 @@ type markerAwareFakeStarter struct {
 	conditionRet                bool
 	conditionFromContainerRet   bool
 	configureErr                error
+	conditionFromContainerPanic any
 	conditionCalls              int
 	conditionFromContainerCalls int
 	configureCalls              int
@@ -245,6 +313,9 @@ func (m *markerAwareFakeStarter) Configure(_ *core.Container) error {
 
 func (m *markerAwareFakeStarter) ConditionFromContainer(_ *core.Container) bool {
 	m.conditionFromContainerCalls++
+	if m.conditionFromContainerPanic != nil {
+		panic(m.conditionFromContainerPanic)
+	}
 	return m.conditionFromContainerRet
 }
 
@@ -323,6 +394,24 @@ func TestConfigureMarkerAware_NilContainerReturnsError(t *testing.T) {
 	}
 }
 
+func TestConfigureMarkerAware_RecoversConditionFromContainerPanic(t *testing.T) {
+	mas := &markerAwareFakeStarter{conditionFromContainerPanic: "boom"}
+	err := starter.ConfigureMarkerAware(newContainer(), []starter.Entry{
+		{Name: "panic-marker", Order: starter.OrderSecurity, Starter: mas},
+	})
+	if err == nil {
+		t.Fatal("ConfigureMarkerAware() error = nil, want panic recovery error")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("ConfigureMarkerAware() error = %v, want ErrInvalidStarter", err)
+	}
+	for _, want := range []string{"panic-marker", "condition-from-container", "boom"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ConfigureMarkerAware() error = %q, want to contain %q", err.Error(), want)
+		}
+	}
+}
+
 func TestConfigureMarkerAware_PropagatesStarterConfigureErrorWithName(t *testing.T) {
 	sentinel := errors.New("marker register failed")
 	mas := &markerAwareFakeStarter{conditionFromContainerRet: true, configureErr: sentinel}
@@ -339,6 +428,52 @@ func TestConfigureMarkerAware_PropagatesStarterConfigureErrorWithName(t *testing
 	}
 	if got := err.Error(); !strings.Contains(got, `starter: configure "marker-broken"`) {
 		t.Fatalf("ConfigureMarkerAware() error = %q, want starter name context", got)
+	}
+}
+
+func TestConfigureMarkerAware_RejectsDuplicateOrdersBeforeEvaluation(t *testing.T) {
+	t.Parallel()
+
+	first := &markerAwareFakeStarter{conditionFromContainerRet: true}
+	second := &markerAwareFakeStarter{conditionFromContainerRet: true}
+	entries := []starter.Entry{
+		{Name: "first", Order: starter.OrderSecurity, Starter: first},
+		{Name: "second", Order: starter.OrderSecurity, Starter: second},
+	}
+
+	err := starter.ConfigureMarkerAware(newContainer(), entries)
+	if err == nil {
+		t.Fatal("ConfigureMarkerAware() error = nil, want duplicate order error")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("ConfigureMarkerAware() error = %v, want ErrInvalidStarter", err)
+	}
+	if first.conditionFromContainerCalls != 0 || second.conditionFromContainerCalls != 0 {
+		t.Fatalf("conditionFromContainer calls = %d/%d, want 0/0 (validation must run before evaluation)",
+			first.conditionFromContainerCalls, second.conditionFromContainerCalls)
+	}
+}
+
+func TestConfigureMarkerAware_RejectsDuplicateNamesBeforeEvaluation(t *testing.T) {
+	t.Parallel()
+
+	first := &markerAwareFakeStarter{conditionFromContainerRet: true}
+	second := &markerAwareFakeStarter{conditionFromContainerRet: true}
+	entries := []starter.Entry{
+		{Name: "duplicate", Order: starter.OrderSecurity, Starter: first},
+		{Name: "duplicate", Order: starter.OrderScheduling, Starter: second},
+	}
+
+	err := starter.ConfigureMarkerAware(newContainer(), entries)
+	if err == nil {
+		t.Fatal("ConfigureMarkerAware() error = nil, want duplicate name error")
+	}
+	if !errors.Is(err, starter.ErrInvalidStarter) {
+		t.Fatalf("ConfigureMarkerAware() error = %v, want ErrInvalidStarter", err)
+	}
+	if first.conditionFromContainerCalls != 0 || second.conditionFromContainerCalls != 0 {
+		t.Fatalf("conditionFromContainer calls = %d/%d, want 0/0 (validation must run before evaluation)",
+			first.conditionFromContainerCalls, second.conditionFromContainerCalls)
 	}
 }
 
