@@ -1,36 +1,36 @@
 # Configuration
 
-Helix uses a Viper-backed configuration loader with a predictable priority chain and profile support.
+Helix utilise un loader de configuration basé sur Viper, avec une chaîne de priorité prévisible et le support des profils.
 
-## Priority Chain
+## Chaîne de priorité
 
 ```
-ENV variables  >  application-{profile}.yaml  >  application.yaml  >  defaults
+Variables ENV  >  application-{profil}.yaml  >  application.yaml  >  valeurs par défaut
 ```
 
-Higher sources always win. A `DATABASE_URL` environment variable overrides `database.url` in your YAML file.
+Les sources de priorité supérieure l'emportent toujours. Une variable d'environnement `DATABASE_URL` écrase `database.url` dans votre fichier YAML.
 
-## Creating a Loader
+## Créer un Loader
 
 ```go
 import "github.com/enokdev/helix/config"
 
 loader := config.NewLoader(
-    config.WithConfigPaths("config", "."),      // search directories
+    config.WithConfigPaths("config", "."),      // répertoires de recherche
     config.WithDefaults(map[string]any{
         "server.port": "8080",
     }),
-    config.WithProfiles("dev"),                 // explicit profile activation
+    config.WithProfiles("dev"),                 // activation explicite de profil
     config.WithEnvPrefix("APP"),                // APP_DATABASE_URL → database.url
-    config.WithAllowMissingConfig(),            // don't error if YAML is absent
+    config.WithAllowMissingConfig(),            // pas d'erreur si le YAML est absent
 )
 ```
 
-When using `helix.Run`, a loader is created automatically and shared with all starters.
+Avec `helix.Run`, un loader est créé automatiquement et partagé avec tous les starters.
 
-## Config File
+## Fichier de config
 
-Place your config file at `config/application.yaml` (or pass custom paths via `WithConfigPaths`):
+Placez votre fichier de config dans `config/application.yaml` (ou passez des chemins personnalisés via `WithConfigPaths`) :
 
 ```yaml
 # config/application.yaml
@@ -49,7 +49,7 @@ database:
 
 security:
   jwt:
-    secret: "change-me-in-production"
+    secret: "changez-en-production"
     expiry: "24h"
 
 logging:
@@ -58,9 +58,9 @@ logging:
     "my-api/data": debug
 ```
 
-## Loading into Structs
+## Chargement dans des structs
 
-Use `mapstructure` tags to bind config into Go structs:
+Utilisez les tags `mapstructure` pour lier la config dans des structs Go :
 
 ```go
 type AppConfig struct {
@@ -81,47 +81,47 @@ if err := loader.Load(&cfg); err != nil {
 fmt.Println(cfg.Server.Port) // "8080"
 ```
 
-## Scalar Lookups
+## Lookups scalaires
 
-Retrieve individual values without a struct:
+Récupérez des valeurs individuelles sans struct :
 
 ```go
-port, ok := loader.Lookup("server.port")  // returns (any, bool)
+port, ok := loader.Lookup("server.port")  // retourne (any, bool)
 if ok {
     fmt.Println(port) // "8080"
 }
 
-all := loader.AllSettings() // map[string]any deep copy
+all := loader.AllSettings() // copie profonde map[string]any
 profiles := loader.ActiveProfiles() // []string
-file := loader.ConfigFileUsed()     // path to loaded application.yaml
+file := loader.ConfigFileUsed()     // chemin vers application.yaml chargé
 ```
 
-## Profiles
+## Profils
 
-Profiles let you maintain environment-specific overrides without duplicating config.
+Les profils permettent de maintenir des surcharges spécifiques à l'environnement sans dupliquer la config.
 
-### Activating profiles
+### Activer les profils
 
-**Via environment variable:**
+**Via variable d'environnement :**
 ```bash
 HELIX_PROFILES_ACTIVE=prod go run main.go
 ```
 
-**Via code:**
+**Via le code :**
 ```go
 loader := config.NewLoader(
     config.WithProfiles("dev", "local"),
 )
 ```
 
-**Multiple profiles** (comma-separated in env):
+**Profils multiples** (séparés par des virgules dans l'env) :
 ```bash
 HELIX_PROFILES_ACTIVE=prod,feature-x go run main.go
 ```
 
-### Profile files
+### Fichiers de profil
 
-Create `config/application-{profile}.yaml` — it is **merged** on top of `application.yaml`:
+Créez `config/application-{profil}.yaml` — il est **fusionné** par-dessus `application.yaml` :
 
 ```yaml
 # config/application-prod.yaml
@@ -146,48 +146,48 @@ database:
   url: "dev.db"
 ```
 
-## Environment Variables
+## Variables d'environnement
 
-All config keys map to environment variables. Key transformations:
+Toutes les clés de config se mappent à des variables d'environnement. Transformations des clés :
 
 - `.` → `_`
 - `-` → `_`
-- Uppercase
+- Majuscules
 
-Examples:
-| Config key | Environment variable |
-|-----------|---------------------|
+Exemples :
+| Clé de config | Variable d'environnement |
+|--------------|--------------------------|
 | `server.port` | `SERVER_PORT` |
 | `database.url` | `DATABASE_URL` |
 | `security.jwt.secret` | `SECURITY_JWT_SECRET` |
 
-With a prefix (`WithEnvPrefix("APP")`):
-| Config key | Environment variable |
-|-----------|---------------------|
+Avec un préfixe (`WithEnvPrefix("APP")`) :
+| Clé de config | Variable d'environnement |
+|--------------|--------------------------|
 | `server.port` | `APP_SERVER_PORT` |
 
-## Dynamic Reload
+## Rechargement dynamique
 
-Components can react to configuration changes at runtime.
+Les composants peuvent réagir aux changements de configuration à l'exécution.
 
-### Enable reload
+### Activer le rechargement
 
 ```yaml
 # config/application.yaml
 helix:
   config:
-    reload-interval: 30s   # poll every 30 seconds
+    reload-interval: 30s   # sondage toutes les 30 secondes
 ```
 
-Send `SIGHUP` to trigger an immediate reload:
+Envoyez `SIGHUP` pour déclencher un rechargement immédiat :
 
 ```bash
 kill -HUP $(pgrep my-api)
 ```
 
-### React to reloads
+### Réagir aux rechargements
 
-Implement `config.Reloadable` in any component:
+Implémentez `config.Reloadable` dans n'importe quel composant :
 
 ```go
 type FeatureFlags struct {
@@ -211,9 +211,9 @@ func (f *FeatureFlags) NewCheckoutEnabled() bool {
 }
 ```
 
-## TOML and JSON config files
+## Fichiers TOML et JSON
 
-Helix supports YAML, TOML, and JSON formats. The file format is detected from the extension:
+Helix supporte les formats YAML, TOML et JSON. Le format est détecté depuis l'extension :
 
 ```toml
 # config/application.toml
@@ -232,7 +232,7 @@ max-open = 25
 max-idle = 5
 
 [security.jwt]
-secret = "change-me"
+secret = "changez-moi"
 expiry = "24h"
 
 [logging]
@@ -245,14 +245,14 @@ level = "info"
   "server": { "port": "8080" },
   "app": { "name": "my-api", "version": "1.0.0" },
   "database": { "url": "app.db", "pool": { "max-open": 25, "max-idle": 5 } },
-  "security": { "jwt": { "secret": "change-me", "expiry": "24h" } },
+  "security": { "jwt": { "secret": "changez-moi", "expiry": "24h" } },
   "logging": { "level": "info" }
 }
 ```
 
-## Complex nested config
+## Config imbriquée complexe
 
-Bind deeply nested config into Go structs:
+Liez une config profondément imbriquée dans des structs Go :
 
 ```go
 type AppConfig struct {
@@ -301,9 +301,9 @@ email:
     username: "noreply@example.com"
 ```
 
-## Config validation at startup
+## Validation de config au démarrage
 
-Validate required config values before the application starts:
+Validez les valeurs de config requises avant le démarrage de l'application :
 
 ```go
 type ConfigValidator struct {
@@ -321,21 +321,21 @@ func (v *ConfigValidator) OnStart() error {
     for _, key := range required {
         val, ok := v.Loader.Lookup(key)
         if !ok || val == "" {
-            return fmt.Errorf("required config key %q is missing or empty", key)
+            return fmt.Errorf("la clé de config requise %q est manquante ou vide", key)
         }
     }
 
-    // Validate JWT secret strength:
+    // Valider la robustesse du secret JWT :
     secret, _ := v.Loader.Lookup("security.jwt.secret")
     if len(fmt.Sprint(secret)) < 32 {
-        return fmt.Errorf("security.jwt.secret must be at least 32 characters")
+        return fmt.Errorf("security.jwt.secret doit contenir au moins 32 caractères")
     }
 
     return nil
 }
 ```
 
-Register it as the first component — `OnStart` runs in dependency order, so it will validate before other components start:
+Enregistrez-le comme premier composant — `OnStart` s'exécute dans l'ordre des dépendances, donc la validation se fait avant le démarrage des autres composants :
 
 ```go
 helix.Run(helix.App{
@@ -347,9 +347,9 @@ helix.Run(helix.App{
 })
 ```
 
-## Secret masking in logs
+## Masquage des secrets dans les logs
 
-Config values should never appear in logs. Use a masking function when debugging config:
+Les valeurs de config ne doivent jamais apparaître dans les logs. Utilisez une fonction de masquage pour déboguer la config :
 
 ```go
 func safeDump(loader config.Loader) map[string]any {
@@ -373,13 +373,13 @@ func mask(m map[string]any, keys ...string) {
     }
 }
 
-// On startup:
-slog.Debug("loaded config", "settings", safeDump(loader))
+// Au démarrage :
+slog.Debug("config chargée", "settings", safeDump(loader))
 ```
 
-## Injecting Config into Components
+## Injection de config dans les composants
 
-The config loader is available for field injection:
+Le loader de config est disponible pour l'injection de champ :
 
 ```go
 type EmailService struct {
@@ -394,7 +394,7 @@ func (s *EmailService) SMTPHost() string {
 }
 ```
 
-Or use `value:""` tags with `WithValueLookup`:
+Ou utilisez les tags `value:""` avec `WithValueLookup` :
 
 ```go
 type EmailService struct {

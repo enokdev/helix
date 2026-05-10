@@ -267,6 +267,184 @@ info := observability.NewInfoProvider(loader,
 }
 ```
 
+## Advanced Prometheus metrics
+
+### Histogram (latency distribution)
+
+```go
+registry := observability.Registry()
+
+dbQueryDuration := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+    Name:    "db_query_duration_seconds",
+    Help:    "Database query latency distribution",
+    Buckets: []float64{.001, .005, .01, .05, .1, .5, 1},
+}, []string{"operation", "table"})
+
+registry.MustRegister(dbQueryDuration)
+
+// Usage:
+start := time.Now()
+_, err = repo.FindWhere(ctx, filter)
+dbQueryDuration.With(prometheus.Labels{
+    "operation": "find_where",
+    "table":     "products",
+}).Observe(time.Since(start).Seconds())
+```
+
+### Gauge (current state)
+
+```go
+activeConnections := prometheus.NewGauge(prometheus.GaugeOpts{
+    Name: "ws_active_connections",
+    Help: "Number of active WebSocket connections",
+})
+
+registry.MustRegister(activeConnections)
+
+// On connect:
+activeConnections.Inc()
+
+// On disconnect:
+activeConnections.Dec()
+
+// Set absolute value:
+activeConnections.Set(float64(pool.Len()))
+```
+
+### Summary (percentiles)
+
+```go
+requestSize := prometheus.NewSummaryVec(prometheus.SummaryOpts{
+    Name:       "http_request_size_bytes",
+    Help:       "HTTP request size in bytes",
+    Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+}, []string{"method"})
+
+registry.MustRegister(requestSize)
+
+// Usage:
+requestSize.With(prometheus.Labels{"method": ctx.Method()}).
+    Observe(float64(len(ctx.Body())))
+```
+
+## Health check statuses
+
+| Status | HTTP code | Meaning |
+|--------|-----------|---------|
+| `StatusUp` | 200 | All checks pass |
+| `StatusDown` | 503 | At least one check failed |
+| `StatusUnknown` | 200 | Check could not determine status (e.g., timeout) |
+
+Return `StatusUnknown` when a dependency is unreachable but not definitively failed:
+
+```go
+func (h *ExternalAPIIndicator) Health(ctx context.Context) observability.ComponentHealth {
+    checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+    defer cancel()
+
+    if err := h.ping(checkCtx); err != nil {
+        if errors.Is(err, context.DeadlineExceeded) {
+            return observability.ComponentHealth{
+                Status: observability.StatusUnknown,
+                Error:  "health check timed out",
+            }
+        }
+        return observability.ComponentHealth{
+            Status: observability.StatusDown,
+            Error:  err.Error(),
+        }
+    }
+    return observability.ComponentHealth{Status: observability.StatusUp}
+}
+```
+
+## Structured logging with slog
+
+### Log format: JSON vs text
+
+```go
+// JSON (production):
+logger, _ := observability.ConfigureLogging(loader,
+    observability.WithLoggingFormat("json"),
+)
+// {"level":"INFO","time":"2024-01-15T10:00:00Z","msg":"user created","id":42}
+
+// Text (development):
+logger, _ := observability.ConfigureLogging(loader,
+    observability.WithLoggingFormat("text"),
+)
+// 2024/01/15 10:00:00 INFO user created id=42
+```
+
+Via config:
+
+```yaml
+logging:
+  format: json   # json | text (default: json)
+  level: info
+```
+
+### Structured attributes
+
+```go
+logger := observability.Logger("my-api/orders")
+
+// Key-value pairs:
+logger.Info("order placed",
+    "orderId", order.ID,
+    "userId",  order.UserID,
+    "total",   order.Total,
+)
+
+// Pre-attach context fields with With():
+reqLogger := logger.With("requestId", ctx.Header("X-Request-ID"), "userId", userID)
+reqLogger.Info("processing order")
+reqLogger.Info("order shipped")
+// Both log lines include requestId and userId automatically
+```
+
+### WithGroup for namespaced attributes
+
+```go
+logger.Info("request complete",
+    slog.Group("http",
+        "method",  ctx.Method(),
+        "path",    ctx.Path(),
+        "status",  status,
+        "latency", time.Since(start),
+    ),
+)
+// {"level":"INFO","msg":"request complete","http":{"method":"POST","path":"/orders","status":201,"latency":"12ms"}}
+```
+
+## OpenTelemetry sampling
+
+For high-traffic services, sample only a fraction of traces to reduce overhead:
+
+```yaml
+observability:
+  tracing:
+    enabled: true
+    service-name: "my-api"
+    exporter: otlp
+    endpoint: "http://otel-collector:4318"
+    sampling-ratio: 0.1   # trace 10% of requests
+```
+
+Or configure programmatically:
+
+```go
+tp, shutdown, err := observability.ConfigureTracing(loader,
+    observability.WithTracingConfig(observability.TracingConfig{
+        Enabled:        true,
+        ServiceName:    "my-api",
+        Exporter:       "otlp",
+        Endpoint:       "http://otel-collector:4318",
+        SamplingRatio:  0.1, // 0.0 = never, 1.0 = always, 0.1 = 10%
+    }),
+)
+```
+
 ## Complete Setup Example
 
 ```go
@@ -289,9 +467,14 @@ helix.Run(helix.App{
 # config/application.yaml
 observability:
   enabled: true
+  tracing:
+    enabled: false
 
 logging:
+  format: json
   level: info
+  levels:
+    "my-api/data": debug  # verbose DB logs in development
 
 helix:
   starters:

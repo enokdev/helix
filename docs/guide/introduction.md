@@ -96,8 +96,102 @@ github.com/enokdev/helix
 └── cli/            # Project/module generator
 ```
 
+## Mental model
+
+Here is how a request flows through a Helix application:
+
+```
+helix.Run(App{Components: [...]})
+         │
+         ▼
+  DI Container built
+  (ReflectResolver resolves inject:"true" fields)
+         │
+         ▼
+  Lifecycle.OnStart() called
+  (database ping, cache warmup, scheduler start...)
+         │
+         ▼
+  HTTP Server starts on :8080
+         │
+  ┌──────┴──────────────────────────────────────┐
+  │  Incoming request                           │
+  │                                             │
+  │  Guard.CanActivate()  ──fail──▶  401/403   │
+  │         │ pass                              │
+  │         ▼                                  │
+  │  Interceptor.Intercept()  (before)          │
+  │         │                                  │
+  │         ▼                                  │
+  │  Handler(ctx, binding...) → (T, error)      │
+  │         │                                  │
+  │  Interceptor.Intercept()  (after)           │
+  │         │                                  │
+  │         ▼                                  │
+  │  Error? → RequestError → JSON response     │
+  │  T?     → JSON serialize → 200/201/204     │
+  └──────────────────────────────────────────────┘
+         │
+  SIGTERM/SIGINT
+         │
+         ▼
+  Lifecycle.OnStop() called in reverse order
+```
+
+## When to use Helix (and when not to)
+
+**Use Helix when:**
+- You're building a REST API or microservice in Go and want sensible defaults out of the box
+- You want dependency injection without a separate wire-up file for every service
+- Your team is familiar with Spring Boot and wants similar ergonomics in Go
+- You need observability (metrics, health checks, tracing) without adding 10 libraries
+
+**Consider alternatives when:**
+- Your app is a CLI tool, a batch job, or a library — Helix is HTTP-server-centric
+- You need maximum control over every HTTP detail — raw Fiber gives you more surface area
+- Your team has already invested in a specific DI framework (e.g., `google/wire` alone)
+- You're writing a single serverless function with no long-running state
+
+## Migrating from Fiber / Echo / Gin
+
+Helix runs Fiber under the hood, so existing Fiber middleware and handlers are compatible.
+
+| Concept | Fiber / Echo / Gin | Helix |
+|---------|--------------------|-------|
+| Router setup | Manual `app.Get(...)` calls | Convention methods + `//helix:route` |
+| Middleware | `app.Use(...)` | `RegisterInterceptor` + `//helix:interceptor` |
+| Dependency injection | Manual constructor calls | `inject:"true"` struct tags |
+| Config | `os.Getenv` / custom | `config.NewLoader` + YAML |
+| Health check | Custom route | `/actuator/health` auto-registered |
+| Auth guard | Custom middleware | `//helix:guard auth` |
+
+A minimal migration path:
+
+```go
+// Before (raw Fiber):
+app := fiber.New()
+repo := &UserRepository{db: db}
+svc := &UserService{repo: repo}
+app.Get("/users", func(c *fiber.Ctx) error {
+    return c.JSON(svc.List())
+})
+app.Listen(":8080")
+
+// After (Helix):
+type UserController struct {
+    helix.Controller
+    Svc *UserService `inject:"true"`
+}
+func (c *UserController) Index() []User { return c.Svc.List() }
+
+helix.Run(helix.App{
+    Components: []any{&UserRepository{db: db}, &UserService{}, &UserController{}},
+})
+```
+
 ## Next Steps
 
 - [Installation](/guide/installation) — install Helix and the CLI
 - [Quick Start](/guide/quick-start) — build your first API in 5 minutes
 - [Dependency Injection](/guide/dependency-injection) — understand the DI container
+- [Advanced DI](/guide/advanced-di) — Wire mode, interface injection, collect patterns

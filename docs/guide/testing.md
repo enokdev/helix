@@ -265,9 +265,190 @@ func TestCreateUser_Validation(t *testing.T) {
 }
 ```
 
+## Testing lifecycle hooks
+
+Verify that `OnStart` / `OnStop` behave correctly:
+
+```go
+func TestDatabaseConnection_Lifecycle(t *testing.T) {
+    db, err := datagorm.OpenSQLite(":memory:")
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    conn := &DatabaseConnection{db: db.DB()}
+
+    // Test OnStart
+    if err := conn.OnStart(); err != nil {
+        t.Fatalf("OnStart failed: %v", err)
+    }
+
+    // Test OnStop
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    if err := conn.OnStop(ctx); err != nil {
+        t.Fatalf("OnStop failed: %v", err)
+    }
+}
+
+func TestScheduler_StartsAndStops(t *testing.T) {
+    app := helix.NewTestApp(t,
+        helix.TestComponents(&MyJobProvider{}),
+    )
+
+    // NewTestApp calls container.Start(), which triggers OnStart on all lifecycle components
+    // container.Shutdown() is called automatically on t.Cleanup()
+
+    s := helix.GetBean[scheduler.Scheduler](app)
+    entries := s.Entries()
+    if len(entries) == 0 {
+        t.Fatal("expected at least one scheduled job")
+    }
+}
+```
+
+## HTTP tests with JWT authentication
+
+Test protected endpoints by generating a token in the test:
+
+```go
+func TestProfile_Authenticated(t *testing.T) {
+    app := helix.NewTestApp(t,
+        helix.TestComponents(
+            &UserRepository{},
+            &UserService{},
+            &ProfileController{},
+        ),
+        helix.TestConfigDefaults(map[string]any{
+            "security.jwt.secret": "test-secret-key",
+            "security.jwt.expiry": "1h",
+        }),
+    )
+
+    // Generate a test token:
+    jwtSvc := helix.GetBean[*security.JWTService](app)
+    token, err := jwtSvc.Generate(map[string]any{
+        "sub":   "user-1",
+        "email": "alice@example.com",
+        "roles": []string{"user"},
+    })
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    server := helix.GetBean[web.HTTPServer](app)
+
+    req := httptest.NewRequest("GET", "/profile", nil)
+    req.Header.Set("Authorization", "Bearer "+token)
+
+    resp, err := server.ServeHTTP(req)
+    if err != nil {
+        t.Fatal(err)
+    }
+    if resp.StatusCode != 200 {
+        t.Fatalf("expected 200, got %d", resp.StatusCode)
+    }
+}
+
+func TestProfile_Unauthenticated(t *testing.T) {
+    app := helix.NewTestApp(t,
+        helix.TestComponents(&ProfileController{}),
+        helix.TestConfigDefaults(map[string]any{
+            "security.jwt.secret": "test-secret-key",
+        }),
+    )
+
+    server := helix.GetBean[web.HTTPServer](app)
+
+    req := httptest.NewRequest("GET", "/profile", nil)
+    // No Authorization header
+
+    resp, _ := server.ServeHTTP(req)
+    if resp.StatusCode != 401 {
+        t.Fatalf("expected 401, got %d", resp.StatusCode)
+    }
+}
+```
+
+## Parallel tests
+
+`helix.NewTestApp` is safe to call from parallel tests — each creates its own container:
+
+```go
+func TestUserService(t *testing.T) {
+    cases := []struct {
+        name  string
+        email string
+        valid bool
+    }{
+        {"valid", "alice@example.com", true},
+        {"invalid email", "not-an-email", false},
+        {"empty email", "", false},
+    }
+
+    for _, tc := range cases {
+        t.Run(tc.name, func(t *testing.T) {
+            t.Parallel()  // each subtest creates its own app
+
+            app := helix.NewTestApp(t,
+                helix.TestComponents(&UserService{}),
+                helix.TestConfigDefaults(map[string]any{
+                    "database.url": ":memory:",
+                }),
+            )
+
+            svc := helix.GetBean[*UserService](app)
+            _, err := svc.Create(tc.email)
+
+            if tc.valid && err != nil {
+                t.Fatalf("expected no error, got %v", err)
+            }
+            if !tc.valid && err == nil {
+                t.Fatal("expected error for invalid input")
+            }
+        })
+    }
+}
+```
+
+## Benchmarks
+
+Use `NewTestApp` in benchmarks to measure realistic performance including DI overhead:
+
+```go
+func BenchmarkUserService_Create(b *testing.B) {
+    app := helix.NewTestApp(b,
+        helix.TestComponents(
+            &UserRepository{},
+            &UserService{},
+        ),
+        helix.TestConfigDefaults(map[string]any{
+            "database.url": ":memory:",
+        }),
+    )
+
+    svc := helix.GetBean[*UserService](app)
+
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        i := 0
+        for pb.Next() {
+            i++
+            _, _ = svc.Create(CreateInput{
+                Name:  fmt.Sprintf("user-%d", i),
+                Email: fmt.Sprintf("user%d@example.com", i),
+            })
+        }
+    })
+}
+```
+
 ## Tips
 
 - Use `TestConfigDefaults` instead of files for simple cases — faster and more portable
 - Use `MockBean` for slow external dependencies (email, SMS, S3) but prefer real implementations for repositories
 - `server.ServeHTTP` covers the full middleware stack — prefer it over calling service methods directly for controller tests
 - In-memory SQLite (`:memory:`) gives you a fresh database per test with no cleanup overhead
+- `t.Parallel()` is safe — each `NewTestApp` call creates an isolated container
+- Generate JWT tokens in tests using the real `JWTService` — this tests the auth flow end to end

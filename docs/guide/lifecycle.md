@@ -165,6 +165,81 @@ func (k *KafkaProducer) OnStop(ctx context.Context) error {
 }
 ```
 
+## Startup and shutdown order
+
+Components start in topological dependency order and stop in reverse. Given:
+
+```
+UserController → UserService → UserRepository → DatabaseConnection
+```
+
+Startup sequence:
+
+```
+1. DatabaseConnection.OnStart()   ← no dependencies
+2. UserRepository.OnStart()       ← depends on DatabaseConnection
+3. UserService.OnStart()          ← depends on UserRepository
+4. UserController.OnStart()       ← depends on UserService
+5. HTTP server starts accepting requests
+```
+
+Shutdown sequence (reverse):
+
+```
+1. HTTP server stops accepting new requests, drains in-flight
+2. UserController.OnStop()
+3. UserService.OnStop()
+4. UserRepository.OnStop()
+5. DatabaseConnection.OnStop()    ← last to stop
+```
+
+This guarantees the database is still available while the HTTP server processes its last requests.
+
+## What happens if `OnStart` panics?
+
+Panics inside `OnStart` are caught and treated as startup failures. The application exits with a log entry:
+
+```json
+{"level":"ERROR","msg":"component startup panicked","component":"*DatabaseConnection","recover":"runtime error: invalid memory address"}
+```
+
+Other components that have already started successfully will have their `OnStop` called (cleanup is attempted).
+
+## What happens if `OnStart` returns an error?
+
+The application exits immediately:
+
+```json
+{"level":"ERROR","msg":"component failed to start","component":"*DatabaseConnection","error":"connection refused"}
+```
+
+Components that started before the failing one have their `OnStop` called.
+
+## Partial shutdown
+
+If `OnStop` returns an error, it is logged but shutdown continues — Helix always calls `OnStop` on all started components regardless:
+
+```json
+{"level":"WARN","msg":"component failed to stop cleanly","component":"*CacheClient","error":"connection reset by peer"}
+```
+
+This prevents a single stuck component from blocking the entire shutdown.
+
+## Shutdown timeout details
+
+The shutdown budget is shared across all `OnStop` calls. If the total time exceeds `shutdown-timeout`:
+
+```json
+{"level":"ERROR","msg":"shutdown timed out","timeout":"30s","components_not_stopped":["*ReportWorker"]}
+```
+
+The process then exits anyway. Set the timeout high enough for your slowest `OnStop` call (usually the HTTP request drain):
+
+```yaml
+helix:
+  shutdown-timeout: 45s  # set to max(HTTP drain time) + 10s buffer
+```
+
 ## Direct Container Usage
 
 If you manage the container yourself (outside `helix.Run`):

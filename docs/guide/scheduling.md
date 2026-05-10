@@ -192,3 +192,148 @@ helix.Run(helix.App{
     },
 })
 ```
+
+## Job helpers
+
+### `scheduler.WrapError`
+
+Convert an `error`-returning function into the `func()` signature expected by `Job.Fn`:
+
+```go
+func (j *ReportJobs) Jobs() []scheduler.Job {
+    return []scheduler.Job{
+        {
+            Name: "daily-report",
+            Expr: "0 8 * * *",
+            // WrapError logs the error and returns — no panic, no crash
+            Fn: scheduler.WrapError("daily-report", func() error {
+                return j.ReportSvc.Generate()
+            }),
+        },
+    }
+}
+```
+
+Without `WrapError`, an error-returning function would not compile as `func()`.
+
+### `scheduler.WrapSkipIfBusy`
+
+Skip a job run if the previous one is still executing (for `AllowConcurrent: true` jobs that you want to protect from overlap in specific scenarios):
+
+```go
+{
+    Name:            "batch-processor",
+    Expr:            "*/2 * * * *",
+    AllowConcurrent: true,
+    Fn:              scheduler.WrapSkipIfBusy(j.processBatch),
+}
+```
+
+## Timezone in cron expressions
+
+By default, cron expressions use UTC. Prefix the expression with a `CRON_TZ` directive for a local timezone:
+
+```go
+{
+    Name: "morning-report",
+    Expr: "CRON_TZ=Europe/Paris 0 8 * * *",  // 8 AM Paris time
+    Fn:   j.generateReport,
+}
+
+{
+    Name: "ny-market-open",
+    Expr: "CRON_TZ=America/New_York 30 9 * * 1-5",  // 9:30 AM EST/EDT, weekdays
+    Fn:   j.checkMarketOpen,
+}
+```
+
+## Error handling and monitoring
+
+Jobs that panic are caught by Helix. Jobs that error should be wrapped with `scheduler.WrapError` to ensure structured logging.
+
+For active monitoring, instrument your job functions:
+
+```go
+jobsTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
+    Name: "scheduled_jobs_total",
+    Help: "Total scheduled job executions",
+}, []string{"job", "status"})
+
+registry.MustRegister(jobsTotal)
+
+func (j *ReportJobs) generateDailyReport() {
+    start := time.Now()
+    if err := j.ReportSvc.Generate(); err != nil {
+        slog.Error("daily report failed", "job", "daily-report", "err", err, "duration", time.Since(start))
+        jobsTotal.With(prometheus.Labels{"job": "daily-report", "status": "error"}).Inc()
+        return
+    }
+    slog.Info("daily report done", "job", "daily-report", "duration", time.Since(start))
+    jobsTotal.With(prometheus.Labels{"job": "daily-report", "status": "success"}).Inc()
+}
+```
+
+## Errors
+
+| Error | Cause |
+|-------|-------|
+| `scheduler.ErrInvalidCron` | Malformed cron expression |
+| `scheduler.ErrInvalidJob` | Job is missing Name or Fn |
+| `scheduler.ErrDuplicateJob` | A job with this name is already registered |
+| `scheduler.ErrJobNotFound` | `Unregister` called with unknown name |
+
+```go
+if err := s.Register(job); err != nil {
+    switch {
+    case errors.Is(err, scheduler.ErrInvalidCron):
+        log.Fatalf("bad cron expression %q: %v", job.Expr, err)
+    case errors.Is(err, scheduler.ErrDuplicateJob):
+        log.Fatalf("job %q is already registered", job.Name)
+    }
+}
+```
+
+## Testing scheduled jobs
+
+Test the job function directly — no need to run the scheduler:
+
+```go
+func TestDailyReport(t *testing.T) {
+    app := helix.NewTestApp(t,
+        helix.TestComponents(
+            &MockReportService{},
+            &ReportJobs{},
+        ),
+    )
+
+    jobs := helix.GetBean[*ReportJobs](app)
+
+    // Call the job function directly:
+    jobs.generateDailyReport()
+
+    // Assert side effects:
+    mock := helix.GetBean[*MockReportService](app)
+    if !mock.Generated {
+        t.Fatal("expected report to be generated")
+    }
+}
+```
+
+To test job registration:
+
+```go
+func TestJobsRegistered(t *testing.T) {
+    s := scheduler.New()
+    provider := &ReportJobs{ReportSvc: &MockReportService{}}
+
+    for _, job := range provider.Jobs() {
+        if err := s.Register(job); err != nil {
+            t.Fatalf("failed to register job %q: %v", job.Name, err)
+        }
+    }
+
+    entries := s.Entries()
+    if len(entries) != 2 {
+        t.Fatalf("expected 2 jobs, got %d", len(entries))
+    }
+}

@@ -215,6 +215,81 @@ if errors.Is(err, core.ErrCyclicDep) {
 }
 ```
 
+## Slice injection with `collect`
+
+Use `collect:""` to inject **all registered components** that implement an interface:
+
+```go
+type HealthIndicator interface {
+    Check(ctx context.Context) ComponentHealth
+}
+
+// Multiple implementations registered:
+container.Register(&DatabaseIndicator{})
+container.Register(&CacheIndicator{})
+container.Register(&ExternalAPIIndicator{})
+
+// Collected into a slice automatically:
+type HealthService struct {
+    helix.Service
+    Indicators []HealthIndicator `collect:""`
+    // receives [*DatabaseIndicator, *CacheIndicator, *ExternalAPIIndicator]
+}
+
+func (s *HealthService) OverallStatus(ctx context.Context) string {
+    for _, ind := range s.Indicators {
+        if ind.Check(ctx).Status == StatusDown {
+            return "DOWN"
+        }
+    }
+    return "UP"
+}
+```
+
+This is how Helix itself discovers health indicators, scheduled job providers, and event listeners.
+
+## Lazy initialization
+
+Add the `lazy:""` tag to delay resolution until first access:
+
+```go
+type AdminService struct {
+    helix.Service
+    // Only created when first accessed — not at container startup
+    Reports *ReportGenerator `inject:"true" lazy:""`
+}
+```
+
+Useful for expensive resources (report generators, large caches) that are only needed on certain code paths.
+
+## Interface injection
+
+Register a concrete type and inject by interface:
+
+```go
+type NotificationService interface {
+    Notify(to, message string) error
+}
+
+type SlackNotifier struct {
+    helix.Service
+    webhookURL string
+}
+
+func (s *SlackNotifier) Notify(to, message string) error { ... }
+
+// Register concrete:
+container.Register(&SlackNotifier{webhookURL: "https://hooks.slack.com/..."})
+
+// Inject by interface:
+type AlertService struct {
+    helix.Service
+    Notifier NotificationService `inject:"true"` // resolved to *SlackNotifier
+}
+```
+
+For multiple implementations of the same interface, see [Advanced DI](/guide/advanced-di).
+
 ## Using `helix.Run`
 
 In most applications you won't touch the container directly — `helix.Run` manages it:
@@ -231,3 +306,25 @@ helix.Run(helix.App{
 ```
 
 `helix.Run` creates the container, registers all components, activates starters, starts the HTTP server, and handles SIGTERM/SIGINT gracefully.
+
+## Common errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `core.ErrNotFound` | No component matches the target type | Register the missing component |
+| `core.ErrCyclicDep` | A → B → A dependency cycle | Introduce an interface or restructure |
+| `core.ErrUnresolvable` | Component found but cannot be constructed | Check field tags, nil pointers |
+| `core.ErrShutdownTimeout` | An `OnStop` blocked past the budget | Increase `ShutdownTimeout` or fix blocking code |
+
+### Diagnosing a cycle
+
+```go
+if errors.Is(err, core.ErrCyclicDep) {
+    var cyclic *core.CyclicDepError
+    errors.As(err, &cyclic)
+    fmt.Println("cycle path:", strings.Join(cyclic.Path, " → "))
+    // "cycle path: *UserService → *OrderService → *UserService"
+}
+```
+
+For Wire mode, compile-time injection, and all advanced patterns, see [Advanced DI](/guide/advanced-di).

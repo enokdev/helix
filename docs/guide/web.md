@@ -294,6 +294,173 @@ web.Forbidden("insufficient permissions")    // 403
 web.NewRequestError(404, "not found")        // any 4xx
 ```
 
+## Handler return types
+
+Helix inspects handler return values to decide the HTTP response:
+
+| Return signature | Body | Default status |
+|-----------------|------|---------------|
+| `func() error` | empty | 204 (or error status) |
+| `func() (T, error)` | JSON-encoded T | 200 |
+| `Create()` method name | JSON-encoded T | 201 |
+| `Delete()` method name | empty | 204 |
+| `func(ctx web.Context)` | set via `ctx.JSON()`/`ctx.Send()` | whatever you set |
+| returns `(nil, nil)` | empty | 204 |
+| explicit `ctx.Status(n)` | overrides default | n |
+
+```go
+// 200 with JSON body:
+func (c *ProductController) Show(ctx web.Context) (Product, error) { ... }
+
+// 201 Created (convention):
+func (c *ProductController) Create(ctx web.Context, in Input) (Product, error) { ... }
+
+// 204 No Content:
+func (c *ProductController) Delete(ctx web.Context) error { ... }
+
+// Custom status override:
+func (c *OrderController) Checkout(ctx web.Context, in CheckoutInput) (*Order, error) {
+    order, err := c.Svc.Checkout(in)
+    if err != nil { return nil, err }
+    ctx.Status(http.StatusAccepted)  // 202 instead of 200
+    return order, nil
+}
+```
+
+## Multiple guards
+
+Stack multiple `//helix:guard` directives on the same method — all must pass:
+
+```go
+//helix:guard auth
+//helix:guard rate-limit
+//helix:guard role:admin
+func (c *AdminController) Export(_ web.Context) (ExportData, error) {
+    // must: have valid JWT AND not be rate-limited AND have admin role
+    return c.Svc.Export()
+}
+```
+
+Guards run in declaration order. The first to return an error short-circuits the chain.
+
+## Interceptor ordering
+
+When multiple interceptors are stacked, they wrap each other like onion layers — `before` code runs in declaration order, `after` code runs in reverse:
+
+```go
+//helix:interceptor log
+//helix:interceptor cache
+func (c *ProductController) Index() []Product { ... }
+```
+
+Execution order:
+```
+log.before → cache.before → handler → cache.after → log.after
+```
+
+```go
+type LogInterceptor struct{}
+
+func (i *LogInterceptor) Intercept(ctx web.Context, next web.HandlerFunc) error {
+    start := time.Now()
+    err := next(ctx)  // ← runs cache interceptor + handler
+    slog.Info("request", "path", ctx.Path(), "duration", time.Since(start), "err", err)
+    return err
+}
+```
+
+## Cache interceptor
+
+Helix includes a built-in cache interceptor for GET responses:
+
+```go
+// Register with TTL:
+web.RegisterInterceptorFactory(server, "cache", web.NewCacheInterceptorFactory(
+    web.CacheOptions{DefaultTTL: 60 * time.Second},
+))
+
+//helix:interceptor cache
+func (c *ProductController) Index() []Product { ... }
+
+// Custom TTL per route:
+//helix:interceptor cache:300   // 5 minutes
+func (c *ProductController) Show(ctx web.Context) (Product, error) { ... }
+```
+
+Cache keys are computed from `method + path + query string`. Cache is invalidated automatically on non-GET requests to the same path prefix.
+
+## Nested struct binding
+
+Query parameters and JSON bodies support nested structs:
+
+```go
+type SearchFilter struct {
+    MinPrice float64 `query:"minPrice"`
+    MaxPrice float64 `query:"maxPrice"`
+    InStock  bool    `query:"inStock"`
+}
+
+type SearchQuery struct {
+    Query    string       `query:"q"`
+    Page     int          `query:"page"`
+    PageSize int          `query:"pageSize"`
+    Filter   SearchFilter `query:"filter"`  // bound from filter.minPrice, filter.maxPrice, etc.
+}
+
+//helix:route GET /products/search
+func (c *ProductController) Search(ctx web.Context, q SearchQuery) ([]Product, error) {
+    // ?q=keyboard&page=1&filter.minPrice=50&filter.maxPrice=200&filter.inStock=true
+    return c.Svc.Search(q)
+}
+```
+
+JSON body nesting works the same way with standard `json:"..."` tags.
+
+## File upload
+
+Handle multipart form data using `ctx.Body()` or Fiber's form file API directly:
+
+```go
+//helix:route POST /uploads
+func (c *FileController) Upload(ctx web.Context) (*UploadResult, error) {
+    fiberCtx := ctx.Raw()  // access the underlying *fiber.Ctx
+
+    file, err := fiberCtx.FormFile("file")
+    if err != nil {
+        return nil, web.NewRequestError(http.StatusBadRequest, "file is required")
+    }
+
+    if file.Size > 10<<20 { // 10 MB
+        return nil, web.NewRequestError(http.StatusRequestEntityTooLarge, "file exceeds 10 MB limit")
+    }
+
+    result, err := c.StorageSvc.Store(file)
+    if err != nil {
+        return nil, err
+    }
+    return result, nil
+}
+```
+
+## Route observer
+
+Observe route execution for custom metrics, logging, or tracing:
+
+```go
+type MyObserver struct{}
+
+func (o *MyObserver) Observe(obs web.RouteObservation) {
+    // obs.Method, obs.Path, obs.StatusCode, obs.Duration, obs.Error
+    myMetrics.With(obs.Method, obs.Path, strconv.Itoa(obs.StatusCode)).Inc()
+}
+
+server := web.NewServer(
+    web.WithRouteObserver(&MyObserver{}),
+)
+```
+
+Helix's built-in Prometheus metrics observer uses this same hook — see [Observability](/guide/observability).
+
 ## Manual Server Usage
 
 You can also use the HTTP server directly without `helix.Run`:

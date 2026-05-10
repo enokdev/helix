@@ -255,6 +255,144 @@ func (c *APIController) List(_ web.Context) ([]Resource, error) { ... }
 func (c *APIController) Create(ctx web.Context, in Input) (Resource, error) { ... }
 ```
 
+## Accessing the current user
+
+After a `//helix:guard auth` or `//helix:guard role:xxx` validates the request, use helpers to extract the authenticated user:
+
+```go
+import "github.com/enokdev/helix/security"
+
+//helix:guard auth
+func (c *ProfileController) Show(ctx web.Context) (*UserProfile, error) {
+    // Extract the full user struct:
+    user, err := security.GetUserFromContext(ctx)
+    if err != nil {
+        return nil, web.Unauthorized("missing user context")
+    }
+    // user.ID, user.Email, user.Roles available
+
+    return c.Svc.GetProfile(user.ID)
+}
+
+//helix:guard role:admin
+func (c *AdminController) Users(ctx web.Context) ([]User, error) {
+    // Only need roles:
+    roles, err := security.GetRolesFromContext(ctx)
+    if err != nil {
+        return nil, web.Forbidden("missing role context")
+    }
+    slog.Info("admin action", "roles", roles)
+    return c.Svc.ListAll()
+}
+```
+
+If you prefer raw claims (e.g., for custom claim fields):
+
+```go
+claims := ctx.Locals("claims").(map[string]any)
+userID := claims["sub"].(string)
+email  := claims["email"].(string)
+roles  := claims["roles"].([]string)
+```
+
+## Multi-role guards (`HasAnyRole`)
+
+Require one of several roles (OR logic) using the `SecurityConfigurer` API:
+
+```go
+func (sc *SecurityConfig) Configure(hs *security.HTTPSecurity) {
+    hs.
+        Route("/auth/**").PermitAll().
+        Route("/api/**").Authenticated().
+        Route("/admin/**").HasRole("admin").
+        Route("/reports/**").HasAnyRole("admin", "analyst", "manager")
+}
+```
+
+Or with a custom guard factory for inline use:
+
+```go
+//helix:guard role:admin,analyst
+func (c *ReportController) Index(_ web.Context) ([]Report, error) { ... }
+```
+
+## Full `SecurityConfigurer` API
+
+```go
+func (sc *SecurityConfig) Configure(hs *security.HTTPSecurity) {
+    hs.
+        // Public endpoints — no auth required
+        Route("/auth/**").PermitAll().
+        Route("/health").PermitAll().
+        Route("/actuator/**").PermitAll().
+
+        // Require valid JWT (any authenticated user)
+        Route("/api/**").Authenticated().
+
+        // Require specific role
+        Route("/admin/**").HasRole("admin").
+
+        // Require any of the listed roles
+        Route("/reports/**").HasAnyRole("admin", "analyst").
+
+        // Deny all (useful as a catch-all at the end)
+        Route("/**").Authenticated()
+}
+```
+
+Rules are evaluated in declaration order — the first matching route wins.
+
+## CORS with security
+
+Configure CORS via a Fiber middleware registered before the guards:
+
+```go
+import "github.com/gofiber/fiber/v2/middleware/cors"
+
+server := web.NewServer()
+
+// Register CORS first so preflight OPTIONS requests pass through:
+server.Use(cors.New(cors.Config{
+    AllowOrigins:     "https://app.example.com",
+    AllowHeaders:     "Origin, Content-Type, Authorization",
+    AllowMethods:     "GET, POST, PUT, DELETE, OPTIONS",
+    AllowCredentials: true,
+}))
+
+// Then register guards and routes:
+web.ApplyGlobalGuard(server, jwtGuard)
+web.RegisterController(server, &APIController{})
+```
+
+For development, allow all origins:
+
+```go
+cors.New(cors.Config{AllowOrigins: "*"})
+```
+
+## Password hashing
+
+Helix does not hash passwords for you — this is intentional. Use `bcrypt` from the standard library:
+
+```go
+import "golang.org/x/crypto/bcrypt"
+
+// When creating a user:
+hash, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+if err != nil {
+    return nil, err
+}
+user.PasswordHash = string(hash)
+
+// When authenticating:
+err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(plainPassword))
+if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+    return nil, web.Unauthorized("invalid credentials")
+}
+```
+
+Never store plain-text passwords. Never log plain-text passwords.
+
 ## Error Responses
 
 | Scenario | Status | Body |
@@ -262,3 +400,4 @@ func (c *APIController) Create(ctx web.Context, in Input) (Resource, error) { ..
 | Missing token | 401 | `{"error":{"type":"Unauthorized","message":"..."}}` |
 | Invalid/expired token | 401 | `{"error":{"type":"Unauthorized","message":"..."}}` |
 | Insufficient role | 403 | `{"error":{"type":"Forbidden","message":"..."}}` |
+| Token refresh (expired) | 401 | `{"error":{"type":"Unauthorized","message":"token expired"}}` |
