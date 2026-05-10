@@ -23,7 +23,7 @@ hero:
 
 <div class="vp-doc" style="max-width: 1152px; margin: 0 auto; padding: 4rem 1.5rem;">
 
-<h2 style="text-align: center; font-size: 2.75rem; font-weight: 800; margin-bottom: 3.5rem; letter-spacing: -0.02em;" class="VPLine">
+<h2 style="text-align: center; font-size: 2.75rem; font-weight: 800; margin-bottom: 3.5rem; letter-spacing: -0.02em;">
   Le Framework Backend pour les Développeurs Go Exigeants.
 </h2>
 
