@@ -76,13 +76,14 @@ This generates a ready-to-run project:
 my-api/
 ├── main.go
 ├── go.mod
-├── config/
-│   └── application.yaml
-└── internal/
-    └── user/
-        ├── controller.go
-        ├── service.go
-        └── repository.go
+└── config/
+    └── application.yaml
+```
+
+To add a module (repository, service, controller), run:
+
+```bash
+helix generate module user
 ```
 
 ## Add to an Existing Project

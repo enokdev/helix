@@ -1,6 +1,6 @@
 # CLI Reference
 
-The Helix CLI scaffolds projects, generates code, manages database migrations, and runs your application.
+The Helix CLI scaffolds projects, generates code, manages database migrations, and runs your application during development.
 
 ## Installation
 
@@ -8,11 +8,68 @@ The Helix CLI scaffolds projects, generates code, manages database migrations, a
 go install github.com/enokdev/helix/cmd/helix@latest
 ```
 
+Verify:
+
+```bash
+helix version
+```
+
+::: details `helix: command not found` after install
+`go install` places the binary in `$GOPATH/bin` (default `~/go/bin`). Add it to your `PATH`:
+
+```bash
+export PATH="$PATH:$HOME/go/bin"
+source ~/.zshrc   # or ~/.bashrc
+```
+:::
+
+---
+
+## Typical dev session
+
+```bash
+# 1. Scaffold a new project
+helix new app my-api
+cd my-api
+
+# 2. Fetch dependencies
+go mod tidy
+
+# 3. Generate a feature module
+helix generate module order
+
+# 4. Wire up components, write business logic…
+
+# 5. Start with hot reload
+helix run
+
+# 6. Build a production binary
+helix build
+```
+
+---
+
+## `helix version`
+
+Print the installed CLI version.
+
+```bash
+helix version
+# or
+helix --version
+```
+
+**Output:**
+
+```
+helix v1.1.2
+```
+
 ---
 
 ## `helix new app`
 
-Scaffold a new Helix application.
+Scaffold a new, ready-to-run Helix application.
 
 ```bash
 helix new app <name> [flags]
@@ -22,19 +79,19 @@ helix new app <name> [flags]
 
 | Argument | Description |
 |----------|-------------|
-| `name` | Project name and directory |
+| `name` | Project name — becomes the directory name and Go module name |
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Target directory (default: `./<name>`) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Parent directory in which to create the app folder |
 
-**Example:**
+**Examples:**
 
 ```bash
 helix new app my-api
-helix new app my-api --dir /workspace/my-api
+helix new app my-api --dir /workspace
 ```
 
 **Generated structure:**
@@ -43,51 +100,44 @@ helix new app my-api --dir /workspace/my-api
 my-api/
 ├── main.go
 ├── go.mod
-├── go.sum
-├── config/
-│   └── application.yaml
-└── internal/
-    └── user/
-        ├── controller.go
-        ├── service.go
-        └── repository.go
+└── config/
+    └── application.yaml
 ```
 
----
+**`main.go`**
 
-## `helix generate`
+```go
+package main
 
-Regenerate code from your source files. Run after adding or changing controllers, components, or directives.
+import (
+    "log"
 
-```bash
-helix generate [flags]
+    "github.com/enokdev/helix"
+)
+
+func main() {
+    if err := helix.Run(helix.App{}); err != nil {
+        log.Fatal(err)
+    }
+}
 ```
 
-**Flags:**
+**`config/application.yaml`**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Project directory (default: `.`) |
-| `--output string` | Output file path for generated code |
-
-**What it generates:**
-
-- Route registrations from `//helix:route` directives
-- Wire bindings for compile-time DI (when using Wire mode)
-- Guard and interceptor registrations
-
-**Example:**
-
-```bash
-helix generate
-helix generate --dir ./my-api
+```yaml
+app:
+  name: my-api
+server:
+  port: 8080
 ```
+
+After scaffolding, run `go mod tidy` to download dependencies, then add feature modules with [`helix generate module`](#helix-generate-module).
 
 ---
 
 ## `helix generate module`
 
-Add a new feature module to your project.
+Add a feature module (controller + service + repository) to an existing project.
 
 ```bash
 helix generate module <name> [flags]
@@ -97,78 +147,216 @@ helix generate module <name> [flags]
 
 | Argument | Description |
 |----------|-------------|
-| `name` | Module name (e.g., `order`, `product`) |
+| `name` | Module name in singular form (e.g., `order`, `product`, `user`) |
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Project directory (default: `.`) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root (must contain `go.mod`) |
 
-**Example:**
+**Examples:**
 
 ```bash
 helix generate module order
 helix generate module product --dir ./my-api
 ```
 
-**Generated files:**
+**Generated structure** (`helix generate module order`):
 
 ```
-internal/order/
-├── controller.go   # OrderController with CRUD stubs
-├── service.go      # OrderService stub
-└── repository.go   # OrderRepository stub
+orders/
+├── controller.go
+├── service.go
+└── repository.go
+```
+
+The folder name is automatically pluralized (`order` → `orders`).
+
+**`orders/repository.go`**
+
+```go
+package orders
+
+import "github.com/enokdev/helix"
+
+type OrderRepository struct {
+    helix.Repository
+}
+```
+
+**`orders/service.go`**
+
+```go
+package orders
+
+import "github.com/enokdev/helix"
+
+type OrderService struct {
+    helix.Service
+    Repository *OrderRepository `inject:"true"`
+}
+```
+
+**`orders/controller.go`**
+
+```go
+package orders
+
+import (
+    "github.com/enokdev/helix"
+    "github.com/enokdev/helix/web"
+)
+
+type OrderController struct {
+    helix.Controller
+    Service *OrderService `inject:"true"`
+}
+
+func (c *OrderController) Index(ctx web.Context) error {
+    return ctx.JSON(map[string]string{"module": "orders"})
+}
+```
+
+After generating, register the components in `main.go`:
+
+```go
+helix.Run(helix.App{
+    Components: []any{
+        &orders.OrderRepository{},
+        &orders.OrderService{},
+        &orders.OrderController{},
+    },
+})
 ```
 
 ---
 
 ## `helix generate context`
 
-Generate a bounded context (multiple modules with shared infrastructure).
+Generate a DDD-style bounded context — a self-contained package with its own domain API, repository, service, and controller.
 
 ```bash
 helix generate context <name> [flags]
 ```
 
-**Example:**
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `name` | Context name (e.g., `billing`, `inventory`, `accounts`) |
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root (must contain `go.mod`) |
+
+**Examples:**
 
 ```bash
 helix generate context billing
+helix generate context accounts --dir ./my-api
 ```
+
+**Generated structure** (`helix generate context billing`):
+
+```
+billings/
+├── api.go          # public domain functions (Create, Get)
+├── repository.go   # data access
+├── service.go      # business logic
+└── controller.go   # HTTP layer
+```
+
+**`billings/api.go`** — the public entry point for the context, free of HTTP or DB concerns:
+
+```go
+package billings
+
+import (
+    "context"
+    "errors"
+)
+
+var ErrNotImplemented = errors.New("billings: context operation not implemented")
+
+type BillingID string
+
+type Billing struct {
+    ID BillingID
+}
+
+type CreateBillingAttrs struct {
+    Name string
+}
+
+func CreateBilling(ctx context.Context, attrs CreateBillingAttrs) (*Billing, error) {
+    return newBillingService().CreateBilling(ctx, attrs)
+}
+
+func GetBilling(ctx context.Context, id BillingID) (*Billing, error) {
+    return newBillingService().GetBilling(ctx, id)
+}
+```
+
+Use a bounded context when a feature has a clear domain boundary and you want to expose a clean Go API (not just HTTP routes) to the rest of the application.
 
 ---
 
-## `helix build`
+## `helix generate` (wire code generation)
 
-Compile the application binary.
+Scan the project and regenerate routing and DI wiring code from source annotations.
 
 ```bash
-helix build [flags]
+helix generate [flags]
 ```
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Project directory (default: `.`) |
-| `--docker` | Build a Docker image instead of a binary |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Directory tree to scan |
 
-**Example:**
+**What it generates:**
+
+- Route registrations derived from controller method signatures
+- Guard and interceptor registrations
+
+Run this after adding or renaming controllers, guards, or interceptors.
 
 ```bash
-# Standard binary build
-helix build
+helix generate
+helix generate --dir ./my-api
+```
 
-# Docker image build
-helix build --docker
+---
+
+## `helix generate wire`
+
+Generate compile-time dependency injection bindings (Wire-style).
+
+```bash
+helix generate wire [flags]
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Directory tree to scan |
+
+**When to use:** If you prefer compile-time DI over the reflection-based resolver. After running `helix generate wire`, the generated file replaces runtime `inject:"true"` resolution with explicit constructor calls.
+
+```bash
+helix generate wire
 ```
 
 ---
 
 ## `helix run`
 
-Run the application with hot reload — the process restarts automatically when source files change.
+Start the application with hot reload. Watches for source file changes and restarts automatically.
 
 ```bash
 helix run [flags]
@@ -176,124 +364,202 @@ helix run [flags]
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Project directory (default: `.`) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root |
 
-**Example:**
+**Examples:**
 
 ```bash
 helix run
 helix run --dir ./my-api
 ```
 
-::: tip
-`helix run` is intended for development. Use `helix build` + binary for production.
+::: tip Dev vs production
+`helix run` is for development only — it rebuilds and restarts on every save. For production, use `helix build` to produce a static binary and run that directly.
 :::
+
+The process handles `SIGINT` and `SIGTERM` gracefully: in-flight requests complete and lifecycle `OnStop()` hooks run before exit.
 
 ---
 
-## `helix migrate create`
+## `helix build`
 
-Create a new database migration file.
+Compile the application into a production binary (or generate a Dockerfile).
 
 ```bash
-helix migrate create <name> [flags]
+helix build [flags]
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root |
+| `--docker` | `false` | Generate a Dockerfile instead of building a binary |
+
+**Examples:**
+
+```bash
+# Standard binary
+helix build
+
+# Dockerfile for container deployment
+helix build --docker
+```
+
+The binary is output to the project root. The Docker flag produces a multi-stage `Dockerfile` with a minimal final image.
+
+---
+
+## `helix db migrate create`
+
+Create a pair of timestamped migration SQL files.
+
+```bash
+helix db migrate create <name> [flags]
 ```
 
 **Arguments:**
 
 | Argument | Description |
 |----------|-------------|
-| `name` | Migration name (e.g., `add-orders-table`) |
+| `name` | Descriptive migration name (use hyphens, e.g., `add-orders-table`) |
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Project directory (default: `.`) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root |
 
 **Example:**
 
 ```bash
-helix migrate create add-orders-table
+helix db migrate create add-orders-table
 ```
 
 **Generated files:**
 
 ```
 migrations/
-├── 20240115_120000_add-orders-table.up.sql
-└── 20240115_120000_add-orders-table.down.sql
+├── 20240115120000_add-orders-table.up.sql    # forward migration
+└── 20240115120000_add-orders-table.down.sql  # rollback
+```
+
+Fill in the `.up.sql` with your schema change, and the `.down.sql` with the rollback:
+
+```sql
+-- 20240115120000_add-orders-table.up.sql
+CREATE TABLE orders (
+    id   TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    total REAL NOT NULL
+);
+
+-- 20240115120000_add-orders-table.down.sql
+DROP TABLE IF EXISTS orders;
 ```
 
 ---
 
-## `helix migrate up`
+## `helix db migrate up`
 
-Apply pending migrations.
+Apply all pending migrations in chronological order.
 
 ```bash
-helix migrate up [flags]
+helix db migrate up [flags]
 ```
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Project directory (default: `.`) |
-| `--database-url string` | Database connection URL (overrides config) |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root |
+| `--database-url` | from config | Database connection URL (overrides `database.url` in `application.yaml`) |
 
-**Example:**
+**Examples:**
 
 ```bash
-helix migrate up
-helix migrate up --database-url postgres://localhost/mydb
+helix db migrate up
+helix db migrate up --database-url postgres://localhost/mydb
 ```
 
 ---
 
-## `helix migrate down`
+## `helix db migrate down`
 
-Roll back the last applied migration.
+Roll back the most recently applied migration.
 
 ```bash
-helix migrate down [flags]
+helix db migrate down [flags]
 ```
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--dir string` | Project directory (default: `.`) |
-| `--database-url string` | Database connection URL |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root |
+| `--database-url` | from config | Database connection URL |
+
+```bash
+helix db migrate down
+```
+
+Each call rolls back exactly one migration. Run repeatedly to step back further.
 
 ---
 
-## `helix migrate status`
+## `helix db migrate status`
 
-Show which migrations have been applied.
+Show which migrations have been applied and which are pending.
 
 ```bash
-helix migrate status [flags]
+helix db migrate status [flags]
 ```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Go module root |
+| `--database-url` | from config | Database connection URL |
 
 **Example output:**
 
 ```
-Migration                                Status
------------------------------------------
-20240115_120000_create-users-table       applied
-20240116_090000_add-orders-table         applied
-20240117_140000_add-product-index        pending
+Migration                                     Status
+----------------------------------------------------
+20240115120000_create-users-table             applied
+20240116090000_add-orders-table               applied
+20240117140000_add-product-index              pending
 ```
 
 ---
 
-## Environment Variables
+## Command summary
+
+| Command | Purpose |
+|---------|---------|
+| `helix version` | Print CLI version |
+| `helix new app <name>` | Scaffold a new project |
+| `helix generate module <name>` | Add a feature module (controller/service/repository) |
+| `helix generate context <name>` | Add a DDD bounded context |
+| `helix generate` | Regenerate routing and DI wiring code |
+| `helix generate wire` | Generate compile-time DI bindings |
+| `helix run` | Start with hot reload (development) |
+| `helix build` | Compile production binary |
+| `helix build --docker` | Generate Dockerfile |
+| `helix db migrate create <name>` | Create migration files |
+| `helix db migrate up` | Apply pending migrations |
+| `helix db migrate down` | Roll back last migration |
+| `helix db migrate status` | Show migration status |
+
+---
+
+## Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `HELIX_PROFILES_ACTIVE` | Comma-separated list of active profiles |
-| `DATABASE_URL` | Overrides `database.url` in config |
-| `SERVER_PORT` | Overrides `server.port` in config |
+| `HELIX_PROFILES_ACTIVE` | Comma-separated list of active config profiles |
+| `DATABASE_URL` | Overrides `database.url` in `application.yaml` |
+| `SERVER_PORT` | Overrides `server.port` in `application.yaml` |

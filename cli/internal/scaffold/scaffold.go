@@ -19,6 +19,7 @@ type Options struct {
 	RootDir          string
 	Name             string
 	HelixReplacePath string
+	HelixVersion     string
 }
 
 // ModuleOptions configures module scaffolding.
@@ -38,6 +39,7 @@ type appTemplateData struct {
 	ModulePath       string
 	HelixReplacePath string
 	ExtraGoMod       string
+	HelixVersion     string
 }
 
 type moduleTemplateData struct {
@@ -74,10 +76,17 @@ func NewApp(opts Options) error {
 		return fmt.Errorf("helix new app %s: %w", appName, err)
 	}
 
+	helixVersion := opts.HelixVersion
+	if opts.HelixReplacePath != "" {
+		helixVersion = "v0.0.0"
+	} else if helixVersion == "" {
+		helixVersion = "v1.1.2"
+	}
 	data := appTemplateData{
 		Name:             appName,
 		ModulePath:       appName,
 		HelixReplacePath: filepath.ToSlash(opts.HelixReplacePath),
+		HelixVersion:     helixVersion,
 	}
 	if opts.HelixReplacePath != "" {
 		if goMod, err := os.ReadFile(filepath.Join(opts.HelixReplacePath, "go.mod")); err == nil {

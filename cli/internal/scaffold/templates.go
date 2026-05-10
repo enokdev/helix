@@ -4,7 +4,7 @@ const goModTemplate = `module {{ .ModulePath }}
 
 go 1.21.0
 
-require github.com/enokdev/helix v0.0.0
+require github.com/enokdev/helix {{ .HelixVersion }}
 {{ .ExtraGoMod }}
 {{ if .HelixReplacePath }}
 replace github.com/enokdev/helix => {{ .HelixReplacePath }}

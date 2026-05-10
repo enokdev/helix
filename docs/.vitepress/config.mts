@@ -53,6 +53,12 @@ export default defineConfig({
           ],
         },
         {
+          text: 'CLI',
+          items: [
+            { text: 'Using the CLI', link: '/guide/cli' },
+          ],
+        },
+        {
           text: 'Building Applications',
           items: [
             { text: 'Web & Routing', link: '/guide/web' },
