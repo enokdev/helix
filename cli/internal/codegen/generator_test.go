@@ -198,13 +198,13 @@ func TestGeneratedRepositoryCompiles(t *testing.T) {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 
-	tidy := exec.Command("/Users/yacoubakone/.govm/go/bin/go", "mod", "tidy")
+	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir = dir
 	if output, err := tidy.CombinedOutput(); err != nil {
 		t.Fatalf("go mod tidy failed: %v\n%s", err, output)
 	}
 
-	cmd := exec.Command("/Users/yacoubakone/.govm/go/bin/go", "test", ".")
+	cmd := exec.Command("go", "test", ".")
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
