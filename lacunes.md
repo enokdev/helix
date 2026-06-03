@@ -54,7 +54,7 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
 
 ## P1 - Robustesse Production
 
-- [ ] Rendre la detection des starters independante du repertoire courant
+- [x] Rendre la detection des starters independante du repertoire courant
   - Domaine: starters, runtime
   - Pourquoi: plusieurs starters inspectent `go.mod`; un binaire lance depuis un autre repertoire peut desactiver des starters silencieusement.
   - Action: remplacer les lectures CWD-dependantes par une detection robuste ou une configuration explicite quand le module source n'est pas disponible.
@@ -72,13 +72,13 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: definir l'ordre, les conflits autorises et les erreurs attendues quand deux registrations ciblent le meme type.
   - Validation: tests couvrant conflit direct, interface partagee et priorite explicite.
 
-- [ ] Exposer le contexte HTTP aux handlers Helix
+- [x] Exposer le contexte HTTP aux handlers Helix
   - Domaine: web, observabilite
   - Pourquoi: health checks, tracing et handlers ne peuvent pas toujours propager annulation, deadlines et child spans.
   - Action: ajouter une API stable pour recuperer le `context.Context` de la requete depuis `web.Context`.
   - Validation: un handler cree un child span et respecte une annulation client en test.
 
-- [ ] Marquer les spans OpenTelemetry en erreur quand un handler echoue
+- [x] Marquer les spans OpenTelemetry en erreur quand un handler echoue
   - Domaine: observabilite
   - Pourquoi: les traces peuvent apparaitre OK meme quand une requete retourne une erreur.
   - Action: enregistrer l'erreur et le status OpenTelemetry dans le middleware tracing.
@@ -96,7 +96,7 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: ajouter single-flight optionnel, taille maximale et sweep periodique.
   - Validation: tests concurrents cold key, eviction TTL et eviction taille.
 
-- [ ] Durcir les guards globaux contre les valeurs nil et chemins anormaux
+- [x] Durcir les guards globaux contre les valeurs nil et chemins anormaux
   - Domaine: web, securite
   - Pourquoi: un guard nil ou un chemin avec double slash peut produire un panic ou un matching inattendu.
   - Action: valider les guards a l'enregistrement et normaliser les chemins avant matching.
@@ -122,7 +122,7 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
 
 ## P2 - Experience Developpeur et Surface Fonctionnelle
 
-- [ ] Ajouter support PATCH par convention
+- [x] Ajouter support PATCH par convention
   - Domaine: web
   - Pourquoi: les APIs REST utilisent souvent PATCH pour les mises a jour partielles; seule la convention Update/PUT est couverte.
   - Action: definir une convention `Patch` ou une directive officielle, puis documenter les regles de binding.
