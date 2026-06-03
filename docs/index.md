@@ -101,7 +101,7 @@ func main() {
 <div style="margin-top: 4rem;">
 <h3 style="font-size: 1.6rem; font-weight: 700;">Reference</h3>
 <ul>
-  <li><a href="/reference/release">Release Process</a></li>
+  <li><a href="reference/release">Release Process</a></li>
 </ul>
 </div>
 
