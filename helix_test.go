@@ -102,6 +102,44 @@ func TestRunRegistersComponentsResolvesDependenciesAndShutsDown(t *testing.T) {
 	}
 }
 
+func TestRun_AutoBootstrap_ConsumesRegisteredComponents(t *testing.T) {
+	// Cannot run in parallel: mutates global autoComponents.
+	componentsMu.Lock()
+	previous := autoComponents
+	autoComponents = nil
+	componentsMu.Unlock()
+	t.Cleanup(func() {
+		componentsMu.Lock()
+		autoComponents = previous
+		componentsMu.Unlock()
+	})
+
+	root := t.TempDir()
+	writeTestFile(t, root, "application.yaml", "helix:\n  starters:\n    web:\n      enabled: false\n")
+	chdirForTest(t, root)
+
+	started := make(chan struct{}, 1)
+	svc := &autoBootstrapService{started: started}
+	RegisterComponents(svc)
+
+	err := Run(App{
+		awaitShutdown: func() error {
+			select {
+			case <-started:
+			case <-time.After(3 * time.Second):
+				t.Fatal("timeout waiting for OnStart")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !svc.wasStarted {
+		t.Fatal("component registered via RegisterComponents was not started")
+	}
+}
+
 func TestRunModeWireUsesRegisteredWireSetup(t *testing.T) {
 	wireSetupMu.Lock()
 	previous := wireSetupFn
@@ -644,6 +682,20 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 type markedService struct {
 	Service
 }
+
+type autoBootstrapService struct {
+	Service
+	started    chan struct{}
+	wasStarted bool
+}
+
+func (s *autoBootstrapService) OnStart() error {
+	s.wasStarted = true
+	s.started <- struct{}{}
+	return nil
+}
+
+func (s *autoBootstrapService) OnStop(context.Context) error { return nil }
 
 type markedController struct {
 	Controller

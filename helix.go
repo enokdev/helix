@@ -218,6 +218,14 @@ func runAutoBootstrap(base App) error {
 	// Wire the auto-loaded config into the container so that value:"key" tags
 	// on application components are resolved from the config file.
 	base.valueLookup = cfg.Lookup
+
+	// Collect components registered via RegisterComponents (from init() functions
+	// in generated register.go files).
+	componentsMu.Lock()
+	collected := append([]any(nil), autoComponents...)
+	componentsMu.Unlock()
+	base.Components = append(base.Components, collected...)
+
 	return runWithApp(base)
 }
 
