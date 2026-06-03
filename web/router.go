@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"log/slog"
 	"net/http"
+	"path"
 	"reflect"
 	"runtime"
 	"sort"
@@ -67,6 +68,7 @@ var routeConventions = []routeConvention{
 	{method: http.MethodGet, suffix: "/:id", handlerName: "Show"},
 	{method: http.MethodPost, suffix: "", handlerName: "Create"},
 	{method: http.MethodPut, suffix: "/:id", handlerName: "Update"},
+	{method: http.MethodPatch, suffix: "/:id", handlerName: "Patch"},
 	{method: http.MethodDelete, suffix: "/:id", handlerName: "Delete"},
 }
 
@@ -201,7 +203,7 @@ func RegisterController(server HTTPServer, controller any) error {
 	}
 
 	if len(routes) == 0 {
-		return fmt.Errorf("web: register controller %s: no routable methods found — add public methods like Index, Show, Create, Update, or Delete, or use //helix:route directives", controllerType.Name())
+		return fmt.Errorf("web: register controller %s: no routable methods found — add public methods like Index, Show, Create, Update, Patch, or Delete, or use //helix:route directives", controllerType.Name())
 	}
 
 	sortControllerRoutes(routes)
@@ -489,6 +491,7 @@ func parseRouteDirective(text string) (routeDirective, error) {
 		return routeDirective{}, errors.Join(err, ErrInvalidDirective)
 	}
 	directive.method = normalizedMethod
+	directive.path = path.Clean(directive.path)
 	return directive, nil
 }
 
@@ -605,6 +608,9 @@ func getControllerRouteOverride(controllerType reflect.Type) (string, error) {
 					if strings.Contains(route, "..") {
 						return "", fmt.Errorf("web: invalid controller %s tag: route contains illegal '..' sequence: %w", controllerType.Name(), ErrInvalidRoute)
 					}
+					// Normalize: collapse duplicate slashes and remove trailing slash.
+					// path.Clean preserves the leading "/" and reduces "//" to "/".
+					route = path.Clean(route)
 					return route, nil
 				}
 			}
@@ -698,10 +704,15 @@ func pascalWords(value string) []string {
 }
 
 func pluralize(word string) string {
-	if strings.HasSuffix(word, "y") && !hasVowelSuffix(word, 2) {
+	lower := strings.ToLower(word)
+	if strings.HasSuffix(lower, "y") && !hasVowelSuffix(word, 2) {
 		return strings.TrimSuffix(word, "y") + "ies"
 	}
-	if strings.HasSuffix(word, "s") {
+	if strings.HasSuffix(lower, "s") ||
+		strings.HasSuffix(lower, "sh") ||
+		strings.HasSuffix(lower, "ch") ||
+		strings.HasSuffix(lower, "x") ||
+		strings.HasSuffix(lower, "z") {
 		return word + "es"
 	}
 	return word + "s"

@@ -109,10 +109,15 @@ func RegisterGuardFactory(server HTTPServer, name string, factory GuardFactory) 
 }
 
 // ApplyGlobalGuard registers a global guard that runs before any handler.
+// It returns an error if server does not implement global guard registration
+// or if guard is nil.
 func ApplyGlobalGuard(server HTTPServer, guard Guard) error {
 	registrar, ok := server.(globalGuardRegistrar)
 	if !ok || registrar == nil {
 		return fmt.Errorf("web: apply global guard: %w", ErrInvalidDirective)
+	}
+	if guard == nil || isNilValue(guard) {
+		return fmt.Errorf("web: apply global guard: nil guard: %w", ErrInvalidDirective)
 	}
 	registrar.addGlobalGuard(guard)
 	return nil

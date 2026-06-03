@@ -295,6 +295,9 @@ func (s *server) registerGuard(name string, guard Guard) error {
 }
 
 func (s *server) addGlobalGuard(guard Guard) {
+	if guard == nil || isNilValue(guard) {
+		return
+	}
 	s.mu.Lock()
 	s.globalGuards = append(s.globalGuards, guard)
 	s.mu.Unlock()

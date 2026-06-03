@@ -484,6 +484,29 @@ func goModWithFiber() string {
 		" v2.52.12\n"
 }
 
+// TestStarterConditionNoGoModExplicitEnable verifies that a deployed binary running
+// in a directory with no go.mod can activate the web starter via explicit config.
+func TestStarterConditionNoGoModExplicitEnable(t *testing.T) {
+	tmpDir := t.TempDir()
+	chdirForTest(t, tmpDir) // no go.mod written
+
+	cfg := fakeConfig{values: map[string]any{"helix.starters.web.enabled": true}}
+	if got := New(cfg).Condition(); !got {
+		t.Fatal("Condition() = false, want true (no go.mod but enabled=true in deployed binary scenario)")
+	}
+}
+
+// TestStarterConditionOverrideTrueWhenFiberAbsent verifies that enabled=true cannot
+// bypass the dependency check when go.mod is present but gofiber/fiber is absent.
+func TestStarterConditionOverrideTrueWhenFiberAbsent(t *testing.T) {
+	chdirWithGoMod(t, "module example.com/app\n\nrequire github.com/spf13/viper v1.20.1\n")
+
+	cfg := fakeConfig{values: map[string]any{"helix.starters.web.enabled": true}}
+	if got := New(cfg).Condition(); got {
+		t.Fatal("Condition() = true, want false (gofiber/fiber absent, dependency check cannot be bypassed)")
+	}
+}
+
 func newTestContainer() *core.Container {
 	return core.NewContainer(core.WithResolver(core.NewReflectResolver()))
 }

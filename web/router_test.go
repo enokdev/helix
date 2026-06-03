@@ -2156,3 +2156,83 @@ func TestRegisterController_InvalidDirectivePreservesRootCause(t *testing.T) {
 		t.Errorf("error %q does not mention the invalid route value", err.Error())
 	}
 }
+
+func TestRegisterController_RegistersPatchConvention(t *testing.T) {
+	t.Parallel()
+
+	// PatchController is a top-level type defined below; this test documents the expected behavior.
+	server := newTestServer(t)
+	controller := &PatchController{}
+
+	_ = server
+	_ = controller
+}
+
+type PatchController struct {
+	helix.Controller
+	patchedID string
+}
+
+func (c *PatchController) Patch(ctx web.Context) error {
+	c.patchedID = ctx.Param("id")
+	return nil
+}
+
+func TestRegisterController_RegistersPatchConventionRoutes(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &PatchController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodPatch, "/patches/99", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.patchedID != "99" {
+		t.Fatalf("patchedID = %q, want %q", controller.patchedID, "99")
+	}
+}
+
+type DoubleSlashController struct {
+	helix.Controller
+	called bool
+}
+
+//helix:route GET //double//slash
+func (c *DoubleSlashController) List() {
+	c.called = true
+}
+
+func TestRegisterController_RouteOverrideNormalizesPath(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &DoubleSlashController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	// After normalization, //double//slash → /double/slash
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/double/slash", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d — path normalization may not have fired", resp.StatusCode, http.StatusOK)
+	}
+	if !controller.called {
+		t.Fatal("List() was not called via normalized path")
+	}
+}

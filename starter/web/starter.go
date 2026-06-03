@@ -43,28 +43,57 @@ func New(cfg helixconfig.Loader) *Starter {
 }
 
 // Condition reports whether the web starter should be activated.
+//
+// Priority (highest to lowest):
+//  1. helix.starters.web.enabled = false → inactive (absolute override)
+//  2. go.mod not found in CWD tree       → helix.starters.web.enabled = true activates;
+//     otherwise inactive (supports deployed binaries outside module root)
+//  3. gofiber/fiber absent from go.mod   → inactive (dependency check, not bypassable)
+//  4. helix.starters.web.enabled = true  → active
+//  5. otherwise                          → active
 func (s *Starter) Condition() bool {
+	// Explicit disable is absolute regardless of go.mod state.
+	if s.cfg != nil {
+		if value, ok := s.cfg.Lookup(webStarterEnabledKey); ok {
+			enabled, parsed := parseBool(value)
+			if parsed && !enabled {
+				return false
+			}
+		}
+	}
+
 	goModPath, err := gomodutil.FindGoModPath()
 	if err != nil {
+		// Binary launched from a directory without go.mod — common in production deployments.
+		// Allow explicit enable to activate the starter in this case.
+		if s.cfg != nil {
+			if value, ok := s.cfg.Lookup(webStarterEnabledKey); ok {
+				enabled, parsed := parseBool(value)
+				if parsed && enabled {
+					return true
+				}
+			}
+		}
 		slog.Debug("web starter: go.mod not found", "error", err)
 		return false
 	}
 
+	// go.mod found — dependency must be present (enabled=true cannot bypass this check).
 	data, err := os.ReadFile(goModPath)
 	if err != nil || !bytes.Contains(data, []byte("gofiber/fiber")) {
 		return false
 	}
 
-	if s.cfg == nil {
-		return true
+	// Dependency present — respect explicit enable/disable or default to true.
+	if s.cfg != nil {
+		if value, ok := s.cfg.Lookup(webStarterEnabledKey); ok {
+			enabled, parsed := parseBool(value)
+			if parsed {
+				return enabled
+			}
+		}
 	}
-
-	value, ok := s.cfg.Lookup(webStarterEnabledKey)
-	if !ok {
-		return true
-	}
-	enabled, parsed := parseBool(value)
-	return !parsed || enabled
+	return true
 }
 
 // Configure registers the HTTP server lifecycle in the container.

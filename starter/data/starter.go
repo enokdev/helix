@@ -52,33 +52,64 @@ func New(cfg helixconfig.Loader, opts ...Option) *Starter {
 }
 
 // Condition reports whether the data starter should be activated.
+//
+// database.url is always a hard prerequisite regardless of the enabled flag —
+// activating the starter without a DSN would cause a startup error.
+// Priority (highest to lowest):
+//  1. helix.starters.data.enabled = false  → inactive (absolute override)
+//  2. database.url absent/empty            → inactive (hard prerequisite)
+//  3. go.mod not found in CWD tree         → helix.starters.data.enabled = true activates;
+//     otherwise inactive (supports deployed binaries outside module root)
+//  4. gorm.io/driver/sqlite absent         → inactive (dependency check, not bypassable)
+//  5. helix.starters.data.enabled = true   → active
+//  6. otherwise                            → active
 func (s *Starter) Condition() bool {
-	goModPath, err := gomodutil.FindGoModPath()
-	if err != nil {
-		slog.Debug("data starter: go.mod not found", "error", err)
-		return false
-	}
-
-	goMod, err := os.ReadFile(goModPath)
-	if err != nil || !bytes.Contains(goMod, []byte("gorm.io/driver/sqlite")) {
-		return false
-	}
-
 	if s.cfg == nil {
 		return false
 	}
 
+	// Explicit disable is absolute.
+	if enabledVal, ok := s.cfg.Lookup(dataEnabledKey); ok {
+		enabled, parsed := parseBool(enabledVal)
+		if parsed && !enabled {
+			return false
+		}
+	}
+
+	// database.url is always required — activating without a DSN causes startup errors.
 	urlVal, ok := s.cfg.Lookup(databaseURLKey)
 	if !ok || stringValue(urlVal) == "" {
 		return false
 	}
 
-	enabledVal, ok := s.cfg.Lookup(dataEnabledKey)
-	if !ok {
-		return true
+	goModPath, err := gomodutil.FindGoModPath()
+	if err != nil {
+		// Binary launched from a directory without go.mod — common in production deployments.
+		// Allow explicit enable to activate the starter in this case.
+		if enabledVal, ok := s.cfg.Lookup(dataEnabledKey); ok {
+			enabled, parsed := parseBool(enabledVal)
+			if parsed && enabled {
+				return true
+			}
+		}
+		slog.Debug("data starter: go.mod not found", "error", err)
+		return false
 	}
-	enabled, parsed := parseBool(enabledVal)
-	return !parsed || enabled
+
+	// go.mod found — dependency must be present (enabled=true cannot bypass this check).
+	goMod, err := os.ReadFile(goModPath)
+	if err != nil || !bytes.Contains(goMod, []byte("gorm.io/driver/sqlite")) {
+		return false
+	}
+
+	// Dependency present — respect explicit enable/disable or default to true.
+	if enabledVal, ok := s.cfg.Lookup(dataEnabledKey); ok {
+		enabled, parsed := parseBool(enabledVal)
+		if parsed {
+			return enabled
+		}
+	}
+	return true
 }
 
 // Configure registers DB components and a lifecycle into the container.

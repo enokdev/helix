@@ -537,3 +537,15 @@ func TestSchedulingStarter_ConditionFromContainer(t *testing.T) {
 		})
 	}
 }
+
+// TestConditionNoGoModWithExplicitEnable verifies that a deployed binary running
+// in a directory with no go.mod can activate the scheduling starter via explicit config.
+func TestConditionNoGoModWithExplicitEnable(t *testing.T) {
+tmpDir := t.TempDir()
+chdirForTest(t, tmpDir) // no go.mod written
+
+cfg := fakeConfig{values: map[string]any{schedEnabledKey: true}}
+if got := New(cfg).Condition(); !got {
+t.Fatal("Condition() = false, want true (no go.mod but enabled=true in deployed binary scenario)")
+}
+}
