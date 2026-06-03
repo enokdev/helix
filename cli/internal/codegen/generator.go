@@ -65,6 +65,12 @@ func (g *Generator) Generate(ctx context.Context) (Result, error) {
 		return Result{}, fmt.Errorf("cli/codegen: generate %s: %w", root, err)
 	}
 
+	importsResult, err := NewImportsGenerator(root).Generate()
+	if err != nil {
+		return Result{}, fmt.Errorf("cli/codegen: generate imports: %w", err)
+	}
+	files = append(files, importsResult.Files...)
+
 	sort.Strings(files)
 	return Result{GeneratedFiles: len(files), Files: files}, nil
 }
