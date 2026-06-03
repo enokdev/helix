@@ -174,6 +174,8 @@ func main() {
 }
 ```
 
+This manual `Components` example is for hand-written packages. If you create features with `helix generate module` or `helix generate context`, the generated `register.go` files register them automatically and `helix generate` refreshes `helix_imports_gen.go` for startup imports.
+
 ## 7. Configure
 
 ```yaml
@@ -191,6 +193,8 @@ app:
 $ go run main.go<br>
 <span style="color: #27c93f;"># Helix ready on :8080</span>
 </TerminalWindow>
+
+If you are working with generated modules, prefer `helix run` so `helix_imports_gen.go` stays in sync automatically.
 
 ## 9. Test the API
 

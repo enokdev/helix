@@ -174,6 +174,8 @@ func main() {
 }
 ```
 
+Cet exemple `Components` est manuel pour un package écrit à la main. Si vous créez une fonctionnalité avec `helix generate module` ou `helix generate context`, les `register.go` générés l'enregistrent automatiquement et `helix generate` régénère `helix_imports_gen.go` pour les imports de démarrage.
+
 ## 7. Configurer
 
 ```yaml
@@ -191,6 +193,8 @@ app:
 $ go run main.go<br>
 <span style="color: #27c93f;"># Helix ready on :8080</span>
 </TerminalWindow>
+
+Si vous travaillez avec des modules générés, préférez `helix run` pour garder `helix_imports_gen.go` synchronisé automatiquement.
 
 ## 9. Tester l'API
 

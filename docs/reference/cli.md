@@ -168,10 +168,11 @@ helix generate module product --dir ./my-api
 orders/
 ├── controller.go
 ├── service.go
-└── repository.go
+├── repository.go
+└── register.go
 ```
 
-The folder name is automatically pluralized (`order` → `orders`).
+The folder name is automatically pluralized (`order` → `orders`). `register.go` calls `helix.RegisterComponents(...)` from `init()`, so generated components are wired automatically and do not need manual registration in `main.go`.
 
 **`orders/repository.go`**
 
@@ -218,17 +219,7 @@ func (c *OrderController) Index(ctx web.Context) error {
 }
 ```
 
-After generating, register the components in `main.go`:
-
-```go
-helix.Run(helix.App{
-    Components: []any{
-        &orders.OrderRepository{},
-        &orders.OrderService{},
-        &orders.OrderController{},
-    },
-})
-```
+After generating, no `main.go` update is required. The generated `register.go` file handles DI registration automatically.
 
 ---
 
@@ -266,7 +257,8 @@ billings/
 ├── api.go          # public domain functions (Create, Get)
 ├── repository.go   # data access
 ├── service.go      # business logic
-└── controller.go   # HTTP layer
+├── controller.go   # HTTP layer
+└── register.go     # auto-registration via init()
 ```
 
 **`billings/api.go`** — the public entry point for the context, free of HTTP or DB concerns:
@@ -300,7 +292,7 @@ func GetBilling(ctx context.Context, id BillingID) (*Billing, error) {
 }
 ```
 
-Use a bounded context when a feature has a clear domain boundary and you want to expose a clean Go API (not just HTTP routes) to the rest of the application.
+Use a bounded context when a feature has a clear domain boundary and you want to expose a clean Go API (not just HTTP routes) to the rest of the application. As with `helix generate module`, the generated `register.go` file registers the context components automatically, so `main.go` does not need manual component wiring.
 
 ---
 
@@ -322,8 +314,9 @@ helix generate [flags]
 
 - Route registrations derived from controller method signatures
 - Guard and interceptor registrations
+- `helix_imports_gen.go` with blank imports for generated module/context packages so their `init()` auto-registrations run at startup
 
-Run this after adding or renaming controllers, guards, or interceptors.
+Run this after adding or renaming controllers, guards, interceptors, modules, or contexts.
 
 ```bash
 helix generate
@@ -378,6 +371,8 @@ helix run --dir ./my-api
 ::: tip Dev vs production
 `helix run` is for development only — it rebuilds and restarts on every save. For production, use `helix build` to produce a static binary and run that directly.
 :::
+
+Before each build, `helix run` executes `helix generate`, which refreshes `helix_imports_gen.go` so newly generated modules are auto-registered on startup.
 
 The process handles `SIGINT` and `SIGTERM` gracefully: in-flight requests complete and lifecycle `OnStop()` hooks run before exit.
 

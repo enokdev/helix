@@ -168,10 +168,11 @@ helix generate module product --dir ./my-api
 orders/
 ├── controller.go
 ├── service.go
-└── repository.go
+├── repository.go
+└── register.go
 ```
 
-Le nom du dossier est automatiquement mis au pluriel (`order` → `orders`).
+Le nom du dossier est automatiquement mis au pluriel (`order` → `orders`). `register.go` appelle `helix.RegisterComponents(...)` depuis `init()`, donc les composants générés sont câblés automatiquement sans enregistrement manuel dans `main.go`.
 
 **`orders/repository.go`**
 
@@ -218,17 +219,7 @@ func (c *OrderController) Index(ctx web.Context) error {
 }
 ```
 
-Après la génération, enregistrez les composants dans `main.go` :
-
-```go
-helix.Run(helix.App{
-    Components: []any{
-        &orders.OrderRepository{},
-        &orders.OrderService{},
-        &orders.OrderController{},
-    },
-})
-```
+Après la génération, aucune mise à jour de `main.go` n'est nécessaire. Le fichier `register.go` généré gère l'enregistrement DI automatiquement.
 
 ---
 
@@ -266,7 +257,8 @@ billings/
 ├── api.go          # fonctions de domaine publiques (Create, Get)
 ├── repository.go   # accès aux données
 ├── service.go      # logique métier
-└── controller.go   # couche HTTP
+├── controller.go   # couche HTTP
+└── register.go     # auto-enregistrement via init()
 ```
 
 **`billings/api.go`** — le point d'entrée public du contexte, sans dépendances HTTP ou DB :
@@ -300,7 +292,7 @@ func GetBilling(ctx context.Context, id BillingID) (*Billing, error) {
 }
 ```
 
-Utilisez un contexte borné quand une fonctionnalité a une frontière de domaine claire et que vous voulez exposer une API Go propre (pas seulement des routes HTTP) au reste de l'application.
+Utilisez un contexte borné quand une fonctionnalité a une frontière de domaine claire et que vous voulez exposer une API Go propre (pas seulement des routes HTTP) au reste de l'application. Comme pour `helix generate module`, le `register.go` généré enregistre automatiquement les composants du contexte, sans câblage manuel dans `main.go`.
 
 ---
 
@@ -322,8 +314,9 @@ helix generate [flags]
 
 - Enregistrements de routes dérivés des signatures de méthodes des contrôleurs
 - Enregistrements de guards et d'intercepteurs
+- `helix_imports_gen.go` avec des blank imports vers les packages générés afin que leurs auto-enregistrements `init()` s'exécutent au démarrage
 
-Exécutez ceci après avoir ajouté ou renommé des contrôleurs, guards ou intercepteurs.
+Exécutez ceci après avoir ajouté ou renommé des contrôleurs, guards, intercepteurs, modules ou contextes.
 
 ```bash
 helix generate
@@ -378,6 +371,8 @@ helix run --dir ./my-api
 ::: tip Développement vs production
 `helix run` est uniquement pour le développement — il rebuild et redémarre à chaque sauvegarde. Pour la production, utilisez `helix build` pour produire un binaire statique et exécutez-le directement.
 :::
+
+Avant chaque build, `helix run` exécute `helix generate`, ce qui régénère `helix_imports_gen.go` pour que les nouveaux modules générés soient auto-enregistrés au démarrage.
 
 Le processus gère `SIGINT` et `SIGTERM` avec grâce : les requêtes en vol se terminent et les hooks de cycle de vie `OnStop()` s'exécutent avant la sortie.
 

@@ -41,7 +41,7 @@ func main() {
 }
 ```
 
-`helix.App` accepts a `Components` slice where you register your services, repositories, and controllers. You'll fill this in as you add modules.
+`helix.App` accepts a `Components` slice for manually wired components. When you use generated modules or contexts, Helix registers them automatically for you.
 
 ---
 
@@ -53,32 +53,19 @@ Once the project exists, generate a feature module with:
 helix generate module order
 ```
 
-This creates three files in an `orders/` package (singular → plural automatically):
+This creates four files in an `orders/` package (singular → plural automatically):
 
 ```
 orders/
 ├── controller.go   # HTTP handler wired to the service
 ├── service.go      # business logic, receives the repository via DI
-└── repository.go   # data access layer, embeds helix.Repository
+├── repository.go   # data access layer, embeds helix.Repository
+└── register.go     # auto-registration via init()
 ```
 
-Each file has the right embedded type and `inject:"true"` tag already in place — you only need to implement the methods.
+Each file has the right embedded type and `inject:"true"` tag already in place — you only need to implement the methods. `register.go` calls `helix.RegisterComponents(...)`, so there is no manual `main.go` registration step for generated modules.
 
-**Register the components** in `main.go`:
-
-```go
-import "my-api/orders"
-
-helix.Run(helix.App{
-    Components: []any{
-        &orders.OrderRepository{},
-        &orders.OrderService{},
-        &orders.OrderController{},
-    },
-})
-```
-
-Helix reads the `inject:"true"` tags and wires `OrderRepository → OrderService → OrderController` automatically.
+Helix still reads the `inject:"true"` tags and wires `OrderRepository → OrderService → OrderController` automatically.
 
 ---
 
@@ -90,17 +77,18 @@ For features with a clear domain boundary, use a bounded context instead of a ba
 helix generate context billing
 ```
 
-This generates a `billings/` package with four files:
+This generates a `billings/` package with five files:
 
 ```
 billings/
 ├── api.go          # pure domain functions: CreateBilling(), GetBilling()
 ├── repository.go   # data access
 ├── service.go      # business logic with Create/Get method stubs
-└── controller.go   # HTTP routes
+├── controller.go   # HTTP routes
+└── register.go     # auto-registration via init()
 ```
 
-The key addition is `api.go`. It exposes domain operations as plain Go functions, decoupled from HTTP and the database. Other packages in your application can call `billings.CreateBilling(ctx, attrs)` without knowing anything about the HTTP layer or the DI container.
+The key addition is `api.go`. It exposes domain operations as plain Go functions, decoupled from HTTP and the database. Other packages in your application can call `billings.CreateBilling(ctx, attrs)` without knowing anything about the HTTP layer or the DI container. Like generated modules, bounded contexts also get a `register.go` file, so no manual `main.go` component registration is needed.
 
 Use a bounded context when:
 - A feature has its own domain language (entities, value objects)
@@ -117,10 +105,11 @@ After changing or adding controllers, run:
 helix generate
 ```
 
-This scans the project and regenerates the route registration and DI wiring files. You'll typically do this after:
+This scans the project and regenerates the route registration and DI wiring files, including `helix_imports_gen.go` with blank imports that trigger generated module `init()` registrations. You'll typically do this after:
 - Adding a new method to a controller
 - Renaming a controller
 - Adding or removing a guard or interceptor
+- Adding a new generated module or context
 
 For compile-time DI wiring (Wire-style, no runtime reflection), use:
 
@@ -138,7 +127,7 @@ During development, use `helix run` instead of `go run`:
 helix run
 ```
 
-It watches your source files for changes. When you save a `.go` file, it recompiles and restarts the process automatically — no manual stop/start cycle.
+It watches your source files for changes. When you save a `.go` file, it recompiles and restarts the process automatically — no manual stop/start cycle. Before each build it runs `helix generate`, which refreshes `helix_imports_gen.go` so new generated modules are auto-registered.
 
 The process handles `SIGINT` (`Ctrl+C`) and `SIGTERM` gracefully: active requests complete, and `OnStop()` lifecycle hooks run before the process exits.
 

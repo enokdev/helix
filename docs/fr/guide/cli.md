@@ -41,7 +41,7 @@ func main() {
 }
 ```
 
-`helix.App` accepte une slice `Components` où vous enregistrez vos services, repositories et contrôleurs. Vous la remplirez au fur et à mesure que vous ajoutez des modules.
+`helix.App` accepte une slice `Components` pour les composants câblés manuellement. Quand vous utilisez des modules ou contextes générés, Helix les enregistre automatiquement.
 
 ---
 
@@ -53,32 +53,19 @@ Une fois le projet créé, générez un module de fonctionnalité avec :
 helix generate module order
 ```
 
-Cela crée trois fichiers dans un package `orders/` (singulier → pluriel automatiquement) :
+Cela crée quatre fichiers dans un package `orders/` (singulier → pluriel automatiquement) :
 
 ```
 orders/
 ├── controller.go   # gestionnaire HTTP câblé au service
 ├── service.go      # logique métier, reçoit le repository via DI
-└── repository.go   # couche d'accès aux données, intègre helix.Repository
+├── repository.go   # couche d'accès aux données, intègre helix.Repository
+└── register.go     # auto-enregistrement via init()
 ```
 
-Chaque fichier a le bon type intégré et le tag `inject:"true"` déjà en place — vous n'avez qu'à implémenter les méthodes.
+Chaque fichier a le bon type intégré et le tag `inject:"true"` déjà en place — vous n'avez qu'à implémenter les méthodes. `register.go` appelle `helix.RegisterComponents(...)`, donc il n'y a plus d'étape d'enregistrement manuel dans `main.go` pour les modules générés.
 
-**Enregistrez les composants** dans `main.go` :
-
-```go
-import "my-api/orders"
-
-helix.Run(helix.App{
-    Components: []any{
-        &orders.OrderRepository{},
-        &orders.OrderService{},
-        &orders.OrderController{},
-    },
-})
-```
-
-Helix lit les tags `inject:"true"` et câble `OrderRepository → OrderService → OrderController` automatiquement.
+Helix lit toujours les tags `inject:"true"` et câble `OrderRepository → OrderService → OrderController` automatiquement.
 
 ---
 
@@ -90,17 +77,18 @@ Pour les fonctionnalités avec une frontière de domaine claire, utilisez un con
 helix generate context billing
 ```
 
-Cela génère un package `billings/` avec quatre fichiers :
+Cela génère un package `billings/` avec cinq fichiers :
 
 ```
 billings/
 ├── api.go          # fonctions de domaine pures : CreateBilling(), GetBilling()
 ├── repository.go   # accès aux données
 ├── service.go      # logique métier avec stubs de méthodes Create/Get
-└── controller.go   # routes HTTP
+├── controller.go   # routes HTTP
+└── register.go     # auto-enregistrement via init()
 ```
 
-L'addition clé est `api.go`. Il expose les opérations de domaine comme des fonctions Go pures, découplées de HTTP et de la base de données. D'autres packages de votre application peuvent appeler `billings.CreateBilling(ctx, attrs)` sans rien savoir de la couche HTTP ou du conteneur DI.
+L'addition clé est `api.go`. Il expose les opérations de domaine comme des fonctions Go pures, découplées de HTTP et de la base de données. D'autres packages de votre application peuvent appeler `billings.CreateBilling(ctx, attrs)` sans rien savoir de la couche HTTP ou du conteneur DI. Comme les modules générés, les contextes bornés reçoivent aussi un `register.go`, donc aucun câblage manuel dans `main.go` n'est nécessaire.
 
 Utilisez un contexte borné quand :
 - Une fonctionnalité a son propre langage de domaine (entités, objets de valeur)
@@ -117,10 +105,11 @@ Après avoir modifié ou ajouté des contrôleurs, exécutez :
 helix generate
 ```
 
-Cela scanne le projet et régénère les fichiers d'enregistrement des routes et de câblage DI. Vous le ferez typiquement après :
+Cela scanne le projet et régénère les fichiers d'enregistrement des routes et de câblage DI, y compris `helix_imports_gen.go` avec des blank imports qui déclenchent les enregistrements `init()` des modules générés. Vous le ferez typiquement après :
 - Avoir ajouté une nouvelle méthode à un contrôleur
 - Avoir renommé un contrôleur
 - Avoir ajouté ou supprimé un guard ou un intercepteur
+- Avoir ajouté un nouveau module ou contexte généré
 
 Pour le câblage DI à la compilation (style Wire, sans réflexion à l'exécution), utilisez :
 
@@ -138,7 +127,7 @@ Pendant le développement, utilisez `helix run` plutôt que `go run` :
 helix run
 ```
 
-Il surveille vos fichiers source pour les modifications. Quand vous sauvegardez un fichier `.go`, il recompile et redémarre le processus automatiquement — pas de cycle stop/start manuel.
+Il surveille vos fichiers source pour les modifications. Quand vous sauvegardez un fichier `.go`, il recompile et redémarre le processus automatiquement — pas de cycle stop/start manuel. Avant chaque build, il exécute `helix generate`, ce qui régénère `helix_imports_gen.go` pour auto-enregistrer les nouveaux modules générés.
 
 Le processus gère `SIGINT` (`Ctrl+C`) et `SIGTERM` avec grâce : les requêtes actives se terminent, et les hooks de cycle de vie `OnStop()` s'exécutent avant la sortie du processus.
 
