@@ -18,6 +18,7 @@ Helix est un framework backend Go inspire de Spring Boot, concu pour creer des A
 	- [Fonctionnalites](#fonctionnalites)
 	- [Exemples](#exemples)
 	- [Guides](#guides)
+	- [API Stability](#api-stability)
 	- [Developpement du framework](#developpement-du-framework)
 	- [Licence](#licence)
 
@@ -164,6 +165,10 @@ go test ./...
 - [Couche HTTP](docs/http-layer.md)
 - [Data layer](docs/data-layer.md)
 - [Securite, observabilite et scheduling](docs/security-observability-scheduling.md)
+
+## API Stability
+
+Helix is pre-v1. Public compatibility guarantees and deprecation rules are documented in [API Stability](docs/reference/api-stability.md).
 
 ## Developpement du framework
 

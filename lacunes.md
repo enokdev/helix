@@ -31,11 +31,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: lancer une release seche ou sur tag de pre-release, verifier changelog, draft GitHub, checks CI et instructions d'installation.
   - Validation: une checklist de release existe et a ete executee au moins une fois.
 
-- [ ] Clarifier le contrat de stabilite de l'API publique
+- [x] Clarifier le contrat de stabilite de l'API publique
   - Domaine: gouvernance, adoption
   - Pourquoi: les utilisateurs doivent savoir ce qui est stable, experimental ou susceptible de casser avant v1.
   - Action: ajouter une politique courte de compatibilite semver, deprecation et breaking changes.
   - Validation: README ou docs expliquent les garanties pour `core`, `web`, `data`, `config`, `starter`, `security`, `scheduler`, `cli` et `testutil`.
+  - Preuve: `docs/reference/api-stability.md` decrit les garanties pre-v1, la deprecation, les breaking changes et la surface publique pour `core`, `web`, `data`, `config`, `starter`, `security`, `scheduler`, `cli` et `testutil`.
 
 - [ ] Auditer les artefacts versionnes avant publication
   - Domaine: release, hygiene repo
