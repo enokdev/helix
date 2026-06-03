@@ -184,6 +184,7 @@ func GenerateContext(opts ContextOptions) error {
 		filepath.Join(name.FolderName, "repository.go"): renderGoTemplate(contextRepositoryTemplate, data),
 		filepath.Join(name.FolderName, "service.go"):    renderGoTemplate(contextServiceTemplate, data),
 		filepath.Join(name.FolderName, "controller.go"): renderGoTemplate(contextControllerTemplate, data),
+		filepath.Join(name.FolderName, "register.go"):   renderGoTemplate(registerTemplate, data),
 	}
 	if err := writeAllFiles(root, "helix generate context "+opts.Name, files); err != nil {
 		return err
