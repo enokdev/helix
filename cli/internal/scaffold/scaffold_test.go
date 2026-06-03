@@ -293,7 +293,7 @@ func newGoModuleFixture(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read repo go.mod: %v", err)
 	}
-	content := "module example.test/app\n\ngo 1.24.0\n\nrequire github.com/enokdev/helix v0.0.0\n" +
+	content := "module example.test/app\n\ngo 1.25.0\n\nrequire github.com/enokdev/helix v0.0.0\n" +
 		extractRequireBlocks(string(repoGoMod)) +
 		"\nreplace github.com/enokdev/helix => " + filepath.ToSlash(repoRoot) + "\n"
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(content), 0o644); err != nil {

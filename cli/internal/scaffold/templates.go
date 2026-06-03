@@ -2,7 +2,7 @@ package scaffold
 
 const goModTemplate = `module {{ .ModulePath }}
 
-go 1.24.0
+go 1.25.0
 
 require github.com/enokdev/helix {{ .HelixVersion }}
 {{ .ExtraGoMod }}
