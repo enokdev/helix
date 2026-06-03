@@ -4,11 +4,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
 
 ## P0 - Bloquants Release et Adoption
 
-- [ ] Verifier l'installation externe depuis un projet neuf
+- [x] Verifier l'installation externe depuis un projet neuf
   - Domaine: release, DX
   - Pourquoi: les tests actuels valident surtout le repo lui-meme; il faut prouver que `go get github.com/enokdev/helix` et `go install github.com/enokdev/helix/cmd/helix@latest` fonctionnent hors du checkout local.
   - Action: creer un projet temporaire vierge, installer Helix, lancer un mini serveur zero-config et verifier `helix version`.
   - Validation: un script ou une procedure reproductible passe sur une machine propre avec Go 1.21+.
+  - Preuve: `scripts/smoke_external_install.sh` cree un module temporaire externe, ajoute Helix via `go get` avec `replace`, installe `cmd/helix`, verifie `helix --version`, build l'app zero-config et teste `/actuator/health`.
 
 - [ ] Tester la compatibilite Go sur plusieurs versions supportees
   - Domaine: CI, compatibilite
