@@ -145,6 +145,7 @@ func GenerateModule(opts ModuleOptions) error {
 		filepath.Join(name.FolderName, "repository.go"): renderGoTemplate(repositoryTemplate, data),
 		filepath.Join(name.FolderName, "service.go"):    renderGoTemplate(serviceTemplate, data),
 		filepath.Join(name.FolderName, "controller.go"): renderGoTemplate(controllerTemplate, data),
+		filepath.Join(name.FolderName, "register.go"):   renderGoTemplate(registerTemplate, data),
 	}
 	if err := writeAllFiles(root, "helix generate module "+opts.Name, files); err != nil {
 		return err
