@@ -11,11 +11,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: un script ou une procedure reproductible passe sur une machine propre avec Go 1.21+.
   - Preuve: `scripts/smoke_external_install.sh` cree un module temporaire externe, ajoute Helix via `go get` avec `replace`, installe `cmd/helix`, verifie `helix --version`, build l'app zero-config et teste `/actuator/health`.
 
-- [ ] Tester la compatibilite Go sur plusieurs versions supportees
+- [x] Tester la compatibilite Go sur plusieurs versions supportees
   - Domaine: CI, compatibilite
   - Pourquoi: la CI utilise Go 1.21, mais le developpement local se fait avec Go 1.25.5; les regressions liees aux versions peuvent passer inapercues.
   - Action: ajouter une matrice CI Go 1.21, 1.22, 1.23, 1.24 et 1.25 pour `go test ./...` et `go build ./...`.
   - Validation: la matrice passe sans modifier la directive `go 1.21.0` du module.
+  - Preuve: `.github/workflows/ci.yml` execute `go test ./...` et `go build ./...` sur Go 1.21, 1.22, 1.23, 1.24 et 1.25 sans modifier la directive `go 1.21.0`.
 
 - [ ] Faire un audit de dependances avant la premiere release
   - Domaine: securite, supply chain
