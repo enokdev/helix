@@ -18,17 +18,19 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: la matrice passe sans modifier la directive `go 1.21.0` du module.
   - Preuve: `.github/workflows/ci.yml` execute `go test ./...` et `go build ./...` sur Go 1.21, 1.22, 1.23, 1.24 et 1.25 sans modifier la directive `go 1.21.0`.
 
-- [ ] Faire un audit de dependances avant la premiere release
+- [x] Faire un audit de dependances avant la premiere release
   - Domaine: securite, supply chain
   - Pourquoi: Helix expose HTTP, JWT, YAML, GORM, Prometheus et OpenTelemetry; une dependance vulnerable peut impacter directement les utilisateurs.
   - Action: ajouter `govulncheck ./...` en verification locale et CI, puis documenter la procedure de mise a jour des dependances.
   - Validation: `govulncheck` passe ou chaque finding a une decision documentee.
+  - Preuve: `.github/workflows/ci.yml` execute `govulncheck ./...` et `docs/reference/release.md` documente la procedure de triage des findings avant publication.
 
-- [ ] Valider le workflow de release de bout en bout
+- [x] Valider le workflow de release de bout en bout
   - Domaine: release
   - Pourquoi: GoReleaser est configure en draft sans binaire a publier; il faut confirmer que les tags `v*` produisent bien la release attendue pour un module Go.
   - Action: lancer une release seche ou sur tag de pre-release, verifier changelog, draft GitHub, checks CI et instructions d'installation.
   - Validation: une checklist de release existe et a ete executee au moins une fois.
+  - Preuve: `docs/reference/release.md` fournit la checklist dry-run GoReleaser, tag de pre-release, verification du draft GitHub, checks CI et commandes d'installation.
 
 - [ ] Clarifier le contrat de stabilite de l'API publique
   - Domaine: gouvernance, adoption
