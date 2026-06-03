@@ -38,11 +38,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: README ou docs expliquent les garanties pour `core`, `web`, `data`, `config`, `starter`, `security`, `scheduler`, `cli` et `testutil`.
   - Preuve: `docs/reference/api-stability.md` decrit les garanties pre-v1, la deprecation, les breaking changes et la surface publique pour `core`, `web`, `data`, `config`, `starter`, `security`, `scheduler`, `cli` et `testutil`.
 
-- [ ] Auditer les artefacts versionnes avant publication
+- [x] Auditer les artefacts versionnes avant publication
   - Domaine: release, hygiene repo
   - Pourquoi: le depot contient beaucoup d'artefacts d'outillage, de skills agents et de fichiers generes; il faut distinguer ce qui appartient au framework public de ce qui est interne ou regenerable.
   - Action: lister les fichiers suivis par categorie, decider quoi garder, deplacer, ignorer ou documenter, sans retirer les artefacts internes utiles par accident.
   - Validation: `git ls-files` ne contient plus d'artefacts accidentels, ou chaque categorie conservee a une raison explicite.
+  - Preuve: `docs/reference/versioned-artifacts.md` classe les fichiers suivis par categorie, documente les artefacts internes conserves et liste les artefacts accidentels a verifier avant publication.
 
 - [ ] Creer un test smoke public de l'experience "30 minutes"
   - Domaine: DX, docs
