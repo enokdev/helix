@@ -15,6 +15,30 @@ import (
 	"github.com/enokdev/helix/web"
 )
 
+func TestRegisterComponents_AccumulatesComponents(t *testing.T) {
+	// Cannot run in parallel: mutates global autoComponents.
+	componentsMu.Lock()
+	previous := autoComponents
+	autoComponents = nil
+	componentsMu.Unlock()
+	t.Cleanup(func() {
+		componentsMu.Lock()
+		autoComponents = previous
+		componentsMu.Unlock()
+	})
+
+	RegisterComponents(&markedService{}, &markedController{})
+	RegisterComponents(&markedRepository{})
+
+	componentsMu.Lock()
+	got := autoComponents
+	componentsMu.Unlock()
+
+	if len(got) != 3 {
+		t.Fatalf("RegisterComponents() accumulated %d components, want 3", len(got))
+	}
+}
+
 var _ ConfigReloadable = (*rootReloadable)(nil)
 
 func TestDetectComponentMarker(t *testing.T) {
