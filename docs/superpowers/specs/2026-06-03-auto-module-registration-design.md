@@ -172,6 +172,43 @@ helix run
 
 ---
 
+## Documentation à mettre à jour
+
+Les fichiers suivants décrivent le flux d'enregistrement manuel et doivent être mis à jour pour refléter l'auto-enregistrement.
+
+### `docs/reference/cli.md` et `docs/fr/reference/cli.md`
+
+**Section `helix generate module`** — remplacer le bloc "After generating, register the components in `main.go`" par :
+
+> Les composants sont enregistrés automatiquement. Aucune modification de `main.go` n'est requise.
+
+Mettre à jour la structure de fichiers générés pour inclure `register.go` :
+
+```
+orders/
+├── controller.go
+├── service.go
+├── repository.go
+└── register.go   # auto-enregistrement via init()
+```
+
+**Section `helix generate context`** — même mise à jour (ajouter `register.go` dans la structure, supprimer le bloc d'enregistrement manuel).
+
+**Section `helix run`** — ajouter une note :
+
+> `helix run` appelle automatiquement `helix generate` avant chaque build. Cela régénère `cmd/helix_imports_gen.go` pour inclure tout nouveau module détecté.
+
+### `docs/guide/cli.md` et `docs/fr/guide/cli.md`
+
+- Supprimer le bloc `Components: []any{...}` dans les exemples post-génération de module
+- Remplacer par : "Les composants sont auto-détectés et enregistrés. Lancez `helix run` directement."
+
+### `docs/guide/quick-start.md` et `docs/fr/guide/quick-start.md`
+
+- Si le quick-start montre une étape d'enregistrement manuel, la supprimer ou la marquer comme optionnelle (uniquement pour les projets sans CLI).
+
+---
+
 ## Tests à ajouter
 
 - `TestRegisterComponents_multipleInit` : plusieurs `init()` accumulent bien les composants
