@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -93,8 +94,11 @@ func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 	interceptor := store.newInterceptor(5*time.Minute, 100, "lru")
 
 	handlerCalls := atomic.Int32{}
+	handlerStarted := make(chan struct{})
 	handlerDone := make(chan struct{})
+	var startOnce sync.Once
 	handler := func(ctx Context) error {
+		startOnce.Do(func() { close(handlerStarted) })
 		handlerCalls.Add(1)
 		<-handlerDone
 		ctx.Status(http.StatusOK)
@@ -121,6 +125,10 @@ func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 		}()
 	}
 
+	// Wait for the first handler call, then give the other goroutines
+	// time to pile into the singleflight group before releasing.
+	<-handlerStarted
+	runtime.Gosched()
 	close(handlerDone)
 
 	for i := 0; i < 10; i++ {
