@@ -572,8 +572,14 @@ func autoRegisterControllers(container *core.Container, components []any) error 
 			roleFactoryRegistered = true
 		}
 
-		controllerName := fmt.Sprintf("%T", target)
-		if err := web.RegisterController(server, target); err != nil {
+		resolvedControllerTarget := reflect.New(reflect.TypeOf(target))
+		if err := container.Resolve(resolvedControllerTarget.Interface()); err != nil {
+			return fmt.Errorf("helix: resolve controller %T: %w", target, err)
+		}
+		resolvedController := resolvedControllerTarget.Elem().Interface()
+
+		controllerName := fmt.Sprintf("%T", resolvedController)
+		if err := web.RegisterController(server, resolvedController); err != nil {
 			return fmt.Errorf("helix: auto-register controller %s: %w", controllerName, err)
 		}
 	}

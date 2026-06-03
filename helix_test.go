@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/web"
 )
 
 var _ ConfigReloadable = (*rootReloadable)(nil)
@@ -164,6 +166,38 @@ func TestRunStartFailureDoesNotAwaitShutdown(t *testing.T) {
 	}
 	if awaitCalled {
 		t.Fatal("Run() awaited shutdown after start failure")
+	}
+}
+
+func TestAutoRegisterControllersUsesResolvedController(t *testing.T) {
+	t.Parallel()
+
+	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
+	server := web.NewServer()
+	components := []any{
+		&runHTTPRepository{},
+		&runHTTPService{},
+		&runHTTPController{},
+	}
+
+	if err := container.Register(server); err != nil {
+		t.Fatalf("Register(server) error = %v", err)
+	}
+	for _, component := range components {
+		if err := container.Register(component); err != nil {
+			t.Fatalf("Register(%T) error = %v", component, err)
+		}
+	}
+	if err := autoRegisterControllers(container, components); err != nil {
+		t.Fatalf("autoRegisterControllers() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/users", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /users status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }
 
@@ -644,6 +678,32 @@ func (s *failingRunLifecycleService) OnStart() error {
 
 func (s *failingRunLifecycleService) OnStop(_ context.Context) error {
 	return nil
+}
+
+type runHTTPRepository struct {
+	Repository
+}
+
+func (r *runHTTPRepository) Names() []string {
+	return []string{"ada"}
+}
+
+type runHTTPService struct {
+	Service
+	Repo *runHTTPRepository `inject:"true"`
+}
+
+func (s *runHTTPService) List() []string {
+	return s.Repo.Names()
+}
+
+type runHTTPController struct {
+	Controller `helix:"route:/users"`
+	Service    *runHTTPService `inject:"true"`
+}
+
+func (c *runHTTPController) Index() []string {
+	return c.Service.List()
 }
 
 type lazyRunLifecycleComponent struct {

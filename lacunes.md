@@ -45,11 +45,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: `git ls-files` ne contient plus d'artefacts accidentels, ou chaque categorie conservee a une raison explicite.
   - Preuve: `docs/reference/versioned-artifacts.md` classe les fichiers suivis par categorie, documente les artefacts internes conserves et liste les artefacts accidentels a verifier avant publication.
 
-- [ ] Creer un test smoke public de l'experience "30 minutes"
+- [x] Creer un test smoke public de l'experience "30 minutes"
   - Domaine: DX, docs
   - Pourquoi: l'objectif d'onboarding rapide est declare, mais il faut le mesurer sur un parcours reel.
   - Action: definir un scenario CRUD minimal avec config, controller, service, repository, test et lancement HTTP.
   - Validation: un nouveau contributeur peut suivre le guide sans contexte interne et obtenir une API fonctionnelle.
+  - Preuve: `scripts/smoke_30_minute_crud.sh` cree un module externe temporaire depuis l'exemple CRUD public, configure le port, execute test/build Go, lance HTTP et verifie `POST /users`, `GET /users/1` et `GET /users`.
 
 ## P1 - Robustesse Production
 
