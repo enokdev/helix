@@ -231,6 +231,22 @@ func (s *cacheStore) newInterceptor(ttl time.Duration, maxSize int, strategy str
 		}
 
 		defer s.unregisterInflight(fk)
+		if entry, ok := s.getCached(key, time.Now()); ok {
+			flight.result.status = entry.status
+			flight.result.body = entry.body
+			flight.result.replayable = true
+			close(flight.done)
+			if guardErr := evaluateRouteGuards(ctx); guardErr != nil {
+				return guardErr
+			}
+			ctx.Status(entry.status)
+			var body any
+			if err := json.Unmarshal(entry.body, &body); err != nil {
+				return fmt.Errorf("web: cache unmarshal: %w", err)
+			}
+			return ctx.JSON(body)
+		}
+
 		recorder := &responseRecorder{BaseContext: ctx}
 		err := next(recorder)
 		if err != nil {

@@ -60,11 +60,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: remplacer les lectures CWD-dependantes par une detection robuste ou une configuration explicite quand le module source n'est pas disponible.
   - Validation: tests avec CWD different de la racine module pour web, data et scheduling.
 
-- [ ] Gerer les echecs partiels de configuration des starters
+- [x] Gerer les echecs partiels de configuration des starters
   - Domaine: starters, lifecycle
   - Pourquoi: si un enregistrement reussit puis le suivant echoue, le container peut rester dans un etat partiellement configure.
   - Action: definir une strategie all-or-nothing, rollback, ou diagnostic explicite pour chaque starter.
   - Validation: tests d'echec force prouvant qu'aucun composant orphelin ne reste actif.
+  - Preuve: `core.Container` expose un rollback optionnel via `Unregister`; les starters web, data et scheduling annulent leurs registrations precedentes quand une registration suivante echoue; les tests `starter/...` couvrent les echecs forces, les erreurs de rollback et l'absence de composants orphelins resolvables.
 
 - [ ] Durcir l'orchestration entre starters et mode wire
   - Domaine: DI, codegen
@@ -84,11 +85,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: enregistrer l'erreur et le status OpenTelemetry dans le middleware tracing.
   - Validation: test avec handler en erreur verifiant `RecordError` et status error.
 
-- [ ] Ajouter une option TLS pour les exporters OTLP
+- [x] Ajouter une option TLS pour les exporters OTLP
   - Domaine: observabilite, production
   - Pourquoi: les exporters OTLP/Jaeger utilisent une configuration insecure; ce n'est pas adapte a tous les environnements production.
   - Action: ajouter des options de config pour insecure, endpoint, headers et TLS.
   - Validation: tests de resolution de config et documentation d'exemple.
+  - Preuve: `observability.TracingConfig` expose `insecure`, `headers` et options TLS; `observability/tracing_test.go` couvre resolution de config, endpoint invalide, headers env, TLS/mTLS et mode secure; les docs reference/deployment listent les cles `helix.starters.observability.tracing.*`.
 
 - [x] Corriger les limites connues du cache interceptor
   - Domaine: web, performance

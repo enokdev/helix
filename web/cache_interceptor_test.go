@@ -109,9 +109,13 @@ func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 		err    error
 		status int
 	}, 50)
+	ready := make(chan struct{}, 10)
+	start := make(chan struct{})
 
 	for i := 0; i < 10; i++ {
 		go func() {
+			ready <- struct{}{}
+			<-start
 			mockCtx := &mockContext{method: "GET"}
 			wrappedCtx := &cacheTestContext{
 				mockContext: mockCtx,
@@ -125,10 +129,23 @@ func TestCacheInterceptorSingleFlightWaitGroup(t *testing.T) {
 		}()
 	}
 
+	for i := 0; i < 10; i++ {
+		<-ready
+	}
+	close(start)
+
 	// Wait for the first handler call, then give the other goroutines
 	// time to pile into the singleflight group before releasing.
 	<-handlerStarted
-	runtime.Gosched()
+	for {
+		store.flightMu.RLock()
+		waitersReady := len(store.inflight) == 1
+		store.flightMu.RUnlock()
+		if waitersReady {
+			break
+		}
+		runtime.Gosched()
+	}
 	close(handlerDone)
 
 	for i := 0; i < 10; i++ {
