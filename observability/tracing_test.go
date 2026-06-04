@@ -209,7 +209,7 @@ func TestWithTracerProvider_NilSafe(_ *testing.T) {
 }
 
 func TestConfigureTracing_LoaderEmptyExporter_IsInvalid(t *testing.T) {
-	// AC9: an explicit empty-string exporter from the loader must return ErrInvalidTracing.
+	// An explicit empty-string exporter from the loader must return ErrInvalidTracing.
 	loader := mapLoader{
 		"helix.starters.observability.tracing.enabled":  true,
 		"helix.starters.observability.tracing.exporter": "",
@@ -436,8 +436,7 @@ func TestBuildExporterAcceptsSecureOTLPEndpointWithHeadersAndEmptyTLSConfig(t *t
 }
 
 func TestConfigureTracing_WithTracingConfig_DoesNotOverrideLoaderEnabled(t *testing.T) {
-	// F4: WithTracingConfig(TracingConfig{ServiceName: "x"}) without Enabled:true
-	// must not disable tracing that the loader had enabled.
+	// A partial tracing config override must not disable tracing that the loader enabled.
 	resetOTelGlobals(t)
 
 	var buf bytes.Buffer

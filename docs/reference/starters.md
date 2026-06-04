@@ -148,7 +148,7 @@ Force off: `helix.starters.observability.enabled: false`
 | `helix.starters.observability.tracing.enabled` | `false` | Enable OTel tracing |
 | `helix.starters.observability.tracing.service-name` | `""` | OTel service name |
 | `helix.starters.observability.tracing.exporter` | `"stdout"` | `stdout` \| `otlp` \| `jaeger` |
-| `helix.starters.observability.tracing.endpoint` | `""` | Exporter endpoint URL |
+| `helix.starters.observability.tracing.endpoint` | `"localhost:4318"` | Exporter endpoint URL |
 | `helix.starters.observability.tracing.insecure` | `true` | Use plaintext/insecure OTLP transport for backward compatibility |
 | `helix.starters.observability.tracing.headers` | — | Static OTLP exporter headers, for example auth or tenant headers |
 | `helix.starters.observability.tracing.tls.ca-file` | `""` | PEM CA bundle for OTLP TLS |

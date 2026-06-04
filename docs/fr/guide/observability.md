@@ -282,7 +282,6 @@ helix:
           cert-file: "/etc/otel/client.pem"
           key-file: "/etc/otel/client-key.pem"
           server-name: "jaeger"
-        sampling-ratio: 0.1   # tracer 10% des requêtes
 ```
 
 ### Exporteurs supportés

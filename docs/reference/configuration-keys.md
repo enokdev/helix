@@ -162,7 +162,7 @@ logging:
 | `helix.starters.observability.tracing.enabled` | bool | `false` | Enable OpenTelemetry tracing |
 | `helix.starters.observability.tracing.service-name` | string | `""` | OTel service name |
 | `helix.starters.observability.tracing.exporter` | string | `"stdout"` | Exporter: `stdout` \| `otlp` \| `jaeger` |
-| `helix.starters.observability.tracing.endpoint` | string | `""` | OTLP/Jaeger HTTP endpoint |
+| `helix.starters.observability.tracing.endpoint` | string | `"localhost:4318"` | OTLP/Jaeger HTTP endpoint |
 | `helix.starters.observability.tracing.insecure` | bool | `true` | Use plaintext/insecure OTLP transport for backward compatibility |
 | `helix.starters.observability.tracing.headers` | map[string]string | — | Static OTLP exporter headers, for example auth or tenant headers |
 | `helix.starters.observability.tracing.tls.ca-file` | string | `""` | PEM CA bundle for OTLP TLS |
