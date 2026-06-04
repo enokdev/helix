@@ -217,6 +217,80 @@ func TestConfigureTracing_LoaderEmptyExporter_IsInvalid(t *testing.T) {
 	}
 }
 
+func TestResolveTracingConfig_OTLPTransportOptions(t *testing.T) {
+	loader := mapLoader{
+		"helix.starters.observability.tracing.enabled":         true,
+		"helix.starters.observability.tracing.exporter":        "otlp",
+		"helix.starters.observability.tracing.endpoint":        "https://otel.example.com:4318",
+		"helix.starters.observability.tracing.insecure":        false,
+		"helix.starters.observability.tracing.headers":         map[string]any{"Authorization": "Bearer token", "x-tenant": "helix"},
+		"helix.starters.observability.tracing.tls.server-name": "otel.example.com",
+	}
+
+	cfg, err := resolveTracingConfig(loader, &tracingOptions{})
+	if err != nil {
+		t.Fatalf("resolveTracingConfig() error = %v", err)
+	}
+	if !cfg.Enabled {
+		t.Fatal("Enabled = false, want true")
+	}
+	if cfg.Exporter != "otlp" {
+		t.Fatalf("Exporter = %q, want otlp", cfg.Exporter)
+	}
+	if cfg.Insecure {
+		t.Fatal("Insecure = true, want false")
+	}
+	if cfg.Headers["Authorization"] != "Bearer token" || cfg.Headers["x-tenant"] != "helix" {
+		t.Fatalf("Headers = %#v, want Authorization and x-tenant", cfg.Headers)
+	}
+	if cfg.TLS.ServerName != "otel.example.com" {
+		t.Fatalf("TLS.ServerName = %q, want otel.example.com", cfg.TLS.ServerName)
+	}
+}
+
+func TestResolveTracingConfig_DefaultOTLPInsecureRemainsCompatible(t *testing.T) {
+	loader := mapLoader{
+		"helix.starters.observability.tracing.enabled":  true,
+		"helix.starters.observability.tracing.exporter": "otlp",
+	}
+	cfg, err := resolveTracingConfig(loader, &tracingOptions{})
+	if err != nil {
+		t.Fatalf("resolveTracingConfig() error = %v", err)
+	}
+	if !cfg.Insecure {
+		t.Fatal("Insecure = false, want true for backward compatibility")
+	}
+}
+
+func TestBuildTLSConfigRejectsIncompleteClientCertificate(t *testing.T) {
+	_, err := buildTracingTLSConfig(TracingTLSConfig{CertFile: "client.pem"})
+	if err == nil {
+		t.Fatal("buildTracingTLSConfig() error = nil, want error")
+	}
+	if !errors.Is(err, ErrInvalidTracing) {
+		t.Fatalf("buildTracingTLSConfig() error = %v, want ErrInvalidTracing", err)
+	}
+}
+
+func TestBuildExporterAcceptsSecureOTLPEndpointWithHeaders(t *testing.T) {
+	exp, err := buildExporter(context.Background(), TracingConfig{
+		Exporter: "otlp",
+		Endpoint: "https://otel.example.com:4318",
+		Insecure: false,
+		Headers: map[string]string{
+			"Authorization": "Bearer token",
+			"x-tenant":      "helix",
+		},
+		TLS: TracingTLSConfig{ServerName: "otel.example.com"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("buildExporter() error = %v", err)
+	}
+	if err := exp.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
 func TestConfigureTracing_WithTracingConfig_DoesNotOverrideLoaderEnabled(t *testing.T) {
 	// F4: WithTracingConfig(TracingConfig{ServiceName: "x"}) without Enabled:true
 	// must not disable tracing that the loader had enabled.

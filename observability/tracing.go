@@ -2,6 +2,8 @@ package observability
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +26,17 @@ type TracingConfig struct {
 	Exporter    string // "stdout" | "otlp" | "jaeger"
 	Endpoint    string // OTLP HTTP endpoint, default "localhost:4318"
 	ServiceName string // default "helix"
+	Insecure    bool
+	Headers     map[string]string
+	TLS         TracingTLSConfig
+}
+
+// TracingTLSConfig holds optional OTLP HTTP TLS settings.
+type TracingTLSConfig struct {
+	CAFile     string
+	CertFile   string
+	KeyFile    string
+	ServerName string
 }
 
 type tracingOptions struct {
@@ -40,6 +53,7 @@ type TracingOption func(*tracingOptions)
 func WithTracingConfig(cfg TracingConfig) TracingOption {
 	return func(o *tracingOptions) {
 		o.cfg = cfg
+		o.cfg.Headers = cloneTracingHeaders(cfg.Headers)
 		o.cfgSet = true
 	}
 }
@@ -138,6 +152,8 @@ func resolveTracingConfig(loader config.Loader, o *tracingOptions) (TracingConfi
 		Exporter:    "stdout",
 		Endpoint:    "localhost:4318",
 		ServiceName: "helix",
+		Insecure:    true,
+		Headers:     map[string]string{},
 	}
 
 	if loader != nil {
@@ -165,6 +181,41 @@ func resolveTracingConfig(loader config.Loader, o *tracingOptions) (TracingConfi
 				cfg.ServiceName = strings.TrimSpace(s)
 			}
 		}
+		if v, ok := loader.Lookup("helix.starters.observability.tracing.insecure"); ok {
+			switch val := v.(type) {
+			case bool:
+				cfg.Insecure = val
+			case string:
+				cfg.Insecure = strings.EqualFold(strings.TrimSpace(val), "true")
+			}
+		}
+		if v, ok := loader.Lookup("helix.starters.observability.tracing.headers"); ok {
+			headers, err := resolveTracingHeaders(v)
+			if err != nil {
+				return cfg, err
+			}
+			cfg.Headers = headers
+		}
+		if v, ok := loader.Lookup("helix.starters.observability.tracing.tls.ca-file"); ok {
+			if s, ok := v.(string); ok {
+				cfg.TLS.CAFile = strings.TrimSpace(s)
+			}
+		}
+		if v, ok := loader.Lookup("helix.starters.observability.tracing.tls.cert-file"); ok {
+			if s, ok := v.(string); ok {
+				cfg.TLS.CertFile = strings.TrimSpace(s)
+			}
+		}
+		if v, ok := loader.Lookup("helix.starters.observability.tracing.tls.key-file"); ok {
+			if s, ok := v.(string); ok {
+				cfg.TLS.KeyFile = strings.TrimSpace(s)
+			}
+		}
+		if v, ok := loader.Lookup("helix.starters.observability.tracing.tls.server-name"); ok {
+			if s, ok := v.(string); ok {
+				cfg.TLS.ServerName = strings.TrimSpace(s)
+			}
+		}
 	}
 
 	// WithTracingConfig overrides loader values.
@@ -178,6 +229,15 @@ func resolveTracingConfig(loader config.Loader, o *tracingOptions) (TracingConfi
 		if o.cfg.ServiceName != "" {
 			cfg.ServiceName = o.cfg.ServiceName
 		}
+		if loader == nil || o.cfg.Insecure || hasTracingTransportConfig(o.cfg) {
+			cfg.Insecure = o.cfg.Insecure
+		}
+		if o.cfg.Headers != nil {
+			cfg.Headers = cloneTracingHeaders(o.cfg.Headers)
+		}
+		if hasTracingTLSConfig(o.cfg.TLS) {
+			cfg.TLS = o.cfg.TLS
+		}
 		// Apply Enabled from WithTracingConfig only when it is explicitly true,
 		// or when no loader is active (test/manual path). This prevents
 		// WithTracingConfig(TracingConfig{ServiceName: "x"}) from silently
@@ -188,6 +248,44 @@ func resolveTracingConfig(loader config.Loader, o *tracingOptions) (TracingConfi
 	}
 
 	return cfg, nil
+}
+
+func resolveTracingHeaders(v any) (map[string]string, error) {
+	switch headers := v.(type) {
+	case map[string]string:
+		return cloneTracingHeaders(headers), nil
+	case map[string]any:
+		resolved := make(map[string]string, len(headers))
+		for key, raw := range headers {
+			value, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Errorf("header %q must be a string: %w", key, ErrInvalidTracing)
+			}
+			resolved[key] = value
+		}
+		return resolved, nil
+	default:
+		return nil, fmt.Errorf("headers must be map[string]string: %w", ErrInvalidTracing)
+	}
+}
+
+func cloneTracingHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(headers))
+	for key, value := range headers {
+		clone[key] = value
+	}
+	return clone
+}
+
+func hasTracingTransportConfig(cfg TracingConfig) bool {
+	return len(cfg.Headers) > 0 || hasTracingTLSConfig(cfg.TLS)
+}
+
+func hasTracingTLSConfig(cfg TracingTLSConfig) bool {
+	return cfg.CAFile != "" || cfg.CertFile != "" || cfg.KeyFile != "" || cfg.ServerName != ""
 }
 
 func validateExporter(exporter string) error {
@@ -208,11 +306,61 @@ func buildExporter(ctx context.Context, cfg TracingConfig, output io.Writer) (sd
 	case "stdout":
 		return stdouttrace.New(stdouttrace.WithWriter(output))
 	case "otlp", "jaeger":
-		return otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpoint(cfg.Endpoint),
-			otlptracehttp.WithInsecure(),
-		)
+		opts := []otlptracehttp.Option{}
+		if strings.HasPrefix(cfg.Endpoint, "http://") || strings.HasPrefix(cfg.Endpoint, "https://") {
+			opts = append(opts, otlptracehttp.WithEndpointURL(cfg.Endpoint))
+		} else {
+			opts = append(opts, otlptracehttp.WithEndpoint(cfg.Endpoint))
+		}
+		if len(cfg.Headers) > 0 {
+			opts = append(opts, otlptracehttp.WithHeaders(cloneTracingHeaders(cfg.Headers)))
+		}
+		if cfg.Insecure {
+			opts = append(opts, otlptracehttp.WithInsecure())
+		} else if hasTracingTLSConfig(cfg.TLS) {
+			tlsConfig, err := buildTracingTLSConfig(cfg.TLS)
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, otlptracehttp.WithTLSClientConfig(tlsConfig))
+		}
+		return otlptracehttp.New(ctx, opts...)
 	default:
 		return nil, fmt.Errorf("unsupported exporter %q: %w", cfg.Exporter, ErrInvalidTracing)
 	}
+}
+
+func buildTracingTLSConfig(cfg TracingTLSConfig) (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: cfg.ServerName,
+	}
+
+	if cfg.CAFile != "" {
+		pem, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read tracing TLS CA file: %w", err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		if ok := pool.AppendCertsFromPEM(pem); !ok {
+			return nil, fmt.Errorf("parse tracing TLS CA file: %w", ErrInvalidTracing)
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	if (cfg.CertFile == "") != (cfg.KeyFile == "") {
+		return nil, fmt.Errorf("tracing TLS cert-file and key-file must be configured together: %w", ErrInvalidTracing)
+	}
+	if cfg.CertFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load tracing TLS client certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsConfig, nil
 }

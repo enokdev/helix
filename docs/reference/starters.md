@@ -149,6 +149,12 @@ Force off: `helix.starters.observability.enabled: false`
 | `observability.tracing.service-name` | `""` | OTel service name |
 | `observability.tracing.exporter` | `"stdout"` | `stdout` \| `otlp` \| `jaeger` |
 | `observability.tracing.endpoint` | `""` | Exporter endpoint URL |
+| `observability.tracing.insecure` | `true` | Use plaintext/insecure OTLP transport for backward compatibility |
+| `observability.tracing.headers` | — | Static OTLP exporter headers, for example auth or tenant headers |
+| `observability.tracing.tls.ca-file` | `""` | PEM CA bundle for OTLP TLS |
+| `observability.tracing.tls.cert-file` | `""` | Client certificate for mTLS |
+| `observability.tracing.tls.key-file` | `""` | Client certificate key for mTLS |
+| `observability.tracing.tls.server-name` | `""` | TLS server name override |
 
 ---
 

@@ -163,6 +163,12 @@ logging:
 | `observability.tracing.service-name` | string | `""` | Nom du service OTel |
 | `observability.tracing.exporter` | string | `"stdout"` | Exporteur : `stdout` \| `otlp` \| `jaeger` |
 | `observability.tracing.endpoint` | string | `""` | URL de l'endpoint OTLP/Jaeger |
+| `observability.tracing.insecure` | bool | `true` | Utiliser un transport OTLP non chiffré/non sécurisé pour compatibilité ascendante |
+| `observability.tracing.headers` | map[string]string | — | Headers statiques de l'exporteur OTLP, par exemple auth ou tenant |
+| `observability.tracing.tls.ca-file` | string | `""` | Bundle CA PEM pour le TLS OTLP |
+| `observability.tracing.tls.cert-file` | string | `""` | Certificat client pour le mTLS |
+| `observability.tracing.tls.key-file` | string | `""` | Clé du certificat client pour le mTLS |
+| `observability.tracing.tls.server-name` | string | `""` | Surcharge du nom de serveur TLS |
 
 ```yaml
 observability:
@@ -170,7 +176,13 @@ observability:
     enabled: true
     service-name: "my-api"
     exporter: otlp
-    endpoint: "http://jaeger:4318"
+    endpoint: "https://otel-collector:4318"
+    insecure: false
+    headers:
+      Authorization: "Bearer ${OTEL_TOKEN}"
+    tls:
+      ca-file: "/etc/ssl/otel-ca.pem"
+      server-name: "otel-collector"
 ```
 
 ## Infos de l'application

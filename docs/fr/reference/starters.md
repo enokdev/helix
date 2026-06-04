@@ -149,6 +149,12 @@ Désactivation forcée : `helix.starters.observability.enabled: false`
 | `observability.tracing.service-name` | `""` | Nom du service OTel |
 | `observability.tracing.exporter` | `"stdout"` | `stdout` \| `otlp` \| `jaeger` |
 | `observability.tracing.endpoint` | `""` | URL de l'endpoint exporteur |
+| `observability.tracing.insecure` | `true` | Utiliser un transport OTLP non chiffré/non sécurisé pour compatibilité ascendante |
+| `observability.tracing.headers` | — | Headers statiques de l'exporteur OTLP, par exemple auth ou tenant |
+| `observability.tracing.tls.ca-file` | `""` | Bundle CA PEM pour le TLS OTLP |
+| `observability.tracing.tls.cert-file` | `""` | Certificat client pour le mTLS |
+| `observability.tracing.tls.key-file` | `""` | Clé du certificat client pour le mTLS |
+| `observability.tracing.tls.server-name` | `""` | Surcharge du nom de serveur TLS |
 
 ---
 
