@@ -288,6 +288,72 @@ func TestLoaderLoadsHelixLoggingLevelsWebFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoaderLoadsTracingTransportKnownKeysFromEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		key  string
+		want string
+	}{
+		{
+			name: "insecure",
+			env:  "HELIX_STARTERS_OBSERVABILITY_TRACING_INSECURE",
+			key:  "helix.starters.observability.tracing.insecure",
+			want: "false",
+		},
+		{
+			name: "headers",
+			env:  "HELIX_STARTERS_OBSERVABILITY_TRACING_HEADERS",
+			key:  "helix.starters.observability.tracing.headers",
+			want: "Authorization=Bearer token",
+		},
+		{
+			name: "tls ca file",
+			env:  "HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_CA_FILE",
+			key:  "helix.starters.observability.tracing.tls.ca-file",
+			want: "/etc/otel/ca.pem",
+		},
+		{
+			name: "tls cert file",
+			env:  "HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_CERT_FILE",
+			key:  "helix.starters.observability.tracing.tls.cert-file",
+			want: "/etc/otel/client.pem",
+		},
+		{
+			name: "tls key file",
+			env:  "HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_KEY_FILE",
+			key:  "helix.starters.observability.tracing.tls.key-file",
+			want: "/etc/otel/client-key.pem",
+		},
+		{
+			name: "tls server name",
+			env:  "HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_SERVER_NAME",
+			key:  "helix.starters.observability.tracing.tls.server-name",
+			want: "otel.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(tt.env, tt.want)
+
+			loader := NewLoader(WithAllowMissingConfig())
+			if err := loader.Load(new(struct{})); err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+
+			val, ok := loader.Lookup(tt.key)
+			if !ok {
+				t.Fatalf("Lookup(%s) not found; %s env should be visible", tt.key, tt.env)
+			}
+			if fmt.Sprint(val) != tt.want {
+				t.Errorf("%s = %v, want %s", tt.key, val, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoaderLoadsHelixLoggingLevelsFromYAML(t *testing.T) {
 	t.Parallel()
 

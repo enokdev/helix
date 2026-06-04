@@ -266,13 +266,23 @@ ordersTotal.With(prometheus.Labels{"status": "success"}).Inc()
 ### Configurer le tracing
 
 ```yaml
-observability:
-  tracing:
-    enabled: true
-    service-name: "my-api"
-    exporter: otlp        # otlp | stdout | jaeger
-    endpoint: "http://jaeger:4318"
-    sampling-ratio: 0.1   # tracer 10% des requêtes
+helix:
+  starters:
+    observability:
+      tracing:
+        enabled: true
+        service-name: "my-api"
+        exporter: otlp        # otlp | stdout | jaeger
+        endpoint: "https://jaeger:4318"
+        insecure: false
+        headers:
+          x-tenant: "dev"
+        tls:
+          ca-file: "/etc/otel/ca.pem"
+          cert-file: "/etc/otel/client.pem"
+          key-file: "/etc/otel/client-key.pem"
+          server-name: "jaeger"
+        sampling-ratio: 0.1   # tracer 10% des requêtes
 ```
 
 ### Exporteurs supportés
@@ -301,11 +311,6 @@ observability:
 
 ```yaml
 # config/application.yaml
-observability:
-  enabled: true
-  tracing:
-    enabled: false
-
 logging:
   format: json
   level: info
@@ -316,4 +321,6 @@ helix:
   starters:
     observability:
       enabled: true
+      tracing:
+        enabled: false
 ```

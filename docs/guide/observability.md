@@ -225,12 +225,22 @@ server := web.NewServer(
 ### YAML configuration
 
 ```yaml
-observability:
-  tracing:
-    enabled: true
-    service-name: "my-api"
-    exporter: otlp        # otlp | stdout | jaeger
-    endpoint: "http://jaeger:4318"
+helix:
+  starters:
+    observability:
+      tracing:
+        enabled: true
+        service-name: "my-api"
+        exporter: otlp        # otlp | stdout | jaeger
+        endpoint: "https://jaeger:4318"
+        insecure: false
+        headers:
+          x-tenant: "dev"
+        tls:
+          ca-file: "/etc/otel/ca.pem"
+          cert-file: "/etc/otel/client.pem"
+          key-file: "/etc/otel/client-key.pem"
+          server-name: "jaeger"
 ```
 
 ### Supported exporters
@@ -422,13 +432,23 @@ logger.Info("request complete",
 For high-traffic services, sample only a fraction of traces to reduce overhead:
 
 ```yaml
-observability:
-  tracing:
-    enabled: true
-    service-name: "my-api"
-    exporter: otlp
-    endpoint: "http://otel-collector:4318"
-    sampling-ratio: 0.1   # trace 10% of requests
+helix:
+  starters:
+    observability:
+      tracing:
+        enabled: true
+        service-name: "my-api"
+        exporter: otlp
+        endpoint: "https://otel-collector:4318"
+        insecure: false
+        headers:
+          x-tenant: "prod"
+        tls:
+          ca-file: "/etc/otel/ca.pem"
+          cert-file: "/etc/otel/client.pem"
+          key-file: "/etc/otel/client-key.pem"
+          server-name: "otel-collector"
+        sampling-ratio: 0.1   # trace 10% of requests
 ```
 
 Or configure programmatically:
@@ -465,11 +485,6 @@ helix.Run(helix.App{
 
 ```yaml
 # config/application.yaml
-observability:
-  enabled: true
-  tracing:
-    enabled: false
-
 logging:
   format: json
   level: info
@@ -480,4 +495,6 @@ helix:
   starters:
     observability:
       enabled: true
+      tracing:
+        enabled: false
 ```

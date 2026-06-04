@@ -137,9 +137,16 @@ Toutes les clés de configuration se mappent à des variables d'environnement. N
 |----------|--------------|-------------------|
 | `HELIX_SHUTDOWN_TIMEOUT` | `helix.shutdown-timeout` | `30s` |
 | `LOGGING_LEVEL` | `logging.level` | `warn` |
-| `OBSERVABILITY_TRACING_ENABLED` | `observability.tracing.enabled` | `true` |
-| `OBSERVABILITY_TRACING_EXPORTER` | `observability.tracing.exporter` | `otlp` |
-| `OBSERVABILITY_TRACING_ENDPOINT` | `observability.tracing.endpoint` | Votre collecteur OTel |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_ENABLED` | `helix.starters.observability.tracing.enabled` | `true` |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_EXPORTER` | `helix.starters.observability.tracing.exporter` | `otlp` |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_ENDPOINT` | `helix.starters.observability.tracing.endpoint` | Votre collecteur OTel |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_SERVICE_NAME` | `helix.starters.observability.tracing.service-name` | `my-api` |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_INSECURE` | `helix.starters.observability.tracing.insecure` | `false` pour TLS |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_HEADERS` | `helix.starters.observability.tracing.headers` | Headers OTLP statiques |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_CA_FILE` | `helix.starters.observability.tracing.tls.ca-file` | Bundle CA PEM |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_CERT_FILE` | `helix.starters.observability.tracing.tls.cert-file` | Certificat client mTLS |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_KEY_FILE` | `helix.starters.observability.tracing.tls.key-file` | Clé client mTLS |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_SERVER_NAME` | `helix.starters.observability.tracing.tls.server-name` | Surcharge du nom serveur TLS |
 
 ### Générer un secret JWT robuste
 
@@ -167,15 +174,23 @@ logging:
   levels:
     "my-api/auth": info  # garder les logs auth à info en prod
 
-observability:
-  tracing:
-    enabled: true
-    service-name: "my-api"
-    exporter: otlp
-    endpoint: "http://otel-collector:4318"
-
 helix:
   shutdown-timeout: 30s
+  starters:
+    observability:
+      tracing:
+        enabled: true
+        service-name: "my-api"
+        exporter: otlp
+        endpoint: "https://otel-collector:4318"
+        insecure: false
+        headers:
+          x-tenant: "prod"
+        tls:
+          ca-file: "/etc/otel/ca.pem"
+          cert-file: "/etc/otel/client.pem"
+          key-file: "/etc/otel/client-key.pem"
+          server-name: "otel-collector"
 ```
 
 Activez-le :
