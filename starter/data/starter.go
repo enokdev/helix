@@ -3,6 +3,7 @@ package data
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -144,11 +145,22 @@ func (s *Starter) Configure(container *core.Container) error {
 			if lc.startErr == nil {
 				for _, comp := range db.Components() {
 					if err := container.Register(comp); err != nil {
+						registerErr := fmt.Errorf("data starter: register db component %T: %w", comp, err)
+						var rollbackErr error
 						for i := len(registeredComponents) - 1; i >= 0; i-- {
-							rollbackRegistration(container, registeredComponents[i])
+							registered := registeredComponents[i]
+							if err := rollbackRegistration(container, registered); err != nil {
+								rollbackErr = errors.Join(
+									rollbackErr,
+									fmt.Errorf("data starter: rollback db component %T: %w", registered, err),
+								)
+							}
 						}
 						_ = db.Close()
-						return fmt.Errorf("data starter: register db component %T: %w", comp, err)
+						if rollbackErr != nil {
+							return errors.Join(registerErr, rollbackErr)
+						}
+						return registerErr
 					}
 					registeredComponents = append(registeredComponents, comp)
 				}
@@ -163,23 +175,34 @@ func (s *Starter) Configure(container *core.Container) error {
 	}
 
 	if err := container.Register(lc); err != nil {
+		registerErr := fmt.Errorf("data starter: register lifecycle: %w", err)
+		var rollbackErr error
 		for i := len(registeredComponents) - 1; i >= 0; i-- {
-			rollbackRegistration(container, registeredComponents[i])
+			registered := registeredComponents[i]
+			if err := rollbackRegistration(container, registered); err != nil {
+				rollbackErr = errors.Join(
+					rollbackErr,
+					fmt.Errorf("data starter: rollback db component %T: %w", registered, err),
+				)
+			}
 		}
 		if lc.db != nil {
 			_ = lc.db.Close()
 		}
-		return fmt.Errorf("data starter: register lifecycle: %w", err)
+		if rollbackErr != nil {
+			return errors.Join(registerErr, rollbackErr)
+		}
+		return registerErr
 	}
 	s.configuredFor = container
 	return nil
 }
 
-func rollbackRegistration(container *core.Container, component any) {
+func rollbackRegistration(container *core.Container, component any) error {
 	if container == nil || component == nil {
-		return
+		return nil
 	}
-	_ = container.Unregister(component)
+	return container.Unregister(component)
 }
 
 type databaseLifecycle struct {

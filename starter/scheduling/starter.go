@@ -137,18 +137,21 @@ func (s *Starter) Configure(container *core.Container) error {
 	}
 	registrar := newScheduledJobRegistrar(container, sched)
 	if err := container.Register(registrar); err != nil {
-		rollbackRegistration(container, sched)
-		return fmt.Errorf("scheduling starter: register scheduled job registrar: %w", err)
+		registerErr := fmt.Errorf("scheduling starter: register scheduled job registrar: %w", err)
+		if rollbackErr := rollbackRegistration(container, sched); rollbackErr != nil {
+			return errors.Join(registerErr, fmt.Errorf("scheduling starter: rollback scheduler: %w", rollbackErr))
+		}
+		return registerErr
 	}
 	s.configuredFor = container
 	return nil
 }
 
-func rollbackRegistration(container *core.Container, component any) {
+func rollbackRegistration(container *core.Container, component any) error {
 	if container == nil || component == nil {
-		return
+		return nil
 	}
-	_ = container.Unregister(component)
+	return container.Unregister(component)
 }
 
 type scheduledJobRegistrar struct {

@@ -31,10 +31,11 @@ func (f fakeConfig) Lookup(key string) (any, bool) {
 }
 
 type failOnRegisterResolver struct {
-	inner  *core.ReflectResolver
-	count  int
-	failAt int
-	err    error
+	inner         *core.ReflectResolver
+	count         int
+	failAt        int
+	err           error
+	unregisterErr error
 }
 
 func newFailOnRegisterResolver(failAt int, err error) *failOnRegisterResolver {
@@ -50,6 +51,9 @@ func (r *failOnRegisterResolver) Register(component any) error {
 }
 
 func (r *failOnRegisterResolver) Unregister(component any) error {
+	if r.unregisterErr != nil {
+		return r.unregisterErr
+	}
 	return r.inner.Unregister(component)
 }
 
@@ -299,6 +303,44 @@ func TestConfigureRollsBackDBComponentsWhenLifecycleRegisterFails(t *testing.T) 
 		if resolveErr := container.Resolve(target.Interface()); !errors.Is(resolveErr, core.ErrNotFound) {
 			t.Fatalf("Resolve %T after rollback error = %v, want ErrNotFound", comp, resolveErr)
 		}
+	}
+}
+
+func TestConfigureReportsDBComponentRollbackError(t *testing.T) {
+	registerErr := errors.New("register lifecycle failed")
+	rollbackErr := errors.New("rollback db component failed")
+	resolver := newFailOnRegisterResolver(4, registerErr)
+	resolver.unregisterErr = rollbackErr
+	container := core.NewContainer(core.WithResolver(resolver))
+	cfg := fakeConfig{values: map[string]any{
+		databaseURLKey: "file::memory:?cache=shared",
+	}}
+
+	err := New(cfg).Configure(container)
+	if !errors.Is(err, registerErr) {
+		t.Fatalf("Configure() error = %v, want register error", err)
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("Configure() error = %v, want rollback error", err)
+	}
+}
+
+func TestConfigureReportsDBComponentRollbackErrorWhenComponentRegisterFails(t *testing.T) {
+	registerErr := errors.New("register db component failed")
+	rollbackErr := errors.New("rollback db component failed")
+	resolver := newFailOnRegisterResolver(3, registerErr)
+	resolver.unregisterErr = rollbackErr
+	container := core.NewContainer(core.WithResolver(resolver))
+	cfg := fakeConfig{values: map[string]any{
+		databaseURLKey: "file::memory:?cache=shared",
+	}}
+
+	err := New(cfg).Configure(container)
+	if !errors.Is(err, registerErr) {
+		t.Fatalf("Configure() error = %v, want register error", err)
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("Configure() error = %v, want rollback error", err)
 	}
 }
 

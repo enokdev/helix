@@ -40,10 +40,11 @@ type panicScheduledProvider struct {
 }
 
 type failOnRegisterResolver struct {
-	inner  *core.ReflectResolver
-	count  int
-	failAt int
-	err    error
+	inner         *core.ReflectResolver
+	count         int
+	failAt        int
+	err           error
+	unregisterErr error
 }
 
 func newFailOnRegisterResolver(failAt int, err error) *failOnRegisterResolver {
@@ -59,6 +60,9 @@ func (r *failOnRegisterResolver) Register(component any) error {
 }
 
 func (r *failOnRegisterResolver) Unregister(component any) error {
+	if r.unregisterErr != nil {
+		return r.unregisterErr
+	}
 	return r.inner.Unregister(component)
 }
 
@@ -299,6 +303,22 @@ func TestConfigureRollsBackSchedulerWhenRegistrarRegisterFails(t *testing.T) {
 	var sched scheduler.Scheduler
 	if resolveErr := container.Resolve(&sched); !errors.Is(resolveErr, core.ErrNotFound) {
 		t.Fatalf("Resolve Scheduler after rollback error = %v, want ErrNotFound", resolveErr)
+	}
+}
+
+func TestConfigureReportsSchedulerRollbackError(t *testing.T) {
+	registerErr := errors.New("register registrar failed")
+	rollbackErr := errors.New("rollback scheduler failed")
+	resolver := newFailOnRegisterResolver(2, registerErr)
+	resolver.unregisterErr = rollbackErr
+	container := core.NewContainer(core.WithResolver(resolver))
+
+	err := New(nil).Configure(container)
+	if !errors.Is(err, registerErr) {
+		t.Fatalf("Configure() error = %v, want register error", err)
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("Configure() error = %v, want rollback error", err)
 	}
 }
 

@@ -34,10 +34,11 @@ type fakeHTTPServer struct {
 }
 
 type failOnRegisterResolver struct {
-	inner  *core.ReflectResolver
-	count  int
-	failAt int
-	err    error
+	inner         *core.ReflectResolver
+	count         int
+	failAt        int
+	err           error
+	unregisterErr error
 }
 
 func newFailOnRegisterResolver(failAt int, err error) *failOnRegisterResolver {
@@ -53,6 +54,9 @@ func (r *failOnRegisterResolver) Register(component any) error {
 }
 
 func (r *failOnRegisterResolver) Unregister(component any) error {
+	if r.unregisterErr != nil {
+		return r.unregisterErr
+	}
 	return r.inner.Unregister(component)
 }
 
@@ -307,6 +311,22 @@ func TestStarterConfigureRollsBackServerWhenLifecycleRegisterFails(t *testing.T)
 	var server helixweb.HTTPServer
 	if resolveErr := container.Resolve(&server); !errors.Is(resolveErr, core.ErrNotFound) {
 		t.Fatalf("Resolve HTTPServer after rollback error = %v, want ErrNotFound", resolveErr)
+	}
+}
+
+func TestStarterConfigureReportsServerRollbackError(t *testing.T) {
+	registerErr := errors.New("register lifecycle failed")
+	rollbackErr := errors.New("rollback server failed")
+	resolver := newFailOnRegisterResolver(2, registerErr)
+	resolver.unregisterErr = rollbackErr
+	container := core.NewContainer(core.WithResolver(resolver))
+
+	err := New(nil).Configure(container)
+	if !errors.Is(err, registerErr) {
+		t.Fatalf("Configure() error = %v, want register error", err)
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("Configure() error = %v, want rollback error", err)
 	}
 }
 
