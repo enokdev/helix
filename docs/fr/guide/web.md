@@ -304,6 +304,33 @@ web.RegisterInterceptor(server, "audit", &AuditInterceptor{})
 func (c *ProductController) Create(...) { ... }
 ```
 
+## Interceptor de cache
+
+Helix inclut un interceptor de cache integre pour les reponses GET :
+
+```go
+//helix:interceptor cache
+func (c *ProductController) Index() []Product { ... }
+
+// TTL personnalise par route :
+//helix:interceptor cache:5m
+func (c *ProductController) Show(ctx web.Context) (Product, error) { ... }
+
+// TTL, limite d'entrees et strategie d'eviction :
+//helix:interceptor cache:30s:max=500:lru
+func (c *ProductController) Search(ctx web.Context) ([]Product, error) { ... }
+```
+
+Options de directive :
+
+- `cache:<duration>` definit le TTL avec la syntaxe de duree Go, par exemple `cache:30s` ou `cache:5m`.
+- `cache:<duration>:max=<entries>` limite le nombre d'entrees stockees pour cet interceptor.
+- `cache:<duration>:lru` utilise l'eviction least-recently-used ; `cache:<duration>:fifo` evince les entrees les plus anciennes.
+
+Seules les reponses GET reussies et ecrites en JSON sont mises en cache. Les requetes non-GET, les erreurs de handler, les reponses non-2xx, les reponses non-JSON et les reponses plus grandes que la limite de corps du cache traversent l'interceptor sans etre stockees.
+
+Les requetes concurrentes a froid pour la meme URL sont coalescees : la premiere requete execute le handler, puis les requetes en attente rejouent le meme resultat JSON quand il est disponible. Les cles de cache sont calculees avec la methode HTTP et l'URL originale, query string incluse. Les entrees expirees sont supprimees paresseusement a l'acces et par un sweep periodique en arriere-plan.
+
 ## Gestion des erreurs
 
 ### Retourner des erreurs depuis les handlers

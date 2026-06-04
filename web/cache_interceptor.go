@@ -63,6 +63,7 @@ type cacheStore struct {
 	sweepCtx          context.Context
 	sweepCancel       context.CancelFunc
 	sweepDone         chan struct{}
+	stopOnce          sync.Once
 
 	// Metrics.
 	hits      atomic.Uint64
@@ -335,9 +336,11 @@ func (s *cacheStore) Size() int {
 }
 
 func (s *cacheStore) Stop() error {
-	s.sweepTicker.Stop()
-	s.sweepCancel()
-	<-s.sweepDone
+	s.stopOnce.Do(func() {
+		s.sweepTicker.Stop()
+		s.sweepCancel()
+		<-s.sweepDone
+	})
 	return nil
 }
 

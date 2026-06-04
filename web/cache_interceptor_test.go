@@ -475,6 +475,16 @@ func TestCacheStoreStop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCacheStoreStopIsIdempotent(t *testing.T) {
+	store := newCacheStore()
+	if err := store.Stop(); err != nil {
+		t.Fatalf("first Stop() error = %v", err)
+	}
+	if err := store.Stop(); err != nil {
+		t.Fatalf("second Stop() error = %v", err)
+	}
+}
+
 // TestCacheInterceptorResponseRecorderCapture tests responseRecorder.
 func TestCacheInterceptorResponseRecorderCapture(t *testing.T) {
 	mockCtx := &mockContext{method: "GET"}

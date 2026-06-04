@@ -374,20 +374,27 @@ func (i *LogInterceptor) Intercept(ctx web.Context, next web.HandlerFunc) error 
 Helix includes a built-in cache interceptor for GET responses:
 
 ```go
-// Register with TTL:
-web.RegisterInterceptorFactory(server, "cache", web.NewCacheInterceptorFactory(
-    web.CacheOptions{DefaultTTL: 60 * time.Second},
-))
-
 //helix:interceptor cache
 func (c *ProductController) Index() []Product { ... }
 
 // Custom TTL per route:
-//helix:interceptor cache:300   // 5 minutes
+//helix:interceptor cache:5m
 func (c *ProductController) Show(ctx web.Context) (Product, error) { ... }
+
+// Custom TTL, entry cap, and eviction strategy:
+//helix:interceptor cache:30s:max=500:lru
+func (c *ProductController) Search(ctx web.Context) ([]Product, error) { ... }
 ```
 
-Cache keys are computed from `method + path + query string`. Cache is invalidated automatically on non-GET requests to the same path prefix.
+Directive options:
+
+- `cache:<duration>` sets the TTL using Go duration syntax, for example `cache:30s` or `cache:5m`.
+- `cache:<duration>:max=<entries>` caps the number of stored entries for that interceptor.
+- `cache:<duration>:lru` uses least-recently-used eviction; `cache:<duration>:fifo` evicts oldest entries first.
+
+Only successful GET responses written as JSON are cached. Non-GET requests, handler errors, non-2xx responses, non-JSON responses, and responses larger than the cache body limit are passed through without being stored.
+
+Concurrent cold requests for the same URL are coalesced: the first request executes the handler, and waiters replay the same JSON result when it is available. Cache keys are computed from the request method and original URL, including the query string. Expired entries are removed lazily on access and by a background sweep.
 
 ## Nested struct binding
 
