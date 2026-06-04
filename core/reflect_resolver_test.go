@@ -261,6 +261,26 @@ func TestReflectResolverUnregisterRemovesGraphNode(t *testing.T) {
 	}
 }
 
+func TestReflectResolverUnregisterComponentRegistration(t *testing.T) {
+	resolver := NewReflectResolver()
+	registration := ComponentRegistration{
+		Component: &reflectResolverDependency{Value: "registered"},
+		Scope:     ScopeSingleton,
+	}
+
+	if err := resolver.Register(registration); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if err := resolver.Unregister(registration); err != nil {
+		t.Fatalf("Unregister() error = %v", err)
+	}
+
+	var resolved *reflectResolverDependency
+	if err := resolver.Resolve(&resolved); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Resolve() error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestReflectResolver_Resolve(t *testing.T) {
 	t.Run("invalid targets return ErrUnresolvable", func(t *testing.T) {
 		resolver := NewReflectResolver()

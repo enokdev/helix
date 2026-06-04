@@ -80,11 +80,10 @@ func (r *ReflectResolver) Register(component any) error {
 
 // Unregister removes a component registration keyed by its concrete type.
 func (r *ReflectResolver) Unregister(component any) error {
-	componentValue := reflect.ValueOf(component)
-	if !isRegistrableComponent(componentValue) {
-		return fmt.Errorf("core: unregister %T: %w", component, ErrUnresolvable)
+	_, componentType, err := normalizeComponentRegistration(component)
+	if err != nil {
+		return fmt.Errorf("core: unregister %T: %w", component, err)
 	}
-	componentType := componentValue.Type()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -263,7 +262,11 @@ func (r *ReflectResolver) resolveAllAssignable(targetType reflect.Type) ([]refle
 	values := make([]reflect.Value, 0)
 	for _, registrationType := range order {
 		r.mu.Lock()
-		registration := r.registrations[registrationType]
+		registration, exists := r.registrations[registrationType]
+		if !exists {
+			r.mu.Unlock()
+			continue
+		}
 		if !registrationMatchesRequestedType(registrationType, registration, targetType) {
 			r.mu.Unlock()
 			continue

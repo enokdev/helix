@@ -122,6 +122,33 @@ func TestResolveAllConcurrentWithRegisterDoesNotRace(t *testing.T) {
 	})
 }
 
+func TestResolveAllConcurrentWithUnregisterDoesNotUseStaleRegistration(t *testing.T) {
+	t.Parallel()
+
+	container := NewContainer(WithResolver(NewReflectResolver()))
+	component := &resolveAllFirst{}
+	if err := container.Register(component); err != nil {
+		t.Fatalf("Register(first) error = %v", err)
+	}
+
+	runConcurrently(t, 32, func() {
+		for i := 0; i < 100; i++ {
+			if err := container.Unregister(component); err != nil && !errors.Is(err, ErrNotFound) {
+				t.Errorf("Unregister(first) error = %v", err)
+				return
+			}
+			if err := container.Register(component); err != nil {
+				t.Errorf("Register(first) error = %v", err)
+				return
+			}
+			if _, err := ResolveAll[resolveAllService](container); err != nil {
+				t.Errorf("ResolveAll() error = %v", err)
+				return
+			}
+		}
+	})
+}
+
 func TestResolveAllReturnsEmptySliceWhenNoComponentMatches(t *testing.T) {
 	t.Parallel()
 
