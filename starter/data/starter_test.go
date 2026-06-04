@@ -6,6 +6,7 @@ import (
 	"go/build"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -272,7 +273,7 @@ func TestConfigure_PropagatesRegisterComponentError(t *testing.T) {
 
 func TestConfigureRollsBackDBComponentsWhenLifecycleRegisterFails(t *testing.T) {
 	sentinel := errors.New("register lifecycle failed")
-	resolver := newFailOnRegisterResolver(3, sentinel)
+	resolver := newFailOnRegisterResolver(4, sentinel)
 	container := core.NewContainer(core.WithResolver(resolver))
 	cfg := fakeConfig{values: map[string]any{
 		databaseURLKey: "file::memory:?cache=shared",
@@ -283,9 +284,21 @@ func TestConfigureRollsBackDBComponentsWhenLifecycleRegisterFails(t *testing.T) 
 		t.Fatalf("Configure() error = %v, want sentinel", err)
 	}
 
-	var db *datagorm.DB
-	if resolveErr := container.Resolve(&db); !errors.Is(resolveErr, core.ErrNotFound) {
-		t.Fatalf("Resolve DB after rollback error = %v, want ErrNotFound", resolveErr)
+	db, openErr := datagorm.OpenSQLite("file::memory:?cache=shared")
+	if openErr != nil {
+		t.Fatalf("OpenSQLite() error = %v", openErr)
+	}
+	t.Cleanup(func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	})
+
+	for _, comp := range db.Components() {
+		target := reflect.New(reflect.TypeOf(comp))
+		if resolveErr := container.Resolve(target.Interface()); !errors.Is(resolveErr, core.ErrNotFound) {
+			t.Fatalf("Resolve %T after rollback error = %v, want ErrNotFound", comp, resolveErr)
+		}
 	}
 }
 
