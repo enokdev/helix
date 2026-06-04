@@ -125,6 +125,7 @@ func (s *Starter) Configure(container *core.Container) error {
 	}
 
 	lc := &databaseLifecycle{}
+	registeredComponents := make([]any, 0)
 
 	if s.cfg != nil {
 		urlVal, _ := s.cfg.Lookup(databaseURLKey)
@@ -143,9 +144,13 @@ func (s *Starter) Configure(container *core.Container) error {
 			if lc.startErr == nil {
 				for _, comp := range db.Components() {
 					if err := container.Register(comp); err != nil {
+						for i := len(registeredComponents) - 1; i >= 0; i-- {
+							rollbackRegistration(container, registeredComponents[i])
+						}
 						_ = db.Close()
 						return fmt.Errorf("data starter: register db component %T: %w", comp, err)
 					}
+					registeredComponents = append(registeredComponents, comp)
 				}
 			}
 		}
@@ -158,6 +163,9 @@ func (s *Starter) Configure(container *core.Container) error {
 	}
 
 	if err := container.Register(lc); err != nil {
+		for i := len(registeredComponents) - 1; i >= 0; i-- {
+			rollbackRegistration(container, registeredComponents[i])
+		}
 		if lc.db != nil {
 			_ = lc.db.Close()
 		}
@@ -165,6 +173,13 @@ func (s *Starter) Configure(container *core.Container) error {
 	}
 	s.configuredFor = container
 	return nil
+}
+
+func rollbackRegistration(container *core.Container, component any) {
+	if container == nil || component == nil {
+		return
+	}
+	_ = container.Unregister(component)
 }
 
 type databaseLifecycle struct {

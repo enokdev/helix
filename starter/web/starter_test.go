@@ -33,6 +33,37 @@ type fakeHTTPServer struct {
 	stopCtx   context.Context
 }
 
+type failOnRegisterResolver struct {
+	inner  *core.ReflectResolver
+	count  int
+	failAt int
+	err    error
+}
+
+func newFailOnRegisterResolver(failAt int, err error) *failOnRegisterResolver {
+	return &failOnRegisterResolver{inner: core.NewReflectResolver(), failAt: failAt, err: err}
+}
+
+func (r *failOnRegisterResolver) Register(component any) error {
+	r.count++
+	if r.count == r.failAt {
+		return r.err
+	}
+	return r.inner.Register(component)
+}
+
+func (r *failOnRegisterResolver) Unregister(component any) error {
+	return r.inner.Unregister(component)
+}
+
+func (r *failOnRegisterResolver) Resolve(target any) error {
+	return r.inner.Resolve(target)
+}
+
+func (r *failOnRegisterResolver) Graph() core.DependencyGraph {
+	return r.inner.Graph()
+}
+
 var cwdMu sync.Mutex
 
 func chdirForTest(t *testing.T, dir string) {
@@ -260,6 +291,22 @@ func TestStarterConfigure_PropagatesRegisterLifecycleError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "web starter: register server") {
 		t.Fatalf("Configure() error = %q, want server register context", err.Error())
+	}
+}
+
+func TestStarterConfigureRollsBackServerWhenLifecycleRegisterFails(t *testing.T) {
+	sentinel := errors.New("register lifecycle failed")
+	resolver := newFailOnRegisterResolver(2, sentinel)
+	container := core.NewContainer(core.WithResolver(resolver))
+
+	err := New(nil).Configure(container)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Configure() error = %v, want sentinel", err)
+	}
+
+	var server helixweb.HTTPServer
+	if resolveErr := container.Resolve(&server); !errors.Is(resolveErr, core.ErrNotFound) {
+		t.Fatalf("Resolve HTTPServer after rollback error = %v, want ErrNotFound", resolveErr)
 	}
 }
 

@@ -135,11 +135,20 @@ func (s *Starter) Configure(container *core.Container) error {
 	if err := container.Register(sched); err != nil {
 		return fmt.Errorf("scheduling starter: register scheduler: %w", err)
 	}
-	if err := container.Register(newScheduledJobRegistrar(container, sched)); err != nil {
+	registrar := newScheduledJobRegistrar(container, sched)
+	if err := container.Register(registrar); err != nil {
+		rollbackRegistration(container, sched)
 		return fmt.Errorf("scheduling starter: register scheduled job registrar: %w", err)
 	}
 	s.configuredFor = container
 	return nil
+}
+
+func rollbackRegistration(container *core.Container, component any) {
+	if container == nil || component == nil {
+		return
+	}
+	_ = container.Unregister(component)
 }
 
 type scheduledJobRegistrar struct {

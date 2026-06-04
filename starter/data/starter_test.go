@@ -29,6 +29,37 @@ func (f fakeConfig) Lookup(key string) (any, bool) {
 	return v, ok
 }
 
+type failOnRegisterResolver struct {
+	inner  *core.ReflectResolver
+	count  int
+	failAt int
+	err    error
+}
+
+func newFailOnRegisterResolver(failAt int, err error) *failOnRegisterResolver {
+	return &failOnRegisterResolver{inner: core.NewReflectResolver(), failAt: failAt, err: err}
+}
+
+func (r *failOnRegisterResolver) Register(component any) error {
+	r.count++
+	if r.count == r.failAt {
+		return r.err
+	}
+	return r.inner.Register(component)
+}
+
+func (r *failOnRegisterResolver) Unregister(component any) error {
+	return r.inner.Unregister(component)
+}
+
+func (r *failOnRegisterResolver) Resolve(target any) error {
+	return r.inner.Resolve(target)
+}
+
+func (r *failOnRegisterResolver) Graph() core.DependencyGraph {
+	return r.inner.Graph()
+}
+
 func newTestContainer() *core.Container {
 	return core.NewContainer(core.WithResolver(core.NewReflectResolver()))
 }
@@ -236,6 +267,25 @@ func TestConfigure_PropagatesRegisterComponentError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "data starter: register") {
 		t.Fatalf("Configure() error = %q, want register context", err.Error())
+	}
+}
+
+func TestConfigureRollsBackDBComponentsWhenLifecycleRegisterFails(t *testing.T) {
+	sentinel := errors.New("register lifecycle failed")
+	resolver := newFailOnRegisterResolver(3, sentinel)
+	container := core.NewContainer(core.WithResolver(resolver))
+	cfg := fakeConfig{values: map[string]any{
+		databaseURLKey: "file::memory:?cache=shared",
+	}}
+
+	err := New(cfg).Configure(container)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Configure() error = %v, want sentinel", err)
+	}
+
+	var db *datagorm.DB
+	if resolveErr := container.Resolve(&db); !errors.Is(resolveErr, core.ErrNotFound) {
+		t.Fatalf("Resolve DB after rollback error = %v, want ErrNotFound", resolveErr)
 	}
 }
 

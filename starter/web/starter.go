@@ -137,10 +137,18 @@ func (s *Starter) Configure(container *core.Container) error {
 		return fmt.Errorf("web starter: register server: %w", err)
 	}
 	if err := container.Register(lifecycle); err != nil {
+		rollbackRegistration(container, lifecycle.server)
 		return fmt.Errorf("web starter: register lifecycle: %w", err)
 	}
 	s.configuredFor = container
 	return nil
+}
+
+func rollbackRegistration(container *core.Container, component any) {
+	if container == nil || component == nil {
+		return
+	}
+	_ = container.Unregister(component)
 }
 
 type serverLifecycle struct {

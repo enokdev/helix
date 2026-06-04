@@ -39,6 +39,37 @@ type panicScheduledProvider struct {
 	value any
 }
 
+type failOnRegisterResolver struct {
+	inner  *core.ReflectResolver
+	count  int
+	failAt int
+	err    error
+}
+
+func newFailOnRegisterResolver(failAt int, err error) *failOnRegisterResolver {
+	return &failOnRegisterResolver{inner: core.NewReflectResolver(), failAt: failAt, err: err}
+}
+
+func (r *failOnRegisterResolver) Register(component any) error {
+	r.count++
+	if r.count == r.failAt {
+		return r.err
+	}
+	return r.inner.Register(component)
+}
+
+func (r *failOnRegisterResolver) Unregister(component any) error {
+	return r.inner.Unregister(component)
+}
+
+func (r *failOnRegisterResolver) Resolve(target any) error {
+	return r.inner.Resolve(target)
+}
+
+func (r *failOnRegisterResolver) Graph() core.DependencyGraph {
+	return r.inner.Graph()
+}
+
 func (p *panicScheduledProvider) ScheduledJobs() []scheduler.Job {
 	panic(p.value)
 }
@@ -252,6 +283,22 @@ func TestConfigure_PropagatesSchedulerRegisterError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "scheduling starter: register scheduler") {
 		t.Fatalf("Configure() error = %q, want scheduler register context", err.Error())
+	}
+}
+
+func TestConfigureRollsBackSchedulerWhenRegistrarRegisterFails(t *testing.T) {
+	sentinel := errors.New("register registrar failed")
+	resolver := newFailOnRegisterResolver(2, sentinel)
+	container := core.NewContainer(core.WithResolver(resolver))
+
+	err := New(nil).Configure(container)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Configure() error = %v, want sentinel", err)
+	}
+
+	var sched scheduler.Scheduler
+	if resolveErr := container.Resolve(&sched); !errors.Is(resolveErr, core.ErrNotFound) {
+		t.Fatalf("Resolve Scheduler after rollback error = %v, want ErrNotFound", resolveErr)
 	}
 }
 
