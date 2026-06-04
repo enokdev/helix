@@ -168,7 +168,7 @@ func resolveTracingConfig(loader config.Loader, o *tracingOptions) (TracingConfi
 		}
 		if v, ok := loader.Lookup("helix.starters.observability.tracing.exporter"); ok {
 			if s, ok := v.(string); ok {
-				// An explicit empty string is treated as an invalid value (AC9).
+				// An explicit empty string is treated as an invalid value.
 				cfg.Exporter = strings.TrimSpace(strings.ToLower(s))
 			}
 		}
