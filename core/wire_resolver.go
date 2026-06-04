@@ -43,6 +43,34 @@ func (r *WireResolver) Register(component any) error {
 	return nil
 }
 
+// Unregister removes a pre-wired component instance by concrete type.
+func (r *WireResolver) Unregister(component any) error {
+	componentType := reflect.TypeOf(component)
+	componentValue := reflect.ValueOf(component)
+	if !isRegistrableComponent(componentValue) {
+		return fmt.Errorf("core: unregister %T: %w", component, ErrUnresolvable)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.instances[componentType]; !exists {
+		return fmt.Errorf("core: unregister %T: %w", component, ErrNotFound)
+	}
+	delete(r.instances, componentType)
+	r.registrationOrder = removeWireRegistrationType(r.registrationOrder, componentType)
+	return nil
+}
+
+func removeWireRegistrationType(types []reflect.Type, target reflect.Type) []reflect.Type {
+	for i, typ := range types {
+		if typ == target {
+			return append(types[:i], types[i+1:]...)
+		}
+	}
+	return types
+}
+
 // Resolve assigns a registered pre-wired instance to target.
 func (r *WireResolver) Resolve(target any) error {
 	targetValue := reflect.ValueOf(target)

@@ -36,6 +36,25 @@ func (c *Container) Register(component any) error {
 	return c.resolver.Register(component)
 }
 
+// Unregister removes a component from the container's resolver registry when
+// the active resolver supports rollback.
+func (c *Container) Unregister(component any) error {
+	c.resolverMu.Lock()
+	defer c.resolverMu.Unlock()
+
+	if component == nil {
+		return fmt.Errorf("core: unregister: %w", ErrUnresolvable)
+	}
+	if c.resolver == nil {
+		return fmt.Errorf("core: unregister %T: %w", component, ErrUnresolvable)
+	}
+	unregisterer, ok := c.resolver.(UnregisterResolver)
+	if !ok {
+		return fmt.Errorf("core: unregister %T: resolver does not support unregister: %w", component, ErrUnresolvable)
+	}
+	return unregisterer.Unregister(component)
+}
+
 // Resolve populates target with the registered component matching its type.
 // Returns ErrUnresolvable if no Resolver has been configured or target is nil.
 func (c *Container) Resolve(target any) error {

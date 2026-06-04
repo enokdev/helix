@@ -18,6 +18,12 @@ type Resolver interface {
 	Graph() DependencyGraph
 }
 
+// UnregisterResolver is an optional resolver capability used to roll back
+// framework-owned registrations when a multi-step configuration fails.
+type UnregisterResolver interface {
+	Unregister(component any) error
+}
+
 // LifecycleCandidate holds a resolved non-lazy singleton component that
 // implements the Lifecycle interface.
 type LifecycleCandidate struct {

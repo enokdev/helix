@@ -60,6 +60,23 @@ func TestWireResolver_ResolveNotFound(t *testing.T) {
 	}
 }
 
+func TestWireResolverUnregister(t *testing.T) {
+	resolver := NewWireResolver()
+	component := &wireResolverService{}
+
+	if err := resolver.Register(component); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if err := resolver.Unregister(component); err != nil {
+		t.Fatalf("Unregister() error = %v", err)
+	}
+
+	var resolved *wireResolverService
+	if err := resolver.Resolve(&resolved); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Resolve() error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestWireResolver_LifecycleCandidates(t *testing.T) {
 	t.Parallel()
 

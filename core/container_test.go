@@ -54,6 +54,44 @@ func TestContainer_Register(t *testing.T) {
 	}
 }
 
+func TestContainerUnregister(t *testing.T) {
+	container := NewContainer(WithResolver(NewReflectResolver()))
+	component := &testDependency{Name: "registered"}
+
+	if err := container.Register(component); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	var resolved *testDependency
+	if err := container.Resolve(&resolved); err != nil {
+		t.Fatalf("Resolve() before unregister error = %v", err)
+	}
+
+	if err := container.Unregister(component); err != nil {
+		t.Fatalf("Unregister() error = %v", err)
+	}
+
+	resolved = nil
+	if err := container.Resolve(&resolved); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Resolve() after unregister error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestContainerUnregisterWithoutResolverSupport(t *testing.T) {
+	container := NewContainer(WithResolver(&registerOnlyResolver{}))
+
+	err := container.Unregister(&testDependency{})
+	if !errors.Is(err, ErrUnresolvable) {
+		t.Fatalf("Unregister() error = %v, want ErrUnresolvable", err)
+	}
+}
+
+type registerOnlyResolver struct{}
+
+func (r *registerOnlyResolver) Register(any) error     { return nil }
+func (r *registerOnlyResolver) Resolve(any) error      { return ErrNotFound }
+func (r *registerOnlyResolver) Graph() DependencyGraph { return DependencyGraph{} }
+
 func TestContainer_Resolve(t *testing.T) {
 	tests := []struct {
 		name     string

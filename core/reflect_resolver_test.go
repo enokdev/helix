@@ -12,6 +12,10 @@ type testDependency struct {
 	Name string
 }
 
+type reflectResolverDependency struct {
+	Value string
+}
+
 type testService struct {
 	Dependency *testDependency `inject:"true"`
 }
@@ -235,6 +239,25 @@ func TestReflectResolver_Register(t *testing.T) {
 				t.Fatalf("Graph().Nodes = %v, want [%s]", graph.Nodes, componentType.String())
 			}
 		})
+	}
+}
+
+func TestReflectResolverUnregisterRemovesGraphNode(t *testing.T) {
+	resolver := NewReflectResolver()
+	component := &reflectResolverDependency{Value: "registered"}
+
+	if err := resolver.Register(component); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if err := resolver.Unregister(component); err != nil {
+		t.Fatalf("Unregister() error = %v", err)
+	}
+
+	graph := resolver.Graph()
+	for _, node := range graph.Nodes {
+		if node == "*core.reflectResolverDependency" {
+			t.Fatalf("Graph node %q still present after unregister", node)
+		}
 	}
 }
 

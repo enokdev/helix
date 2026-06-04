@@ -78,6 +78,52 @@ func (r *ReflectResolver) Register(component any) error {
 	return nil
 }
 
+// Unregister removes a component registration keyed by its concrete type.
+func (r *ReflectResolver) Unregister(component any) error {
+	componentValue := reflect.ValueOf(component)
+	if !isRegistrableComponent(componentValue) {
+		return fmt.Errorf("core: unregister %T: %w", component, ErrUnresolvable)
+	}
+	componentType := componentValue.Type()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.registrations[componentType]; !exists {
+		return fmt.Errorf("core: unregister %T: %w", component, ErrNotFound)
+	}
+
+	delete(r.registrations, componentType)
+	delete(r.singletons, componentType)
+	r.invalidateSingletonsDependingOn(componentType)
+	r.registrationOrder = removeRegistrationType(r.registrationOrder, componentType)
+	delete(r.graph.Edges, componentType.String())
+	r.graph.Nodes = removeGraphNode(r.graph.Nodes, componentType.String())
+	for node, edges := range r.graph.Edges {
+		r.graph.Edges[node] = removeGraphNode(edges, componentType.String())
+	}
+
+	return nil
+}
+
+func removeRegistrationType(types []reflect.Type, target reflect.Type) []reflect.Type {
+	for i, typ := range types {
+		if typ == target {
+			return append(types[:i], types[i+1:]...)
+		}
+	}
+	return types
+}
+
+func removeGraphNode(nodes []string, target string) []string {
+	for i, node := range nodes {
+		if node == target {
+			return append(nodes[:i], nodes[i+1:]...)
+		}
+	}
+	return nodes
+}
+
 func (r *ReflectResolver) invalidateSingletonsDependingOn(registrationType reflect.Type) {
 	invalidated := make(map[reflect.Type]struct{})
 	r.collectSingletonDependents(registrationType, invalidated)
