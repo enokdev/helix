@@ -229,7 +229,7 @@ func resolveTracingConfig(loader config.Loader, o *tracingOptions) (TracingConfi
 		if o.cfg.ServiceName != "" {
 			cfg.ServiceName = o.cfg.ServiceName
 		}
-		if loader == nil || o.cfg.Insecure || hasTracingTransportConfig(o.cfg) {
+		if shouldOverrideTracingInsecure(loader, o.cfg) {
 			cfg.Insecure = o.cfg.Insecure
 		}
 		if o.cfg.Headers != nil {
@@ -284,6 +284,10 @@ func hasTracingTransportConfig(cfg TracingConfig) bool {
 	return len(cfg.Headers) > 0 || hasTracingTLSConfig(cfg.TLS)
 }
 
+func shouldOverrideTracingInsecure(loader config.Loader, cfg TracingConfig) bool {
+	return loader == nil || cfg.Insecure || cfg.Exporter != "" || cfg.Endpoint != "" || hasTracingTransportConfig(cfg)
+}
+
 func hasTracingTLSConfig(cfg TracingTLSConfig) bool {
 	return cfg.CAFile != "" || cfg.CertFile != "" || cfg.KeyFile != "" || cfg.ServerName != ""
 }
@@ -317,7 +321,7 @@ func buildExporter(ctx context.Context, cfg TracingConfig, output io.Writer) (sd
 		}
 		if cfg.Insecure {
 			opts = append(opts, otlptracehttp.WithInsecure())
-		} else if hasTracingTLSConfig(cfg.TLS) {
+		} else {
 			tlsConfig, err := buildTracingTLSConfig(cfg.TLS)
 			if err != nil {
 				return nil, err

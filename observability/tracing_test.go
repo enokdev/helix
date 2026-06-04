@@ -3,6 +3,7 @@ package observability
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"testing"
 
@@ -262,6 +263,62 @@ func TestResolveTracingConfig_DefaultOTLPInsecureRemainsCompatible(t *testing.T)
 	}
 }
 
+func TestResolveTracingConfig_WithTracingConfigOverridesInsecureFalse(t *testing.T) {
+	loader := mapLoader{
+		"helix.starters.observability.tracing.enabled":  true,
+		"helix.starters.observability.tracing.exporter": "otlp",
+		"helix.starters.observability.tracing.insecure": true,
+	}
+
+	cfg, err := resolveTracingConfig(loader, &tracingOptions{})
+	if err != nil {
+		t.Fatalf("resolveTracingConfig() error = %v", err)
+	}
+	if !cfg.Insecure {
+		t.Fatal("Insecure = false before override, want true from loader")
+	}
+
+	cfg, err = resolveTracingConfig(loader, &tracingOptions{
+		cfg:    TracingConfig{Exporter: "otlp", Insecure: false},
+		cfgSet: true,
+	})
+	if err != nil {
+		t.Fatalf("resolveTracingConfig() with override error = %v", err)
+	}
+	if cfg.Insecure {
+		t.Fatal("Insecure = true, want false from WithTracingConfig override")
+	}
+}
+
+func TestResolveTracingConfig_ServiceNameOnlyOverrideDoesNotChangeLoaderInsecure(t *testing.T) {
+	loader := mapLoader{
+		"helix.starters.observability.tracing.enabled":  true,
+		"helix.starters.observability.tracing.exporter": "otlp",
+		"helix.starters.observability.tracing.insecure": true,
+	}
+
+	cfg, err := resolveTracingConfig(loader, &tracingOptions{
+		cfg:    TracingConfig{ServiceName: "override-svc"},
+		cfgSet: true,
+	})
+	if err != nil {
+		t.Fatalf("resolveTracingConfig() error = %v", err)
+	}
+	if !cfg.Insecure {
+		t.Fatal("Insecure = false, want true from loader when override only changes service name")
+	}
+}
+
+func TestBuildTLSConfigEmptyUsesTLS12Minimum(t *testing.T) {
+	cfg, err := buildTracingTLSConfig(TracingTLSConfig{})
+	if err != nil {
+		t.Fatalf("buildTracingTLSConfig() error = %v", err)
+	}
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("MinVersion = %v, want TLS 1.2", cfg.MinVersion)
+	}
+}
+
 func TestBuildTLSConfigRejectsIncompleteClientCertificate(t *testing.T) {
 	_, err := buildTracingTLSConfig(TracingTLSConfig{CertFile: "client.pem"})
 	if err == nil {
@@ -272,7 +329,7 @@ func TestBuildTLSConfigRejectsIncompleteClientCertificate(t *testing.T) {
 	}
 }
 
-func TestBuildExporterAcceptsSecureOTLPEndpointWithHeaders(t *testing.T) {
+func TestBuildExporterAcceptsSecureOTLPEndpointWithHeadersAndEmptyTLSConfig(t *testing.T) {
 	exp, err := buildExporter(context.Background(), TracingConfig{
 		Exporter: "otlp",
 		Endpoint: "https://otel.example.com:4318",
@@ -281,7 +338,6 @@ func TestBuildExporterAcceptsSecureOTLPEndpointWithHeaders(t *testing.T) {
 			"Authorization": "Bearer token",
 			"x-tenant":      "helix",
 		},
-		TLS: TracingTLSConfig{ServerName: "otel.example.com"},
 	}, nil)
 	if err != nil {
 		t.Fatalf("buildExporter() error = %v", err)
