@@ -276,7 +276,7 @@ Quand plusieurs interceptors sont empilés, ils s'enveloppent comme des couches 
 
 ```go
 //helix:interceptor log
-//helix:interceptor cache
+//helix:interceptor cache:5m
 func (c *ProductController) Index() []Product { ... }
 ```
 
@@ -306,14 +306,14 @@ func (c *ProductController) Create(...) { ... }
 
 ## Interceptor de cache
 
-Helix inclut un interceptor de cache integre pour les reponses GET :
+Helix inclut une factory d'interceptor de cache integree pour les reponses GET. La directive exige un argument TTL :
 
 ```go
-//helix:interceptor cache
+//helix:interceptor cache:5m
 func (c *ProductController) Index() []Product { ... }
 
 // TTL personnalise par route :
-//helix:interceptor cache:5m
+//helix:interceptor cache:30s
 func (c *ProductController) Show(ctx web.Context) (Product, error) { ... }
 
 // TTL, limite d'entrees et strategie d'eviction :

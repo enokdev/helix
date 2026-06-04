@@ -349,7 +349,7 @@ When multiple interceptors are stacked, they wrap each other like onion layers â
 
 ```go
 //helix:interceptor log
-//helix:interceptor cache
+//helix:interceptor cache:5m
 func (c *ProductController) Index() []Product { ... }
 ```
 
@@ -371,14 +371,14 @@ func (i *LogInterceptor) Intercept(ctx web.Context, next web.HandlerFunc) error 
 
 ## Cache interceptor
 
-Helix includes a built-in cache interceptor for GET responses:
+Helix includes a built-in cache interceptor factory for GET responses. The directive requires a TTL argument:
 
 ```go
-//helix:interceptor cache
+//helix:interceptor cache:5m
 func (c *ProductController) Index() []Product { ... }
 
 // Custom TTL per route:
-//helix:interceptor cache:5m
+//helix:interceptor cache:30s
 func (c *ProductController) Show(ctx web.Context) (Product, error) { ... }
 
 // Custom TTL, entry cap, and eviction strategy:

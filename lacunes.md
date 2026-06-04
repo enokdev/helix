@@ -95,7 +95,7 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Pourquoi: le cache peut subir un cache stampede et ne fait pas d'eviction proactive par taille.
   - Action: ajouter single-flight optionnel, taille maximale et sweep periodique.
   - Validation: tests concurrents cold key, eviction TTL et eviction taille.
-  - Preuve: web/cache_interceptor.go implemente coalescing cold-key, limite max, strategies LRU/FIFO et sweep periodique; web/cache_interceptor_test.go couvre concurrence, TTL, eviction taille, stop et reponses non cacheables; docs/guide/web.md documente le contrat public.
+  - Preuve: web/cache_interceptor.go implemente coalescing cold-key, limite max, strategies LRU/FIFO et sweep periodique; web/cache_interceptor_test.go couvre concurrence, TTL, eviction taille, stop idempotent, stop concurrent, sortie de goroutine de sweep et reponses non cacheables; docs/guide/web.md documente le contrat public.
 
 - [x] Durcir les guards globaux contre les valeurs nil et chemins anormaux
   - Domaine: web, securite

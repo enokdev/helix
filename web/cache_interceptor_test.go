@@ -485,6 +485,47 @@ func TestCacheStoreStopIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCacheStoreStopConcurrentIsIdempotent(t *testing.T) {
+	store := newCacheStore()
+
+	const goroutines = 20
+	errs := make(chan error, goroutines)
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			errs <- store.Stop()
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(errs)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent Stop() calls timed out")
+	}
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Stop() error = %v", err)
+		}
+	}
+
+	select {
+	case <-store.sweepDone:
+	default:
+		t.Fatal("sweep goroutine did not exit")
+	}
+}
+
 // TestCacheInterceptorResponseRecorderCapture tests responseRecorder.
 func TestCacheInterceptorResponseRecorderCapture(t *testing.T) {
 	mockCtx := &mockContext{method: "GET"}
