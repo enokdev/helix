@@ -133,7 +133,7 @@ Force off: `helix.starters.observability.enabled: false`
 | Action | Description |
 |--------|-------------|
 | Structured logging | Sets the global `slog.Logger` from `logging.*` config |
-| OTel tracing | Configures a tracer provider when `observability.tracing.enabled: true` |
+| OTel tracing | Configures a tracer provider when `helix.starters.observability.tracing.enabled: true` |
 | Health checker | Discovers all `HealthIndicator` components and builds a `CompositeHealthChecker` |
 | Actuator routes | Registers `/actuator/health`, `/actuator/info`, `/actuator/metrics` |
 | Prometheus observer | Installs `HTTPMetricsObserver` on the HTTP server |
@@ -145,16 +145,16 @@ Force off: `helix.starters.observability.enabled: false`
 |-----|---------|-------------|
 | `logging.level` | `"info"` | Global log level |
 | `logging.levels` | — | Per-namespace overrides |
-| `observability.tracing.enabled` | `false` | Enable OTel tracing |
-| `observability.tracing.service-name` | `""` | OTel service name |
-| `observability.tracing.exporter` | `"stdout"` | `stdout` \| `otlp` \| `jaeger` |
-| `observability.tracing.endpoint` | `""` | Exporter endpoint URL |
-| `observability.tracing.insecure` | `true` | Use plaintext/insecure OTLP transport for backward compatibility |
-| `observability.tracing.headers` | — | Static OTLP exporter headers, for example auth or tenant headers |
-| `observability.tracing.tls.ca-file` | `""` | PEM CA bundle for OTLP TLS |
-| `observability.tracing.tls.cert-file` | `""` | Client certificate for mTLS |
-| `observability.tracing.tls.key-file` | `""` | Client certificate key for mTLS |
-| `observability.tracing.tls.server-name` | `""` | TLS server name override |
+| `helix.starters.observability.tracing.enabled` | `false` | Enable OTel tracing |
+| `helix.starters.observability.tracing.service-name` | `""` | OTel service name |
+| `helix.starters.observability.tracing.exporter` | `"stdout"` | `stdout` \| `otlp` \| `jaeger` |
+| `helix.starters.observability.tracing.endpoint` | `""` | Exporter endpoint URL |
+| `helix.starters.observability.tracing.insecure` | `true` | Use plaintext/insecure OTLP transport for backward compatibility |
+| `helix.starters.observability.tracing.headers` | — | Static OTLP exporter headers, for example auth or tenant headers |
+| `helix.starters.observability.tracing.tls.ca-file` | `""` | PEM CA bundle for OTLP TLS |
+| `helix.starters.observability.tracing.tls.cert-file` | `""` | Client certificate for mTLS |
+| `helix.starters.observability.tracing.tls.key-file` | `""` | Client certificate key for mTLS |
+| `helix.starters.observability.tracing.tls.server-name` | `""` | TLS server name override |
 
 ---
 

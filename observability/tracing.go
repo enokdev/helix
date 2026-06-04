@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 
@@ -312,6 +313,9 @@ func buildExporter(ctx context.Context, cfg TracingConfig, output io.Writer) (sd
 	case "otlp", "jaeger":
 		opts := []otlptracehttp.Option{}
 		if strings.HasPrefix(cfg.Endpoint, "http://") || strings.HasPrefix(cfg.Endpoint, "https://") {
+			if err := validateTracingEndpointURL(cfg.Endpoint); err != nil {
+				return nil, err
+			}
 			opts = append(opts, otlptracehttp.WithEndpointURL(cfg.Endpoint))
 		} else {
 			opts = append(opts, otlptracehttp.WithEndpoint(cfg.Endpoint))
@@ -334,6 +338,17 @@ func buildExporter(ctx context.Context, cfg TracingConfig, output io.Writer) (sd
 	}
 }
 
+func validateTracingEndpointURL(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid tracing endpoint URL %q: %w", endpoint, ErrInvalidTracing)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("invalid tracing endpoint URL %q: missing scheme or host: %w", endpoint, ErrInvalidTracing)
+	}
+	return nil
+}
+
 func buildTracingTLSConfig(cfg TracingTLSConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
@@ -345,10 +360,7 @@ func buildTracingTLSConfig(cfg TracingTLSConfig) (*tls.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read tracing TLS CA file: %w", err)
 		}
-		pool, err := x509.SystemCertPool()
-		if err != nil {
-			pool = x509.NewCertPool()
-		}
+		pool := x509.NewCertPool()
 		if ok := pool.AppendCertsFromPEM(pem); !ok {
 			return nil, fmt.Errorf("parse tracing TLS CA file: %w", ErrInvalidTracing)
 		}

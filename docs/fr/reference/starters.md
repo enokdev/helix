@@ -133,7 +133,7 @@ Désactivation forcée : `helix.starters.observability.enabled: false`
 | Action | Description |
 |--------|-------------|
 | Logs structurés | Définit le `slog.Logger` global depuis la config `logging.*` |
-| Tracing OTel | Configure un tracer provider quand `observability.tracing.enabled: true` |
+| Tracing OTel | Configure un tracer provider quand `helix.starters.observability.tracing.enabled: true` |
 | Health checker | Découvre tous les composants `HealthIndicator` et construit un `CompositeHealthChecker` |
 | Routes actuator | Enregistre `/actuator/health`, `/actuator/info`, `/actuator/metrics` |
 | Observer Prometheus | Installe `HTTPMetricsObserver` sur le serveur HTTP |
@@ -145,16 +145,16 @@ Désactivation forcée : `helix.starters.observability.enabled: false`
 |-----|--------|-------------|
 | `logging.level` | `"info"` | Niveau de log global |
 | `logging.levels` | — | Surcharges par namespace |
-| `observability.tracing.enabled` | `false` | Activer le tracing OTel |
-| `observability.tracing.service-name` | `""` | Nom du service OTel |
-| `observability.tracing.exporter` | `"stdout"` | `stdout` \| `otlp` \| `jaeger` |
-| `observability.tracing.endpoint` | `""` | URL de l'endpoint exporteur |
-| `observability.tracing.insecure` | `true` | Utiliser un transport OTLP non chiffré/non sécurisé pour compatibilité ascendante |
-| `observability.tracing.headers` | — | Headers statiques de l'exporteur OTLP, par exemple auth ou tenant |
-| `observability.tracing.tls.ca-file` | `""` | Bundle CA PEM pour le TLS OTLP |
-| `observability.tracing.tls.cert-file` | `""` | Certificat client pour le mTLS |
-| `observability.tracing.tls.key-file` | `""` | Clé du certificat client pour le mTLS |
-| `observability.tracing.tls.server-name` | `""` | Surcharge du nom de serveur TLS |
+| `helix.starters.observability.tracing.enabled` | `false` | Activer le tracing OTel |
+| `helix.starters.observability.tracing.service-name` | `""` | Nom du service OTel |
+| `helix.starters.observability.tracing.exporter` | `"stdout"` | `stdout` \| `otlp` \| `jaeger` |
+| `helix.starters.observability.tracing.endpoint` | `""` | URL de l'endpoint exporteur |
+| `helix.starters.observability.tracing.insecure` | `true` | Utiliser un transport OTLP non chiffré/non sécurisé pour compatibilité ascendante |
+| `helix.starters.observability.tracing.headers` | — | Headers statiques de l'exporteur OTLP, par exemple auth ou tenant |
+| `helix.starters.observability.tracing.tls.ca-file` | `""` | Bundle CA PEM pour le TLS OTLP |
+| `helix.starters.observability.tracing.tls.cert-file` | `""` | Certificat client pour le mTLS |
+| `helix.starters.observability.tracing.tls.key-file` | `""` | Clé du certificat client pour le mTLS |
+| `helix.starters.observability.tracing.tls.server-name` | `""` | Surcharge du nom de serveur TLS |
 
 ---
 

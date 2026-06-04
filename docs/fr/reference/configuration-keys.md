@@ -159,30 +159,32 @@ logging:
 
 | Clé | Type | Défaut | Description |
 |-----|------|--------|-------------|
-| `observability.tracing.enabled` | bool | `false` | Activer le tracing OpenTelemetry |
-| `observability.tracing.service-name` | string | `""` | Nom du service OTel |
-| `observability.tracing.exporter` | string | `"stdout"` | Exporteur : `stdout` \| `otlp` \| `jaeger` |
-| `observability.tracing.endpoint` | string | `""` | URL de l'endpoint OTLP/Jaeger |
-| `observability.tracing.insecure` | bool | `true` | Utiliser un transport OTLP non chiffré/non sécurisé pour compatibilité ascendante |
-| `observability.tracing.headers` | map[string]string | — | Headers statiques de l'exporteur OTLP, par exemple auth ou tenant |
-| `observability.tracing.tls.ca-file` | string | `""` | Bundle CA PEM pour le TLS OTLP |
-| `observability.tracing.tls.cert-file` | string | `""` | Certificat client pour le mTLS |
-| `observability.tracing.tls.key-file` | string | `""` | Clé du certificat client pour le mTLS |
-| `observability.tracing.tls.server-name` | string | `""` | Surcharge du nom de serveur TLS |
+| `helix.starters.observability.tracing.enabled` | bool | `false` | Activer le tracing OpenTelemetry |
+| `helix.starters.observability.tracing.service-name` | string | `""` | Nom du service OTel |
+| `helix.starters.observability.tracing.exporter` | string | `"stdout"` | Exporteur : `stdout` \| `otlp` \| `jaeger` |
+| `helix.starters.observability.tracing.endpoint` | string | `""` | URL de l'endpoint OTLP/Jaeger |
+| `helix.starters.observability.tracing.insecure` | bool | `true` | Utiliser un transport OTLP non chiffré/non sécurisé pour compatibilité ascendante |
+| `helix.starters.observability.tracing.headers` | map[string]string | — | Headers statiques de l'exporteur OTLP, par exemple auth ou tenant |
+| `helix.starters.observability.tracing.tls.ca-file` | string | `""` | Bundle CA PEM pour le TLS OTLP |
+| `helix.starters.observability.tracing.tls.cert-file` | string | `""` | Certificat client pour le mTLS |
+| `helix.starters.observability.tracing.tls.key-file` | string | `""` | Clé du certificat client pour le mTLS |
+| `helix.starters.observability.tracing.tls.server-name` | string | `""` | Surcharge du nom de serveur TLS |
 
 ```yaml
-observability:
-  tracing:
-    enabled: true
-    service-name: "my-api"
-    exporter: otlp
-    endpoint: "https://otel-collector:4318"
-    insecure: false
-    headers:
-      Authorization: "Bearer ${OTEL_TOKEN}"
-    tls:
-      ca-file: "/etc/ssl/otel-ca.pem"
-      server-name: "otel-collector"
+helix:
+  starters:
+    observability:
+      tracing:
+        enabled: true
+        service-name: "my-api"
+        exporter: otlp
+        endpoint: "https://otel-collector:4318"
+        insecure: false
+        headers:
+          Authorization: "Bearer ${OTEL_TOKEN}"
+        tls:
+          ca-file: "/etc/ssl/otel-ca.pem"
+          server-name: "otel-collector"
 ```
 
 ## Infos de l'application

@@ -3,9 +3,18 @@ package observability
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -319,6 +328,21 @@ func TestBuildTLSConfigEmptyUsesTLS12Minimum(t *testing.T) {
 	}
 }
 
+func TestBuildTLSConfigCAFileUsesAuthoritativeTrustBundle(t *testing.T) {
+	caFile := writeTestCACert(t)
+
+	cfg, err := buildTracingTLSConfig(TracingTLSConfig{CAFile: caFile})
+	if err != nil {
+		t.Fatalf("buildTracingTLSConfig() error = %v", err)
+	}
+	if cfg.RootCAs == nil {
+		t.Fatal("RootCAs = nil, want CA pool from ca-file")
+	}
+	if got := len(cfg.RootCAs.Subjects()); got != 1 {
+		t.Fatalf("RootCAs subjects = %d, want only the configured ca-file certificate", got)
+	}
+}
+
 func TestBuildTLSConfigRejectsIncompleteClientCertificate(t *testing.T) {
 	_, err := buildTracingTLSConfig(TracingTLSConfig{CertFile: "client.pem"})
 	if err == nil {
@@ -326,6 +350,23 @@ func TestBuildTLSConfigRejectsIncompleteClientCertificate(t *testing.T) {
 	}
 	if !errors.Is(err, ErrInvalidTracing) {
 		t.Fatalf("buildTracingTLSConfig() error = %v, want ErrInvalidTracing", err)
+	}
+}
+
+func TestBuildExporterRejectsMalformedEndpointURL(t *testing.T) {
+	exp, err := buildExporter(context.Background(), TracingConfig{
+		Exporter: "otlp",
+		Endpoint: "https://%",
+		Insecure: true,
+	}, nil)
+	if err == nil {
+		if exp != nil {
+			_ = exp.Shutdown(context.Background())
+		}
+		t.Fatal("buildExporter() error = nil, want malformed endpoint error")
+	}
+	if !errors.Is(err, ErrInvalidTracing) {
+		t.Fatalf("buildExporter() error = %v, want ErrInvalidTracing", err)
 	}
 }
 
@@ -368,4 +409,33 @@ func TestConfigureTracing_WithTracingConfig_DoesNotOverrideLoaderEnabled(t *test
 		t.Fatal("expected non-nil TracerProvider: loader's enabled:true must not be overridden by zero-value Enabled in WithTracingConfig")
 	}
 	defer shutdown(context.Background()) //nolint:errcheck
+}
+
+func writeTestCACert(t *testing.T) string {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey() error = %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("x509.CreateCertificate() error = %v", err)
+	}
+
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := os.WriteFile(caFile, pemBytes, 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	return caFile
 }
