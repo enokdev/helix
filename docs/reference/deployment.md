@@ -142,7 +142,7 @@ All configuration keys map to environment variables. Never put secrets in config
 | `HELIX_STARTERS_OBSERVABILITY_TRACING_ENDPOINT` | `helix.starters.observability.tracing.endpoint` | Your OTel collector |
 | `HELIX_STARTERS_OBSERVABILITY_TRACING_SERVICE_NAME` | `helix.starters.observability.tracing.service-name` | `my-api` |
 | `HELIX_STARTERS_OBSERVABILITY_TRACING_INSECURE` | `helix.starters.observability.tracing.insecure` | `false` for TLS |
-| `HELIX_STARTERS_OBSERVABILITY_TRACING_HEADERS` | `helix.starters.observability.tracing.headers` | Static OTLP headers |
+| `HELIX_STARTERS_OBSERVABILITY_TRACING_HEADERS` | `helix.starters.observability.tracing.headers` | Comma-separated `key=value` OTLP headers |
 | `HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_CA_FILE` | `helix.starters.observability.tracing.tls.ca-file` | PEM CA bundle |
 | `HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_CERT_FILE` | `helix.starters.observability.tracing.tls.cert-file` | mTLS client certificate |
 | `HELIX_STARTERS_OBSERVABILITY_TRACING_TLS_KEY_FILE` | `helix.starters.observability.tracing.tls.key-file` | mTLS client key |

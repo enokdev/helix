@@ -265,9 +265,32 @@ func resolveTracingHeaders(v any) (map[string]string, error) {
 			resolved[key] = value
 		}
 		return resolved, nil
+	case string:
+		return resolveTracingHeaderString(headers)
 	default:
-		return nil, fmt.Errorf("headers must be map[string]string: %w", ErrInvalidTracing)
+		return nil, fmt.Errorf("headers must be map[string]string or comma-separated key=value string: %w", ErrInvalidTracing)
 	}
+}
+
+func resolveTracingHeaderString(headers string) (map[string]string, error) {
+	headers = strings.TrimSpace(headers)
+	if headers == "" {
+		return map[string]string{}, nil
+	}
+
+	pairs := strings.Split(headers, ",")
+	resolved := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		pair = strings.TrimSpace(pair)
+		key, value, ok := strings.Cut(pair, "=")
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if !ok || key == "" || value == "" {
+			return nil, fmt.Errorf("malformed header pair %q: %w", pair, ErrInvalidTracing)
+		}
+		resolved[key] = value
+	}
+	return resolved, nil
 }
 
 func cloneTracingHeaders(headers map[string]string) map[string]string {

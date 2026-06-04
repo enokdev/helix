@@ -258,6 +258,53 @@ func TestResolveTracingConfig_OTLPTransportOptions(t *testing.T) {
 	}
 }
 
+func TestResolveTracingConfig_ParsesStringHeaders(t *testing.T) {
+	loader := mapLoader{
+		"helix.starters.observability.tracing.enabled":  true,
+		"helix.starters.observability.tracing.exporter": "otlp",
+		"helix.starters.observability.tracing.headers":  " Authorization = Bearer token , x-tenant = helix ",
+	}
+
+	cfg, err := resolveTracingConfig(loader, &tracingOptions{})
+	if err != nil {
+		t.Fatalf("resolveTracingConfig() error = %v", err)
+	}
+	if cfg.Headers["Authorization"] != "Bearer token" || cfg.Headers["x-tenant"] != "helix" {
+		t.Fatalf("Headers = %#v, want Authorization and x-tenant", cfg.Headers)
+	}
+}
+
+func TestResolveTracingConfig_MalformedStringHeadersWrapErrInvalidTracing(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers string
+	}{
+		{name: "missing separator", headers: "Authorization"},
+		{name: "empty key", headers: "=Bearer token"},
+		{name: "empty value", headers: "Authorization="},
+		{name: "empty pair", headers: "Authorization=Bearer token,"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			loader := mapLoader{
+				"helix.starters.observability.tracing.enabled":  true,
+				"helix.starters.observability.tracing.exporter": "otlp",
+				"helix.starters.observability.tracing.headers":  tt.headers,
+			}
+
+			_, err := resolveTracingConfig(loader, &tracingOptions{})
+			if err == nil {
+				t.Fatal("resolveTracingConfig() error = nil, want ErrInvalidTracing")
+			}
+			if !errors.Is(err, ErrInvalidTracing) {
+				t.Fatalf("resolveTracingConfig() error = %v, want ErrInvalidTracing", err)
+			}
+		})
+	}
+}
+
 func TestResolveTracingConfig_DefaultOTLPInsecureRemainsCompatible(t *testing.T) {
 	loader := mapLoader{
 		"helix.starters.observability.tracing.enabled":  true,
