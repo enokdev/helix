@@ -125,7 +125,7 @@ func Configure(container *core.Container, entries []Entry, opts ...Option) error
 			slog.String("reason", string(reason)),
 		)
 		if active {
-			if err := configureStarter(e.Name, e.Starter, container); err != nil {
+			if err := configureStarter(e.Name, e.Starter, container, o.logger); err != nil {
 				return err
 			}
 		}
@@ -174,7 +174,7 @@ func ConfigureMarkerAware(container *core.Container, entries []Entry, opts ...Op
 			slog.String("reason", string(reason)),
 		)
 		if active {
-			if err := configureStarter(e.Name, e.Starter, container); err != nil {
+			if err := configureStarter(e.Name, e.Starter, container, o.logger); err != nil {
 				return err
 			}
 		}
@@ -198,8 +198,16 @@ func evaluateCondition(name string, s Starter, container *core.Container) (activ
 	return active, ReasonConfigKey, nil
 }
 
-func configureStarter(name string, s Starter, container *core.Container) (err error) {
+func configureStarter(name string, s Starter, container *core.Container, logger *slog.Logger) (err error) {
 	defer recoverStarterPanic(name, "configure", &err)
+	if configurable, ok := s.(interface {
+		ConfigureWithLogger(*core.Container, *slog.Logger) error
+	}); ok {
+		if err := configurable.ConfigureWithLogger(container, logger); err != nil {
+			return fmt.Errorf("starter: configure %q: %w", name, err)
+		}
+		return nil
+	}
 	if err := s.Configure(container); err != nil {
 		return fmt.Errorf("starter: configure %q: %w", name, err)
 	}

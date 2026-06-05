@@ -2,6 +2,8 @@
 
 Helix applications compile to a single static binary and can run anywhere Go binaries run: bare Linux servers, Docker containers, Kubernetes pods, systemd services.
 
+Review the [Production Readiness](./production-readiness.md) checklist before exposing a Helix service to production traffic.
+
 ## Building a production binary
 
 ```bash

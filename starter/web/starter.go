@@ -98,6 +98,19 @@ func (s *Starter) Condition() bool {
 
 // Configure registers the HTTP server lifecycle in the container.
 func (s *Starter) Configure(container *core.Container) error {
+	return s.configure(container, slog.Default())
+}
+
+// ConfigureWithLogger registers the HTTP server using the application logger
+// supplied by the starter orchestrator.
+func (s *Starter) ConfigureWithLogger(container *core.Container, logger *slog.Logger) error {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return s.configure(container, logger)
+}
+
+func (s *Starter) configure(container *core.Container, logger *slog.Logger) error {
 	if container == nil {
 		return nil
 	}
@@ -129,7 +142,7 @@ func (s *Starter) Configure(container *core.Container) error {
 	}
 
 	lifecycle := &serverLifecycle{
-		server:          helixweb.NewServer(),
+		server:          helixweb.NewServer(helixweb.WithLogger(logger)),
 		addr:            ":" + port,
 		shutdownTimeout: shutdownTimeout,
 	}

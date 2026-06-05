@@ -2,6 +2,8 @@
 
 Les applications Helix compilent vers un binaire statique unique et peuvent s'exécuter partout où les binaires Go s'exécutent : serveurs Linux bare metal, conteneurs Docker, pods Kubernetes, services systemd.
 
+Consultez la checklist [Readiness production](./production-readiness.md) avant d'exposer un service Helix au trafic de production.
+
 ## Construire un binaire de production
 
 ```bash

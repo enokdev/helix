@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 )
 
@@ -45,7 +44,7 @@ func writeSuccessResponse(ctx Context, method string, payload any) error {
 
 	ctx.Status(status)
 	if err := ctx.JSON(payload); err != nil {
-		slog.Default().With("namespace", "web").Error(
+		loggerFromContext(ctx).With("namespace", "web").Error(
 			"json serialisation failed",
 			"payload_type", fmt.Sprintf("%T", payload),
 			"error", err,

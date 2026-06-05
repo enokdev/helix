@@ -98,4 +98,12 @@ func main() {
 
 </div>
 
+<div style="margin-top: 4rem;">
+<h3 style="font-size: 1.6rem; font-weight: 700;">Référence</h3>
+<ul>
+  <li><a href="/fr/reference/production-readiness">Readiness production</a></li>
+  <li><a href="/fr/reference/performance">Référence performance</a></li>
+</ul>
+</div>
+
 </div>

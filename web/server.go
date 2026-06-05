@@ -45,11 +45,12 @@ type server struct {
 	cache                *cacheStore
 	routeObserver        RouteObserver
 	generatedOnly        bool
+	requestLogger        *slog.Logger
 }
 
 // NewServer creates an HTTP server backed by an internal Fiber adapter.
 func NewServer(opts ...Option) HTTPServer {
-	options := serverOptions{}
+	options := serverOptions{logger: slog.Default()}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&options)
@@ -67,9 +68,17 @@ func NewServer(opts ...Option) HTTPServer {
 		cache:                newCacheStore(),
 		routeObserver:        options.routeObserver,
 		generatedOnly:        options.generatedOnly,
+		requestLogger:        options.logger,
 	}
 	s.interceptorFactories["cache"] = cacheInterceptorFactory(s.cache)
 	return s
+}
+
+func (s *server) logger() *slog.Logger {
+	if s.requestLogger == nil {
+		return slog.Default()
+	}
+	return s.requestLogger
 }
 
 func (s *server) IsGeneratedOnly() bool {
@@ -119,6 +128,7 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 	err = s.adapter.RegisterRoute(normalizedMethod, path, func(ctx fiberinternal.Context) error {
 		start := time.Now()
 		observed := &observingContext{BaseContext: ctx}
+		observed.Locals(requestLoggerLocalKey, s.logger())
 
 		// Run global guards before the handler.
 		s.mu.RLock()
@@ -135,7 +145,7 @@ func (s *server) RegisterRoute(method, path string, handler HandlerFunc) error {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					slog.Default().With("namespace", "web").Error("handler panic recovered",
+					s.logger().With("namespace", "web").Error("handler panic recovered",
 						"method", normalizedMethod,
 						"path", routePath,
 						"panic", fmt.Sprintf("%v", r),

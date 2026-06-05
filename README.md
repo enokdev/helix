@@ -170,6 +170,8 @@ go test ./...
 
 Helix is pre-v1. Public compatibility guarantees and deprecation rules are documented in [API Stability](docs/reference/api-stability.md).
 
+Production limits and release performance checks are documented in [Production Readiness](docs/reference/production-readiness.md) and [Performance Reference](docs/reference/performance.md).
+
 ## Developpement du framework
 
 Pour contribuer a Helix lui-meme :

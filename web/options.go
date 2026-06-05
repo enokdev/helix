@@ -1,11 +1,16 @@
 package web
 
-import "go.opentelemetry.io/otel/trace"
+import (
+	"log/slog"
+
+	"go.opentelemetry.io/otel/trace"
+)
 
 type serverOptions struct {
 	routeObserver  RouteObserver
 	tracerProvider trace.TracerProvider
 	generatedOnly  bool
+	logger         *slog.Logger
 }
 
 // Option configures an HTTP server.
@@ -16,6 +21,18 @@ type Option func(*serverOptions)
 func WithGeneratedOnly() Option {
 	return func(o *serverOptions) {
 		o.generatedOnly = true
+	}
+}
+
+// WithLogger installs the logger used for server-owned diagnostics such as
+// recovered panics and response serialization failures.
+// A nil logger is silently ignored.
+func WithLogger(logger *slog.Logger) Option {
+	return func(o *serverOptions) {
+		if logger == nil {
+			return
+		}
+		o.logger = logger
 	}
 }
 

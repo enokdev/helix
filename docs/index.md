@@ -102,6 +102,8 @@ func main() {
 <h3 style="font-size: 1.6rem; font-weight: 700;">Reference</h3>
 <ul>
   <li><a href="reference/api-stability">API Stability</a></li>
+  <li><a href="reference/production-readiness">Production Readiness</a></li>
+  <li><a href="reference/performance">Performance Reference</a></li>
   <li><a href="reference/release">Release Process</a></li>
 </ul>
 </div>

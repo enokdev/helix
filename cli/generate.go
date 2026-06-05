@@ -21,6 +21,12 @@ type GenerateWireOptions struct {
 	Dir string
 }
 
+// GenerateOpenAPIOptions configures the helix generate openapi entry point.
+type GenerateOpenAPIOptions struct {
+	Dir    string
+	Output string
+}
+
 // Generate runs Helix code generation for the configured directory tree.
 func Generate(ctx context.Context, opts GenerateOptions) error {
 	result, err := codegen.NewGenerator(opts.Dir).Generate(ctx)
@@ -54,4 +60,10 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 // GenerateWire runs compile-time DI wiring generation for the configured tree.
 func GenerateWire(ctx context.Context, opts GenerateWireOptions) error {
 	return codegen.NewDIGenerator(opts.Dir).Generate(ctx)
+}
+
+// GenerateOpenAPI writes an OpenAPI document for the configured tree.
+func GenerateOpenAPI(ctx context.Context, opts GenerateOpenAPIOptions) error {
+	_, err := codegen.NewOpenAPIGenerator(opts.Dir, opts.Output).Generate(ctx)
+	return err
 }

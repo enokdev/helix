@@ -49,6 +49,29 @@ helix build
 
 ---
 
+## Flag parsing contract
+
+Commands with a positional name accept flags before or after that name:
+
+```bash
+helix new app --dir /workspace my-api
+helix new app my-api --dir /workspace
+helix generate module --dir ./my-api user
+helix generate module user --dir ./my-api
+helix db migrate create --dir ./my-api add-users
+helix db migrate create add-users --dir ./my-api
+```
+
+Commands without a positional name reject extra arguments. Flag parsing errors include the full command path, for example `helix generate module: flag provided but not defined: -unknown`.
+
+Use `--` with `helix run` to pass arguments to the application process:
+
+```bash
+helix run --dir ./my-api -- --port=8081 --env=dev
+```
+
+---
+
 ## `helix version`
 
 Print the installed CLI version.
@@ -322,6 +345,30 @@ Run this after adding or renaming controllers, guards, interceptors, modules, or
 helix generate
 helix generate --dir ./my-api
 ```
+
+---
+
+## `helix generate openapi`
+
+Generate an OpenAPI 3 JSON document from Helix controllers. The generator includes conventional controller methods (`Index`, `Show`, `Create`, `Update`, `Patch`, `Delete`) and explicit `//helix:route METHOD /path` directives.
+
+```bash
+helix generate openapi [flags]
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | `.` | Directory tree to scan |
+| `--output` | `openapi.json` under `--dir` | Output file |
+
+```bash
+helix generate openapi --dir ./my-api
+helix generate openapi --dir ./my-api --output ./docs/openapi.json
+```
+
+The first version emits paths, HTTP methods, operation IDs, and basic `200` responses. Detailed request/response schemas can be layered on top as the controller metadata surface grows.
 
 ---
 

@@ -136,7 +136,7 @@ func RegisterController(server HTTPServer, controller any) error {
 			continue
 		}
 
-		handler, err := adaptControllerMethod(method, convention.method)
+		handler, err := adaptControllerMethod(method, convention.method, loggerFromServer(server))
 		if err != nil {
 			return fmt.Errorf("web: register controller %s handler %s: %w", controllerType.Name(), convention.handlerName, err)
 		}
@@ -181,7 +181,7 @@ func RegisterController(server HTTPServer, controller any) error {
 		}
 
 		for _, directive := range methodDirectives.routes {
-			handler, err := adaptControllerMethod(method, directive.method)
+			handler, err := adaptControllerMethod(method, directive.method, loggerFromServer(server))
 			if err != nil {
 				return fmt.Errorf("web: register controller %s handler %s: %w", controllerType.Name(), methodName, err)
 			}
@@ -730,7 +730,7 @@ func hasVowelSuffix(word string, offsetFromEnd int) bool {
 	}
 }
 
-func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc, error) {
+func adaptControllerMethod(method reflect.Value, httpMethod string, logger *slog.Logger) (HandlerFunc, error) {
 	methodType := method.Type()
 	argumentPlan, err := newControllerArgumentPlan(methodType)
 	if err != nil {
@@ -766,7 +766,10 @@ func adaptControllerMethod(method reflect.Value, httpMethod string) (HandlerFunc
 		}
 		payload := results[0].Interface()
 		if errVal, ok := payload.(error); ok && errVal != nil {
-			slog.Default().With("namespace", "web").Error(
+			if logger == nil {
+				logger = loggerFromContext(ctx)
+			}
+			logger.With("namespace", "web").Error(
 				"error value in payload slot",
 				"error", errVal,
 			)

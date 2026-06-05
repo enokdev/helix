@@ -1,9 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -231,6 +234,39 @@ func TestStarterConfigureRegistersLifecycleWithDefaultPort(t *testing.T) {
 	}
 	if serverLifecycle.addr != ":8080" {
 		t.Fatalf("addr = %q, want %q", serverLifecycle.addr, ":8080")
+	}
+}
+
+func TestStarterConfigureWithLoggerPassesLoggerToServer(t *testing.T) {
+	container := newTestContainer()
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+
+	if err := New(nil).ConfigureWithLogger(container, logger); err != nil {
+		t.Fatalf("ConfigureWithLogger() error = %v", err)
+	}
+
+	lifecycle := singleLifecycle(t, container)
+	serverLifecycle, ok := lifecycle.(*serverLifecycle)
+	if !ok {
+		t.Fatalf("registered lifecycle type = %T, want *serverLifecycle", lifecycle)
+	}
+	if err := serverLifecycle.server.RegisterRoute(http.MethodGet, "/panic", func(helixweb.Context) error {
+		panic("starter logger")
+	}); err != nil {
+		t.Fatalf("RegisterRoute() error = %v", err)
+	}
+	resp, err := serverLifecycle.server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/panic", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+	if !strings.Contains(logs.String(), "starter logger") {
+		t.Fatalf("custom logger did not receive server diagnostics: %s", logs.String())
 	}
 }
 

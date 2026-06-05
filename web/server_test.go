@@ -1,10 +1,12 @@
 package web_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,6 +43,54 @@ func TestServer_RegisterRouteHandlesRequest(t *testing.T) {
 	}
 	if gotID != "42" {
 		t.Fatalf("ctx.Param(%q) = %q, want %q", "id", gotID, "42")
+	}
+}
+
+func TestServer_WithLoggerIsolatesDiagnosticsPerServer(t *testing.T) {
+	t.Parallel()
+
+	var firstLogs bytes.Buffer
+	var secondLogs bytes.Buffer
+	firstLogger := slog.New(slog.NewJSONHandler(&firstLogs, nil))
+	secondLogger := slog.New(slog.NewJSONHandler(&secondLogs, nil))
+
+	first := web.NewServer(web.WithLogger(firstLogger))
+	second := web.NewServer(web.WithLogger(secondLogger))
+
+	if err := first.RegisterRoute(http.MethodGet, "/panic", func(web.Context) error {
+		panic("first failure")
+	}); err != nil {
+		t.Fatalf("first RegisterRoute() error = %v", err)
+	}
+	if err := second.RegisterRoute(http.MethodGet, "/panic", func(web.Context) error {
+		panic("second failure")
+	}); err != nil {
+		t.Fatalf("second RegisterRoute() error = %v", err)
+	}
+
+	firstResp, err := first.ServeHTTP(httptest.NewRequest(http.MethodGet, "/panic", nil))
+	if err != nil {
+		t.Fatalf("first ServeHTTP() error = %v", err)
+	}
+	defer firstResp.Body.Close()
+	secondResp, err := second.ServeHTTP(httptest.NewRequest(http.MethodGet, "/panic", nil))
+	if err != nil {
+		t.Fatalf("second ServeHTTP() error = %v", err)
+	}
+	defer secondResp.Body.Close()
+
+	if firstResp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("first status = %d, want %d", firstResp.StatusCode, http.StatusInternalServerError)
+	}
+	if secondResp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("second status = %d, want %d", secondResp.StatusCode, http.StatusInternalServerError)
+	}
+
+	if got := firstLogs.String(); !strings.Contains(got, "first failure") || strings.Contains(got, "second failure") {
+		t.Fatalf("first logs were not isolated: %s", got)
+	}
+	if got := secondLogs.String(); !strings.Contains(got, "second failure") || strings.Contains(got, "first failure") {
+		t.Fatalf("second logs were not isolated: %s", got)
 	}
 }
 
