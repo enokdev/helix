@@ -164,43 +164,49 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: docs et tests strict/lenient.
   - Preuve: le tag sentinelle `helix:"allow-unknown"` active le mode lenient par type de requete; `TestBindingUnknownFieldsRejection`, `TestBindingAllowUnknownFieldsOptOut` et `TestBindingRecursiveAllowUnknownFieldsOptOut` couvrent strict/lenient et detection recursive; les guides web EN/FR documentent le mode.
 
-- [ ] Generer une specification OpenAPI depuis les controllers
+- [x] Generer une specification OpenAPI depuis les controllers
   - Domaine: CLI, ecosysteme
   - Pourquoi: les utilisateurs auront besoin de documentation API, clients SDK et validation contractuelle.
   - Action: ajouter une commande ou option `helix generate openapi`.
   - Validation: exemple CRUD produit un fichier OpenAPI valide.
+  - Preuve: `helix generate openapi` scanne les controllers Helix, inclut les routes conventionnelles (`Index`, `Show`, `Create`, `Update`, `Patch`, `Delete`) et les directives `//helix:route`, puis ecrit un document OpenAPI 3 JSON; `TestOpenAPIGeneratorGeneratesConventionalAndDirectiveRoutes` et `TestRunGenerateOpenAPI` couvrent le generateur et le CLI; `env GOCACHE=/tmp/go-build-cache GOMODCACHE=/tmp/go-mod-cache GOPATH=/tmp/go /Users/yacoubakone/.govm/go/bin/go run ./cmd/helix generate openapi --dir examples/crud-api --output /tmp/helix-crud-openapi.json` produit un JSON valide verifie par `python3 -m json.tool`.
 
-- [ ] Ajouter des benchmarks officiels
+- [x] Ajouter des benchmarks officiels
   - Domaine: performance
   - Pourquoi: les objectifs startup et latence sont declares, mais pas encore visibles comme garde-fous continus.
   - Action: benchmarks DI startup, route health, binding JSON, cache interceptor et repository simple.
   - Validation: `go test -bench` publie des chiffres comparables dans la docs ou CI manuelle.
+  - Preuve: `core/bench_test.go`, `observability/bench_test.go`, `web/bench_test.go`, `data/gorm/bench_test.go` et les benchmarks existants `BenchmarkRun_ZeroParams`/`BenchmarkRunMinimalLifecycle` couvrent DI startup, `/actuator/health`, binding JSON, cache interceptor et repository simple; `docs/reference/performance.md` et `docs/fr/reference/performance.md` documentent les commandes et benchmarks officiels; `go test ./core ./observability ./web ./data/gorm -run '^$' -bench 'Benchmark(ReflectResolver|ActuatorHealthRoute|BindingJSON|CacheInterceptorHit|RepositoryFindByIDSQLite)' -benchtime=1x` passe.
 
-- [ ] Documenter les limites de production par package
+- [x] Documenter les limites de production par package
   - Domaine: docs, adoption
   - Pourquoi: les utilisateurs doivent connaitre les compromis actuels sans lire les notes internes.
   - Action: ajouter une page "Production readiness" avec limites connues et mitigations.
   - Validation: page referencee depuis README et guides deploy.
+  - Preuve: `docs/reference/production-readiness.md` et `docs/fr/reference/production-readiness.md` documentent les limites et mitigations par package (`core`, `config`, `web`, `data/gorm`, `observability`, `security`, `scheduler`, `starter`, `cli`, `testutil`); la page est referencee depuis `README.md`, `docs/reference/deployment.md`, `docs/fr/reference/deployment.md`, `docs/index.md` et `docs/fr/index.md`.
 
-- [ ] Ajouter des templates plus proches de vrais projets
+- [x] Ajouter des templates plus proches de vrais projets
   - Domaine: CLI, DX
   - Pourquoi: les scaffolds simples compilent, mais ne couvrent pas encore auth, DB, config par environnement et tests complets ensemble.
   - Action: ajouter templates `api`, `secured-api`, `gorm-api`.
   - Validation: chaque template compile, lance ses tests et demarre localement.
+  - Preuve: `helix new api <name>` genere un CRUD in-memory complet (UserRepository/Service/Controller) avec tests; `helix new secured-api <name>` genere JWT auth + routes protegees avec tests login/profile; `helix new gorm-api <name>` genere un CRUD GORM/SQLite avec go.mod incluant `gorm.io/driver/sqlite` et tests avec `//go:build cgo`; `TestNewAPIAppCreatesBuildableProject`, `TestNewSecuredAPIAppCreatesBuildableProject` et `TestNewGORMAPIAppCreatesBuildableProject` passent avec `go build ./...` et `go test ./...` sur chaque app generee.
 
-- [ ] Ameliorer les diagnostics du CLI pour flags et arguments
+- [x] Ameliorer les diagnostics du CLI pour flags et arguments
   - Domaine: CLI
   - Pourquoi: les flags places apres certains arguments peuvent produire des erreurs peu intuitives.
   - Action: uniformiser le parsing ou documenter explicitement l'ordre accepte.
   - Validation: tests pour flags avant/apres nom positionnel selon le contrat choisi.
+  - Preuve: `cmd/helix/main.go` enveloppe les erreurs de parsing avec le chemin complet de commande; `TestRunCommandsWithPositionalsAcceptFlagsBeforeAndAfterName` couvre les flags avant/apres nom positionnel pour `new app`, `generate module`, `generate context` et `db migrate create`; `TestRunCommandFlagErrorsIncludeCommandContext` couvre les diagnostics de flags inconnus; `docs/reference/cli.md` et `docs/fr/reference/cli.md` documentent le contrat et `helix run -- ...`; `go test ./cmd/helix -run 'TestRunCommandFlagErrorsIncludeCommandContext|TestRunCommandsWithPositionalsAcceptFlagsBeforeAndAfterName' -count=1` passe.
 
-- [ ] Ajouter une strategie de logs injectables
+- [x] Ajouter une strategie de logs injectables
   - Domaine: observabilite, testabilite
   - Pourquoi: l'usage de `slog.Default()` simplifie le demarrage mais limite l'isolation en test et multi-app.
   - Action: permettre un logger applicatif explicite sans casser le mode zero-config.
   - Validation: deux apps Helix dans le meme process peuvent utiliser des loggers differents.
+  - Preuve: `web.WithLogger` injecte un logger par serveur et le propage au contexte de requete pour les diagnostics web; le starter web implemente `ConfigureWithLogger` et recoit le logger de l'orchestrateur `starter.Configure`; `TestServer_WithLoggerIsolatesDiagnosticsPerServer` et `TestStarterConfigureWithLoggerPassesLoggerToServer` verifient que deux serveurs dans le meme process ecrivent dans des sorties separees; `/Users/yacoubakone/.govm/go/bin/go test ./web ./starter ./starter/web` passe.
 
-## P3 - Ecosysteme et Long Terme
+## P3 - Ecosysteme et Long Terme 
 
 - [ ] Adapter Ent pour la couche data
   - Domaine: data, ecosysteme
