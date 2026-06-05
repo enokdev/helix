@@ -333,9 +333,9 @@ func TestJobExecutes(t *testing.T) {
 	}
 }
 
-// TestSchedulerDoubleStopIsIdempotent verifies AC3: calling Stop(ctx) then
-// OnStop(ctx) in sequence produces no error or panic. robfig/cron.Stop() is
-// idempotent and returns an already-done context on the second call.
+// TestSchedulerDoubleStopIsIdempotent verifies calling Stop(ctx) then OnStop(ctx)
+// in sequence produces no error or panic. robfig/cron.Stop() is idempotent and
+// returns an already-done context on the second call.
 func TestSchedulerDoubleStopIsIdempotent(t *testing.T) {
 	t.Parallel()
 

@@ -197,8 +197,6 @@ func (tc *testContext) JSON(any) error              { return nil }
 func (tc *testContext) Context() context.Context    { return context.Background() }
 func (tc *testContext) Locals(string, ...any) any   { return nil }
 
-// ─── Tests Story 14.2 ───────────────────────────────────────────────────────
-
 // TestBindingEmbeddedStructJSON vérifie que le binding JSON visite les anonymous fields.
 func TestBindingEmbeddedStructJSON(t *testing.T) {
 	type Base struct {
