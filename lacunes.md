@@ -143,23 +143,26 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: tests prefixe `/v1/users` et route imbriquee.
   - Preuve: le tag `helix:"route:/..."` sur l'embed `helix.Controller` sert d'API explicite de prefixe; `web/router_test.go` couvre `/v1/users`, `/v1/users/:id` et une ressource imbriquee `/v1/teams/:teamID/users/:id`; les guides web EN/FR documentent le contrat et l'exemple imbrique.
 
-- [ ] Retourner plusieurs erreurs de validation
+- [x] Retourner plusieurs erreurs de validation
   - Domaine: web, API UX
   - Pourquoi: aujourd'hui les clients peuvent devoir corriger les champs un par un.
   - Action: etendre `ErrorResponse` ou ajouter un format compatible pour liste d'erreurs.
   - Validation: body invalide avec plusieurs champs retourne toutes les erreurs attendues.
+  - Preuve: `web.ValidationErrorResponse` expose `errors[]`; `binding_test.go` couvre plusieurs erreurs, format JSON et ordre deterministe; `TestRegisterController_MultiFieldValidationResponseBody` verifie qu'un body `{}` retourne toutes les erreurs `email`, `age` et `phone`; les guides web EN/FR documentent le format.
 
-- [ ] Supporter les query params listes et floats
+- [x] Supporter les query params listes et floats
   - Domaine: web, binding
   - Pourquoi: les filtres d'API courants utilisent `ids=1&ids=2`, `tags=a,b` ou des valeurs decimales.
   - Action: definir le contrat pour slices, arrays, floats et erreurs de parsing.
   - Validation: tests table-driven pour query params multi-valeurs.
+  - Preuve: `web/binding.go` supporte `float32`, `float64` et slices primitives separees par virgules avec rejet des floats non finis; `TestRegisterController_FloatQueryParams`, `TestRegisterController_FloatQueryParam_RejectsNonFinite`, `TestRegisterController_SliceQueryParams`, `TestRegisterController_SliceQueryParam_EmptyValue` et `TestRegisterController_SliceQueryParam_InvalidElement` couvrent le contrat; les guides web EN/FR documentent les types supportes et `INVALID_QUERY_PARAM`.
 
-- [ ] Offrir un mode JSON lenient documente
+- [x] Offrir un mode JSON lenient documente
   - Domaine: web, compatibilite clients
   - Pourquoi: rejeter les champs inconnus est strict et utile, mais peut bloquer des clients forward-compatible.
   - Action: stabiliser le tag ou l'option permettant d'accepter les champs inconnus.
   - Validation: docs et tests strict/lenient.
+  - Preuve: le tag sentinelle `helix:"allow-unknown"` active le mode lenient par type de requete; `TestBindingUnknownFieldsRejection`, `TestBindingAllowUnknownFieldsOptOut` et `TestBindingRecursiveAllowUnknownFieldsOptOut` couvrent strict/lenient et detection recursive; les guides web EN/FR documentent le mode.
 
 - [ ] Generer une specification OpenAPI depuis les controllers
   - Domaine: CLI, ecosysteme

@@ -135,17 +135,24 @@ ctx.Locals("user", userClaims) // write
 
 ```go
 type ListProductsQuery struct {
-    Page     int    `query:"page"`
-    PageSize int    `query:"pageSize"`
-    Category string `query:"category"`
+    Page      int      `query:"page"`
+    PageSize  int      `query:"pageSize"`
+    Category  string   `query:"category"`
+    MinPrice  float64  `query:"minPrice"`
+    Tags      []string `query:"tags"`
+    ProductIDs []int   `query:"ids"`
 }
 
 //helix:route GET /products/search
 func (c *ProductController) Search(ctx web.Context, q ListProductsQuery) ([]Product, error) {
-    // q is automatically populated from ?page=1&pageSize=20&category=electronics
+    // q is automatically populated from ?page=1&pageSize=20&tags=red,large&ids=1,2,3
     return c.Svc.Search(q.Category, q.Page, q.PageSize)
 }
 ```
+
+Query binding supports strings, booleans, signed/unsigned integers, floats, and
+comma-separated slices of those primitive types. Invalid numbers, non-finite
+floats, and invalid slice elements return `INVALID_QUERY_PARAM`.
 
 ### JSON Body
 
@@ -167,6 +174,17 @@ func (c *ProductController) Create(ctx web.Context, input CreateProductInput) (P
 ```
 
 Validation uses [go-playground/validator](https://github.com/go-playground/validator). All standard validation tags are supported.
+
+JSON binding is strict by default: unknown fields return `INVALID_JSON`. Add a
+sentinel field tagged `helix:"allow-unknown"` when a request type must accept
+forward-compatible client fields:
+
+```go
+type CreateProductInput struct {
+    _    struct{} `helix:"allow-unknown"`
+    Name string   `json:"name" validate:"required"`
+}
+```
 
 ### Validation Error Response
 

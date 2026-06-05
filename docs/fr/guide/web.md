@@ -145,17 +145,25 @@ Helix inspecte les valeurs de retour du handler pour décider de la réponse HTT
 
 ```go
 type ListProductsQuery struct {
-    Page     int    `query:"page"`
-    PageSize int    `query:"pageSize"`
-    Category string `query:"category"`
+    Page       int      `query:"page"`
+    PageSize   int      `query:"pageSize"`
+    Category   string   `query:"category"`
+    MinPrice   float64  `query:"minPrice"`
+    Tags       []string `query:"tags"`
+    ProductIDs []int    `query:"ids"`
 }
 
 //helix:route GET /products/search
 func (c *ProductController) Search(ctx web.Context, q ListProductsQuery) ([]Product, error) {
-    // q est automatiquement rempli depuis ?page=1&pageSize=20&category=electronics
+    // q est automatiquement rempli depuis ?page=1&pageSize=20&tags=red,large&ids=1,2,3
     return c.Svc.Search(q.Category, q.Page, q.PageSize)
 }
 ```
+
+Le binding de query supporte strings, booleans, entiers signés/non signés,
+floats et slices séparées par des virgules pour ces types primitifs. Les nombres
+invalides, floats non finis et éléments de slice invalides retournent
+`INVALID_QUERY_PARAM`.
 
 ### Corps JSON
 
@@ -177,6 +185,17 @@ func (c *ProductController) Create(ctx web.Context, input CreateProductInput) (P
 ```
 
 La validation utilise [go-playground/validator](https://github.com/go-playground/validator). Tous les tags de validation standards sont supportés.
+
+Le binding JSON est strict par défaut : les champs inconnus retournent
+`INVALID_JSON`. Ajoutez un champ sentinelle tagué `helix:"allow-unknown"` quand
+un type de requête doit accepter des champs clients forward-compatible :
+
+```go
+type CreateProductInput struct {
+    _    struct{} `helix:"allow-unknown"`
+    Name string   `json:"name" validate:"required"`
+}
+```
 
 ### Réponse d'erreur de validation
 
