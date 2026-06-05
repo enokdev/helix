@@ -25,11 +25,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: `govulncheck` passe ou chaque finding a une decision documentee.
   - Preuve: `.github/workflows/ci.yml` execute `govulncheck ./...` et `docs/reference/release.md` documente la procedure de triage des findings avant publication.
 
-- [ ] Valider le workflow de release de bout en bout
+- [x] Valider le workflow de release de bout en bout
   - Domaine: release
   - Pourquoi: GoReleaser est configure en draft sans binaire a publier; il faut confirmer que les tags `v*` produisent bien la release attendue pour un module Go.
   - Action: lancer une release seche ou sur tag de pre-release, verifier changelog, draft GitHub, checks CI et instructions d'installation.
   - Validation: une checklist de release existe et a ete executee au moins une fois.
+  - Preuve: `docs/reference/release.md` contient la checklist maintainer, les checks locaux, le dry-run GoReleaser, la procedure de pre-release/stable tag et les checks d'installation; `goreleaser release --snapshot --clean --skip=publish` a ete execute avec succes le 2026-06-05 via GoReleaser v2.16.0, sans modification de fichiers suivis apres suppression de `dist/`.
 
 - [x] Clarifier le contrat de stabilite de l'API publique
   - Domaine: gouvernance, adoption

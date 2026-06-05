@@ -33,6 +33,8 @@ goreleaser release --snapshot --clean --skip=publish
 
 The dry run must complete without changing tracked files.
 
+Last local validation: on 2026-06-05, `goreleaser release --snapshot --clean --skip=publish` completed successfully with GoReleaser v2.16.0. The run produced only snapshot metadata under `dist/`, which was removed after verification.
+
 ## Pre-Release Tag
 
 Before the first stable release, publish a pre-release tag:
