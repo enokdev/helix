@@ -1,0 +1,45 @@
+name: Data Dialects
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gorm-dialects:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: helix
+          POSTGRES_PASSWORD: helix
+          POSTGRES_DB: helix
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U helix -d helix"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: helix
+          MYSQL_DATABASE: helix
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -phelix"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Run GORM dialect integration tests
+        env:
+          CGO_ENABLED: "1"
+          HELIX_GORM_POSTGRES_DSN: "host=127.0.0.1 user=helix password=helix dbname=helix port=5432 sslmode=disable TimeZone=UTC"
+          HELIX_GORM_MYSQL_DSN: "root:helix@tcp(127.0.0.1:3306)/helix?parseTime=true&charset=utf8mb4&loc=UTC"
+        run: go test -tags integration ./data/gorm

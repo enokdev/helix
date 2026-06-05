@@ -113,11 +113,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: tests lock persistant, annulation et erreur CGo explicite.
   - Preuve: `cli/internal/migrate` preflight SQLite/CGo avant l'ouverture du journal et le runner, expire automatiquement les locks de migration de plus de 15 minutes et retourne un diagnostic de lock contextualise; `migrate_test.go` couvre lock persistant, lock frais avec deadline, annulation apres application partielle, erreur CGo preflight et imports du module hote; les docs CLI EN/FR decrivent le format Go, SQLite/CGo, l'isolation du runner et le TTL de lock.
 
-- [ ] Preparer le support multi-dialecte data
+- [x] Preparer le support multi-dialecte data
   - Domaine: data, GORM
   - Pourquoi: plusieurs comportements sont verifies sur SQLite seulement, mais GORM vise aussi PostgreSQL/MySQL.
   - Action: ajouter une suite d'integration optionnelle PostgreSQL/MySQL pour filtres, pagination, migrations et transactions.
   - Validation: tests dialectes lances en CI optionnelle ou workflow manuel.
+  - Preuve: `data/gorm/adapter_dialects_integration_test.go` ajoute une suite `integration` pilotee par `HELIX_GORM_POSTGRES_DSN` et `HELIX_GORM_MYSQL_DSN` pour AutoMigrate, filtres portables, pagination et transactions commit/rollback; `.github/workflows/data-dialects.yml` fournit un workflow manuel PostgreSQL/MySQL; `go test ./...` et `go test -tags integration ./data/gorm` passent localement sans DSN externe.
 
 - [ ] Revoir les interfaces lifecycle pour l'annulation
   - Domaine: core, lifecycle
