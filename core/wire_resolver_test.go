@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -14,6 +15,22 @@ type wireResolverService struct {
 
 type wireResolverLifecycle struct {
 	started bool
+}
+
+type wireResolverGreeter interface {
+	Greet() string
+}
+
+type wireResolverPrimaryGreeter struct{}
+
+func (g *wireResolverPrimaryGreeter) Greet() string {
+	return "primary"
+}
+
+type wireResolverFallbackGreeter struct{}
+
+func (g *wireResolverFallbackGreeter) Greet() string {
+	return "fallback"
 }
 
 func (l *wireResolverLifecycle) OnStart() error {
@@ -60,6 +77,89 @@ func TestWireResolver_ResolveNotFound(t *testing.T) {
 	}
 }
 
+func TestWireResolverRegisterRejectsDuplicateConcreteType(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewWireResolver()
+	first := &wireResolverService{Repository: &wireResolverRepository{}}
+	second := &wireResolverService{Repository: &wireResolverRepository{}}
+
+	if err := resolver.Register(first); err != nil {
+		t.Fatalf("Register(first) error = %v", err)
+	}
+	err := resolver.Register(second)
+	if !errors.Is(err, ErrAlreadyRegistered) {
+		t.Fatalf("Register(second) error = %v, want ErrAlreadyRegistered", err)
+	}
+
+	var resolved *wireResolverService
+	if err := resolver.Resolve(&resolved); err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved != first {
+		t.Fatalf("resolved = %p, want first registration %p", resolved, first)
+	}
+}
+
+func TestWireResolverRegisterRejectsSharedExplicitInterface(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewWireResolver()
+	greeterType := reflect.TypeOf((*wireResolverGreeter)(nil)).Elem()
+
+	if err := resolver.Register(ComponentRegistration{
+		Component: &wireResolverPrimaryGreeter{},
+		ResolveAs: []reflect.Type{
+			greeterType,
+		},
+	}); err != nil {
+		t.Fatalf("Register(primary) error = %v", err)
+	}
+
+	err := resolver.Register(ComponentRegistration{
+		Component: &wireResolverFallbackGreeter{},
+		ResolveAs: []reflect.Type{
+			greeterType,
+		},
+	})
+	if !errors.Is(err, ErrAlreadyRegistered) {
+		t.Fatalf("Register(fallback) error = %v, want ErrAlreadyRegistered", err)
+	}
+}
+
+func TestWireResolverRegisterAllowsExplicitInterfacePriority(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewWireResolver()
+	greeterType := reflect.TypeOf((*wireResolverGreeter)(nil)).Elem()
+	primary := &wireResolverPrimaryGreeter{}
+
+	if err := resolver.Register(ComponentRegistration{
+		Component: primary,
+		ResolveAs: []reflect.Type{
+			greeterType,
+		},
+	}); err != nil {
+		t.Fatalf("Register(primary) error = %v", err)
+	}
+	if err := resolver.Register(ComponentRegistration{
+		Component: &wireResolverFallbackGreeter{},
+		ExcludeFrom: []reflect.Type{
+			greeterType,
+		},
+	}); err != nil {
+		t.Fatalf("Register(fallback) error = %v", err)
+	}
+
+	var resolved wireResolverGreeter
+	if err := resolver.Resolve(&resolved); err != nil {
+		t.Fatalf("Resolve(greeter) error = %v", err)
+	}
+	if resolved != primary {
+		t.Fatalf("resolved = %T, want primary", resolved)
+	}
+}
+
 func TestWireResolverUnregister(t *testing.T) {
 	resolver := NewWireResolver()
 	component := &wireResolverService{}
@@ -72,6 +172,23 @@ func TestWireResolverUnregister(t *testing.T) {
 	}
 
 	var resolved *wireResolverService
+	if err := resolver.Resolve(&resolved); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Resolve() error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestWireResolverUnregisterComponentRegistration(t *testing.T) {
+	resolver := NewWireResolver()
+	registration := ComponentRegistration{Component: &wireResolverPrimaryGreeter{}}
+
+	if err := resolver.Register(registration); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if err := resolver.Unregister(registration); err != nil {
+		t.Fatalf("Unregister() error = %v", err)
+	}
+
+	var resolved *wireResolverPrimaryGreeter
 	if err := resolver.Resolve(&resolved); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Resolve() error = %v, want ErrNotFound", err)
 	}

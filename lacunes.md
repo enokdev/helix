@@ -67,11 +67,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: tests d'echec force prouvant qu'aucun composant orphelin ne reste actif.
   - Preuve: `core.Container` expose un rollback optionnel via `Unregister`; les starters web, data et scheduling annulent leurs registrations precedentes quand une registration suivante echoue; les tests `starter/...` couvrent les echecs forces, les erreurs de rollback et l'absence de composants orphelins resolvables.
 
-- [ ] Durcir l'orchestration entre starters et mode wire
+- [x] Durcir l'orchestration entre starters et mode wire
   - Domaine: DI, codegen
   - Pourquoi: les composants enregistres par starters et par wire peuvent se chevaucher sans coordination claire.
   - Action: definir l'ordre, les conflits autorises et les erreurs attendues quand deux registrations ciblent le meme type.
   - Validation: tests couvrant conflit direct, interface partagee et priorite explicite.
+  - Preuve: `core.WireResolver` refuse les doublons de type concret avec `ErrAlreadyRegistered`, applique les filtres `ResolveAs`/`ExcludeFrom` en mode wire, refuse les conflits d'interface explicites et conserve la premiere registration intacte; `core/wire_resolver_test.go` couvre conflit direct, interface partagee, priorite explicite et rollback via `ComponentRegistration`.
 
 - [x] Exposer le contexte HTTP aux handlers Helix
   - Domaine: web, observabilite
