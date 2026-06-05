@@ -49,7 +49,7 @@ type Repository[T any, ID any] interface {
 ```go
 type Lifecycle interface {
     OnStart() error
-    OnStop() error
+    OnStop(ctx context.Context) error
 }
 ```
 
@@ -120,6 +120,5 @@ When a work item is marked `done` in the internal tracking system, close the cor
    ```bash
    gh issue close <number> --repo enokdev/helix --comment "Implemented and validated. ✅"
    ```
-
 
 

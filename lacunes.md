@@ -120,11 +120,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Validation: tests dialectes lances en CI optionnelle ou workflow manuel.
   - Preuve: `data/gorm/adapter_dialects_integration_test.go` ajoute une suite `integration` pilotee par `HELIX_GORM_POSTGRES_DSN` et `HELIX_GORM_MYSQL_DSN` pour AutoMigrate, filtres portables, pagination et transactions commit/rollback; `.github/workflows/data-dialects.yml` fournit un workflow manuel PostgreSQL/MySQL; `go test ./...` et `go test -tags integration ./data/gorm` passent localement sans DSN externe.
 
-- [ ] Revoir les interfaces lifecycle pour l'annulation
+- [x] Revoir les interfaces lifecycle pour l'annulation
   - Domaine: core, lifecycle
   - Pourquoi: `OnStop() error` ne permet pas d'annuler proprement un composant bloque.
   - Action: evaluer une interface additionnelle avec `context.Context` sans casser l'API existante.
   - Validation: composant bloque arrete sans goroutine abandonnee dans un test cible.
+  - Preuve: `core.Lifecycle` expose deja `OnStop(ctx context.Context) error`; `core/lifecycle_manager.go` transmet un contexte avec deadline derive du budget de shutdown; `TestContainerShutdownContextCancelsOnStop` verifie qu'un composant bloque observe `ctx.Done()` et peut sortir proprement; `CLAUDE.md` a ete aligne avec le contrat actuel.
 
 ## P2 - Experience Developpeur et Surface Fonctionnelle
 
