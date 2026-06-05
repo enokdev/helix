@@ -55,6 +55,9 @@ func run(ctx context.Context, args []string) error {
 		if len(restArgs) > 0 && restArgs[0] == "context" {
 			return runGenerateContext(ctx, restArgs[1:])
 		}
+		if len(restArgs) > 0 && restArgs[0] == "openapi" {
+			return runGenerateOpenAPI(ctx, restArgs[1:])
+		}
 		return runGenerate(ctx, restArgs)
 	case "version":
 		version := "unknown"
@@ -136,7 +139,7 @@ func parseDBMigrateOptions(name string, args []string) (cli.MigrationOptions, er
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "Go module root")
 	databaseURL := flags.String("database-url", "", "database URL override")
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return cli.MigrationOptions{}, err
 	}
 	if flags.NArg() != 0 {
@@ -146,10 +149,21 @@ func parseDBMigrateOptions(name string, args []string) (cli.MigrationOptions, er
 }
 
 func runNew(ctx context.Context, args []string) error {
-	if len(args) == 0 || args[0] != "app" {
-		return fmt.Errorf("helix new: expected subcommand app")
+	if len(args) == 0 {
+		return fmt.Errorf("helix new: expected subcommand app, api, secured-api, or gorm-api")
 	}
-	return runNewApp(ctx, args[1:])
+	switch args[0] {
+	case "app":
+		return runNewApp(ctx, args[1:])
+	case "api":
+		return runNewTemplate(ctx, "api", args[1:])
+	case "secured-api":
+		return runNewTemplate(ctx, "secured-api", args[1:])
+	case "gorm-api":
+		return runNewTemplate(ctx, "gorm-api", args[1:])
+	default:
+		return fmt.Errorf("helix new: expected subcommand app, api, secured-api, or gorm-api")
+	}
 }
 
 func runRun(ctx context.Context, args []string) error {
@@ -164,7 +178,7 @@ func parseRunOptions(args []string) (cli.RunOptions, error) {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "Go module root")
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return cli.RunOptions{}, err
 	}
 	return cli.RunOptions{Dir: *dir, Args: flags.Args()}, nil
@@ -183,7 +197,7 @@ func parseBuildOptions(args []string) (cli.BuildOptions, error) {
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "Go module root")
 	docker := flags.Bool("docker", false, "generate a Dockerfile")
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return cli.BuildOptions{}, err
 	}
 	if flags.NArg() != 0 {
@@ -203,11 +217,32 @@ func runNewApp(ctx context.Context, args []string) error {
 	return cli.NewApp(ctx, cli.NewAppOptions{Dir: *dir, Name: name})
 }
 
+func runNewTemplate(ctx context.Context, kind string, args []string) error {
+	flags := flag.NewFlagSet("new "+kind, flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	dir := flags.String("dir", ".", "directory where the app folder is created")
+	name, err := parseNamedCommand(flags, args, "app name")
+	if err != nil {
+		return err
+	}
+	opts := cli.NewAppOptions{Dir: *dir, Name: name}
+	switch kind {
+	case "api":
+		return cli.NewAPIApp(ctx, opts)
+	case "secured-api":
+		return cli.NewSecuredAPIApp(ctx, opts)
+	case "gorm-api":
+		return cli.NewGORMAPIApp(ctx, opts)
+	default:
+		return fmt.Errorf("helix new: unknown template %q", kind)
+	}
+}
+
 func runGenerate(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("generate", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "directory tree to scan")
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -220,7 +255,7 @@ func runGenerateWire(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("generate wire", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	dir := flags.String("dir", ".", "directory tree to scan")
-	if err := flags.Parse(args); err != nil {
+	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -251,6 +286,20 @@ func runGenerateContext(ctx context.Context, args []string) error {
 	return cli.GenerateContext(ctx, cli.GenerateContextOptions{Dir: *dir, Name: name})
 }
 
+func runGenerateOpenAPI(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("generate openapi", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	dir := flags.String("dir", ".", "directory tree to scan")
+	output := flags.String("output", "", "OpenAPI JSON output path")
+	if err := parseFlags(flags, args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("helix generate openapi: unexpected argument %q", flags.Arg(0))
+	}
+	return cli.GenerateOpenAPI(ctx, cli.GenerateOpenAPIOptions{Dir: *dir, Output: *output})
+}
+
 func parseNamedCommand(flags *flag.FlagSet, args []string, nameDescription string) (string, error) {
 	var flagArgs []string
 	var positionals []string
@@ -269,7 +318,7 @@ func parseNamedCommand(flags *flag.FlagSet, args []string, nameDescription strin
 		}
 		positionals = append(positionals, arg)
 	}
-	if err := flags.Parse(flagArgs); err != nil {
+	if err := parseFlags(flags, flagArgs); err != nil {
 		return "", err
 	}
 	if len(positionals) == 0 {
@@ -279,4 +328,11 @@ func parseNamedCommand(flags *flag.FlagSet, args []string, nameDescription strin
 		return "", fmt.Errorf("helix %s: unexpected argument %q", flags.Name(), positionals[1])
 	}
 	return positionals[0], nil
+}
+
+func parseFlags(flags *flag.FlagSet, args []string) error {
+	if err := flags.Parse(args); err != nil {
+		return fmt.Errorf("helix %s: %w", flags.Name(), err)
+	}
+	return nil
 }

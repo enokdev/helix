@@ -115,6 +115,99 @@ func NewApp(opts Options) error {
 	return nil
 }
 
+// NewAPIApp creates a CRUD API Helix application under RootDir/Name.
+func NewAPIApp(opts Options) error {
+	return newTemplateApp("api", goModTemplate, map[string]string{
+		"main.go":                 apiMainTemplate,
+		"main_test.go":            apiTestTemplate,
+		"config/application.yaml": apiConfigTemplate,
+	}, opts)
+}
+
+// NewSecuredAPIApp creates a JWT-secured API Helix application under RootDir/Name.
+func NewSecuredAPIApp(opts Options) error {
+	return newTemplateApp("secured-api", goModTemplate, map[string]string{
+		"main.go":                 securedAPIMainTemplate,
+		"main_test.go":            securedAPITestTemplate,
+		"config/application.yaml": securedAPIConfigTemplate,
+	}, opts)
+}
+
+// NewGORMAPIApp creates a GORM/SQLite API Helix application under RootDir/Name.
+func NewGORMAPIApp(opts Options) error {
+	return newTemplateApp("gorm-api", gormGoModTemplate, map[string]string{
+		"main.go":                 gormAPIMainTemplate,
+		"main_test.go":            gormAPITestTemplate,
+		"config/application.yaml": gormAPIConfigTemplate,
+	}, opts)
+}
+
+// newTemplateApp is the shared implementation for all app-template scaffolds.
+func newTemplateApp(kind, goModTmpl string, srcTemplates map[string]string, opts Options) error {
+	root := opts.RootDir
+	if root == "" {
+		root = "."
+	}
+	appName, err := normalizeAppName(opts.Name)
+	if err != nil {
+		return fmt.Errorf("helix new %s: invalid name %q: %w", kind, opts.Name, err)
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("helix new %s: resolve root: %w", kind, err)
+	}
+	appDir, err := safeJoin(root, appName)
+	if err != nil {
+		return fmt.Errorf("helix new %s %s: %w", kind, appName, err)
+	}
+	if err := ensureEmptyOrMissingDir(appDir); err != nil {
+		return fmt.Errorf("helix new %s %s: %w", kind, appName, err)
+	}
+
+	helixVersion := opts.HelixVersion
+	if opts.HelixReplacePath != "" {
+		helixVersion = "v0.0.0"
+	} else if helixVersion == "" {
+		helixVersion = "v1.1.2"
+	}
+	data := appTemplateData{
+		Name:             appName,
+		ModulePath:       appName,
+		HelixReplacePath: filepath.ToSlash(opts.HelixReplacePath),
+		HelixVersion:     helixVersion,
+	}
+	if opts.HelixReplacePath != "" {
+		if goMod, err := os.ReadFile(filepath.Join(opts.HelixReplacePath, "go.mod")); err == nil {
+			data.ExtraGoMod = extractRequireBlocks(string(goMod))
+		}
+	}
+
+	files := map[string]string{
+		"go.mod": renderTemplate(goModTmpl, data),
+	}
+	for name, tmpl := range srcTemplates {
+		if isGoFile(name) {
+			files[name] = renderGoTemplate(tmpl, data)
+		} else {
+			files[name] = renderTemplate(tmpl, data)
+		}
+	}
+	if opts.HelixReplacePath != "" {
+		if goSum, err := os.ReadFile(filepath.Join(opts.HelixReplacePath, "go.sum")); err == nil {
+			files["go.sum"] = string(goSum)
+		}
+	}
+
+	if err := writeAllFiles(appDir, fmt.Sprintf("helix new %s %s", kind, appName), files); err != nil {
+		return err
+	}
+	return nil
+}
+
+func isGoFile(name string) bool {
+	return len(name) > 3 && name[len(name)-3:] == ".go"
+}
+
 // GenerateModule creates a conventional Helix module under RootDir.
 func GenerateModule(opts ModuleOptions) error {
 	root := opts.RootDir

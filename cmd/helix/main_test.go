@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -46,6 +47,44 @@ func TestRunGenerateContext(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "accounts", "api.go")); err != nil {
 		t.Fatalf("accounts/api.go stat error = %v", err)
+	}
+}
+
+func TestRunGenerateOpenAPI(t *testing.T) {
+	t.Parallel()
+
+	dir := newCLIGenerateFixture(t)
+	writeCLIFile(t, dir, "controller.go", `package main
+
+import (
+	"github.com/enokdev/helix"
+	"github.com/enokdev/helix/web"
+)
+
+type UserController struct {
+	helix.Controller `+"`helix:\"route:/api/users\"`"+`
+}
+
+func (c *UserController) Index() []string { return nil }
+func (c *UserController) Show(ctx web.Context) (string, error) { return "", nil }
+`)
+	output := filepath.Join(dir, "public-openapi.json")
+
+	if err := run(context.Background(), []string{"generate", "openapi", "--dir", dir, "--output", output}); err != nil {
+		t.Fatalf("run(generate openapi) error = %v", err)
+	}
+
+	data := readCLIFile(t, output)
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(data), &doc); err != nil {
+		t.Fatalf("generated OpenAPI is invalid JSON: %v\n%s", err, data)
+	}
+	paths := doc["paths"].(map[string]any)
+	if _, ok := paths["/api/users"].(map[string]any)["get"]; !ok {
+		t.Fatalf("OpenAPI missing GET /api/users: %s", data)
+	}
+	if _, ok := paths["/api/users/{id}"].(map[string]any)["get"]; !ok {
+		t.Fatalf("OpenAPI missing GET /api/users/{id}: %s", data)
 	}
 }
 
@@ -284,6 +323,34 @@ func TestRunCommandsWithPositionalsAcceptFlagsBeforeAndAfterName(t *testing.T) {
 	}
 }
 
+func TestRunCommandFlagErrorsIncludeCommandContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "new app unknown flag", args: []string{"new", "app", "my-service", "--unknown"}, want: "helix new app: flag provided but not defined: -unknown"},
+		{name: "generate module unknown flag", args: []string{"generate", "module", "user", "--unknown"}, want: "helix generate module: flag provided but not defined: -unknown"},
+		{name: "db migrate create unknown flag", args: []string{"db", "migrate", "create", "add_users", "--unknown"}, want: "helix db migrate create: flag provided but not defined: -unknown"},
+		{name: "build unknown flag", args: []string{"build", "--unknown"}, want: "helix build: flag provided but not defined: -unknown"},
+		{name: "generate unknown flag", args: []string{"generate", "--unknown"}, want: "helix generate: flag provided but not defined: -unknown"},
+		{name: "db migrate up unknown flag", args: []string{"db", "migrate", "up", "--unknown"}, want: "helix db migrate up: flag provided but not defined: -unknown"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := run(context.Background(), tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("run(%v) error = %v, want %q", tt.args, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunGenerateReportsChangedFiles(t *testing.T) {
 	dir := newCLIRepositoryGenerateFixture(t)
 	var out bytes.Buffer
@@ -501,4 +568,89 @@ func readCLIFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(content)
+}
+
+func TestRunNewAPI(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	if err := run(context.Background(), []string{"new", "api", "my-api", "--dir", root}); err != nil {
+		t.Fatalf("run(new api) error = %v", err)
+	}
+	appDir := filepath.Join(root, "my-api")
+	for _, name := range []string{"go.mod", "main.go", "main_test.go", filepath.Join("config", "application.yaml")} {
+		if _, err := os.Stat(filepath.Join(appDir, name)); err != nil {
+			t.Fatalf("generated file %s stat error = %v", name, err)
+		}
+	}
+
+	main := readCLIFile(t, filepath.Join(appDir, "main.go"))
+	if !strings.Contains(main, "UserController") {
+		t.Fatal("main.go missing UserController")
+	}
+}
+
+func TestRunNewSecuredAPI(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	if err := run(context.Background(), []string{"new", "secured-api", "my-secured", "--dir", root}); err != nil {
+		t.Fatalf("run(new secured-api) error = %v", err)
+	}
+	appDir := filepath.Join(root, "my-secured")
+	for _, name := range []string{"go.mod", "main.go", "main_test.go", filepath.Join("config", "application.yaml")} {
+		if _, err := os.Stat(filepath.Join(appDir, name)); err != nil {
+			t.Fatalf("generated file %s stat error = %v", name, err)
+		}
+	}
+
+	main := readCLIFile(t, filepath.Join(appDir, "main.go"))
+	if !strings.Contains(main, "AuthController") {
+		t.Fatal("main.go missing AuthController")
+	}
+
+	cfg := readCLIFile(t, filepath.Join(appDir, "config", "application.yaml"))
+	if !strings.Contains(cfg, "jwt:") {
+		t.Fatal("application.yaml missing jwt section")
+	}
+}
+
+func TestRunNewGORMAPI(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	if err := run(context.Background(), []string{"new", "gorm-api", "my-gorm", "--dir", root}); err != nil {
+		t.Fatalf("run(new gorm-api) error = %v", err)
+	}
+	appDir := filepath.Join(root, "my-gorm")
+	for _, name := range []string{"go.mod", "main.go", "main_test.go", filepath.Join("config", "application.yaml")} {
+		if _, err := os.Stat(filepath.Join(appDir, name)); err != nil {
+			t.Fatalf("generated file %s stat error = %v", name, err)
+		}
+	}
+
+	goMod := readCLIFile(t, filepath.Join(appDir, "go.mod"))
+	if !strings.Contains(goMod, "gorm.io/driver/sqlite") {
+		t.Fatal("go.mod missing gorm.io/driver/sqlite")
+	}
+
+	main := readCLIFile(t, filepath.Join(appDir, "main.go"))
+	if !strings.Contains(main, "openDB") {
+		t.Fatal("main.go missing openDB function")
+	}
+}
+
+func TestRunNewUnknownSubcommand(t *testing.T) {
+	t.Parallel()
+
+	err := run(context.Background(), []string{"new", "unknown-template", "my-app", "--dir", t.TempDir()})
+	if err == nil {
+		t.Fatal("expected error for unknown template, got nil")
+	}
+	if !strings.Contains(err.Error(), "expected subcommand app, api, secured-api, or gorm-api") {
+		t.Fatalf("error = %q, want subcommand list", err)
+	}
 }

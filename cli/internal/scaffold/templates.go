@@ -11,6 +11,21 @@ replace github.com/enokdev/helix => {{ .HelixReplacePath }}
 {{ end }}
 `
 
+const gormGoModTemplate = `module {{ .ModulePath }}
+
+go 1.25.0
+
+require (
+	github.com/enokdev/helix {{ .HelixVersion }}
+	gorm.io/driver/sqlite v1.6.0
+	gorm.io/gorm v1.31.1
+)
+{{ .ExtraGoMod }}
+{{ if .HelixReplacePath }}
+replace github.com/enokdev/helix => {{ .HelixReplacePath }}
+{{ end }}
+`
+
 const mainTemplate = `package main
 
 import (
@@ -175,4 +190,967 @@ func init() {
 		&{{ .TypeName }}Controller{},
 	)
 }
+`
+
+// ── api template ──────────────────────────────────────────────────────────────
+
+const apiMainTemplate = `package main
+
+import (
+	"log"
+	"net/http"
+	"sort"
+	"strconv"
+	"sync"
+
+	helix "github.com/enokdev/helix"
+	"github.com/enokdev/helix/config"
+	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/starter"
+	webstarter "github.com/enokdev/helix/starter/web"
+	"github.com/enokdev/helix/web"
+)
+
+type User struct {
+	ID    int    ` + "`json:\"id\"`" + `
+	Name  string ` + "`json:\"name\"`" + `
+	Email string ` + "`json:\"email\"`" + `
+}
+
+type userInput struct {
+	Name  string ` + "`json:\"name\"  validate:\"required\"`" + `
+	Email string ` + "`json:\"email\" validate:\"required,email\"`" + `
+}
+
+type UserRepository struct {
+	helix.Repository
+
+	mu     sync.Mutex
+	nextID int
+	users  map[int]User
+}
+
+func NewUserRepository() *UserRepository {
+	return &UserRepository{nextID: 1, users: make(map[int]User)}
+}
+
+func (r *UserRepository) FindAll() []User {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	ids := make([]int, 0, len(r.users))
+	for id := range r.users {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	out := make([]User, 0, len(r.users))
+	for _, id := range ids {
+		out = append(out, r.users[id])
+	}
+	return out
+}
+
+func (r *UserRepository) FindByID(id int) (User, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	u, ok := r.users[id]
+	return u, ok
+}
+
+func (r *UserRepository) Save(input userInput) User {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	u := User{ID: r.nextID, Name: input.Name, Email: input.Email}
+	r.users[u.ID] = u
+	r.nextID++
+	return u
+}
+
+func (r *UserRepository) Update(id int, input userInput) (User, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.users[id]; !ok {
+		return User{}, false
+	}
+	u := User{ID: id, Name: input.Name, Email: input.Email}
+	r.users[id] = u
+	return u, true
+}
+
+func (r *UserRepository) Delete(id int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.users[id]; !ok {
+		return false
+	}
+	delete(r.users, id)
+	return true
+}
+
+type UserService struct {
+	helix.Service
+
+	Repo *UserRepository ` + "`inject:\"true\"`" + `
+}
+
+func (s *UserService) List() []User                           { return s.Repo.FindAll() }
+func (s *UserService) Get(id int) (User, bool)                { return s.Repo.FindByID(id) }
+func (s *UserService) Create(input userInput) User            { return s.Repo.Save(input) }
+func (s *UserService) Update(id int, input userInput) (User, bool) { return s.Repo.Update(id, input) }
+func (s *UserService) Delete(id int) bool                     { return s.Repo.Delete(id) }
+
+type UserController struct {
+	helix.Controller
+
+	Service *UserService ` + "`inject:\"true\"`" + `
+}
+
+func (c *UserController) Index() []User { return c.Service.List() }
+
+func (c *UserController) Show(ctx web.Context) (User, error) {
+	id, err := parseUserID(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	u, ok := c.Service.Get(id)
+	if !ok {
+		return User{}, errNotFound()
+	}
+	return u, nil
+}
+
+func (c *UserController) Create(ctx web.Context, input userInput) (User, error) {
+	u := c.Service.Create(input)
+	ctx.Status(http.StatusCreated)
+	return u, nil
+}
+
+func (c *UserController) Update(ctx web.Context, input userInput) (User, error) {
+	id, err := parseUserID(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	u, ok := c.Service.Update(id, input)
+	if !ok {
+		return User{}, errNotFound()
+	}
+	return u, nil
+}
+
+func (c *UserController) Delete(ctx web.Context) error {
+	id, err := parseUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if !c.Service.Delete(id) {
+		return errNotFound()
+	}
+	ctx.Status(http.StatusNoContent)
+	return nil
+}
+
+type httpError struct {
+	status  int
+	errType string
+	code    string
+	message string
+}
+
+func (e *httpError) Error() string      { return e.message }
+func (e *httpError) StatusCode() int    { return e.status }
+func (e *httpError) ErrorType() string  { return e.errType }
+func (e *httpError) ErrorCode() string  { return e.code }
+func (e *httpError) ErrorField() string { return "" }
+
+func errNotFound() error {
+	return &httpError{status: http.StatusNotFound, errType: "NotFound", code: "NOT_FOUND", message: "user not found"}
+}
+
+func parseUserID(ctx web.Context) (int, error) {
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return 0, &httpError{status: http.StatusBadRequest, errType: "BadRequest", code: "BAD_REQUEST", message: "invalid user id"}
+	}
+	return id, nil
+}
+
+func newServer() (web.HTTPServer, error) {
+	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
+	for _, c := range []any{NewUserRepository(), &UserService{}, &UserController{}} {
+		if err := container.Register(c); err != nil {
+			return nil, err
+		}
+	}
+	var ctrl *UserController
+	if err := container.Resolve(&ctrl); err != nil {
+		return nil, err
+	}
+	srv := web.NewServer()
+	if err := web.RegisterController(srv, ctrl); err != nil {
+		return nil, err
+	}
+	return srv, nil
+}
+
+func main() {
+	loader := config.NewLoader(
+		config.WithConfigPaths("config"),
+		config.WithDefaults(map[string]any{
+			"server.port": 8080,
+			"app.name":    "{{ .Name }}",
+		}),
+	)
+	if err := helix.Run(helix.App{
+		Starters: []starter.Entry{
+			{Name: "web", Order: starter.OrderWeb, Starter: webstarter.New(loader)},
+		},
+		Components: []any{NewUserRepository(), &UserService{}, &UserController{}},
+	}); err != nil {
+		log.Fatal(err)
+	}
+}
+`
+
+const apiTestTemplate = `package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestUsersCRUD(t *testing.T) {
+	srv, err := newServer()
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+
+	// POST /users
+	createResp := serveReq(t, srv, http.MethodPost, "/users", ` + "`" + `{"name":"Ada Lovelace","email":"ada@example.com"}` + "`" + `)
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /users status = %d, want %d", createResp.StatusCode, http.StatusCreated)
+	}
+	var created User
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	if created.ID != 1 || created.Name != "Ada Lovelace" {
+		t.Fatalf("created = %+v", created)
+	}
+
+	// GET /users/1
+	showResp := serveReq(t, srv, http.MethodGet, "/users/1", "")
+	if showResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /users/1 status = %d, want %d", showResp.StatusCode, http.StatusOK)
+	}
+
+	// PUT /users/1
+	updateResp := serveReq(t, srv, http.MethodPut, "/users/1", ` + "`" + `{"name":"Ada Byron","email":"ada.byron@example.com"}` + "`" + `)
+	if updateResp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /users/1 status = %d, want %d", updateResp.StatusCode, http.StatusOK)
+	}
+
+	// DELETE /users/1
+	deleteResp := serveReq(t, srv, http.MethodDelete, "/users/1", "")
+	if deleteResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE /users/1 status = %d, want %d", deleteResp.StatusCode, http.StatusNoContent)
+	}
+
+	// GET /users after delete
+	listResp := serveReq(t, srv, http.MethodGet, "/users", "")
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /users status = %d, want %d", listResp.StatusCode, http.StatusOK)
+	}
+	var list []User
+	if err := json.NewDecoder(listResp.Body).Decode(&list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("list after delete = %d users, want 0", len(list))
+	}
+}
+
+func TestUsersNegativePaths(t *testing.T) {
+	srv, err := newServer()
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+
+	cases := []struct {
+		method string
+		path   string
+		body   string
+		want   int
+	}{
+		{http.MethodGet, "/users/999", "", http.StatusNotFound},
+		{http.MethodGet, "/users/abc", "", http.StatusBadRequest},
+		{http.MethodPut, "/users/999", ` + "`" + `{"name":"X","email":"x@example.com"}` + "`" + `, http.StatusNotFound},
+		{http.MethodDelete, "/users/999", "", http.StatusNotFound},
+		{http.MethodPost, "/users", ` + "`" + `{invalid}` + "`" + `, http.StatusBadRequest},
+		{http.MethodPost, "/users", ` + "`" + `{"email":"x@example.com"}` + "`" + `, http.StatusBadRequest},
+	}
+
+	for _, tc := range cases {
+		resp := serveReq(t, srv, tc.method, tc.path, tc.body)
+		if resp.StatusCode != tc.want {
+			t.Errorf("%s %s status = %d, want %d", tc.method, tc.path, resp.StatusCode, tc.want)
+		}
+	}
+}
+
+func serveReq(t *testing.T, srv interface {
+	ServeHTTP(*http.Request) (*http.Response, error)
+}, method, path, body string,
+) *http.Response {
+	t.Helper()
+	var buf *bytes.Buffer
+	if body != "" {
+		buf = bytes.NewBufferString(body)
+	} else {
+		buf = &bytes.Buffer{}
+	}
+	req := httptest.NewRequest(method, path, buf)
+	if buf.Len() > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := srv.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP(%s %s) error = %v", method, path, err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+`
+
+const apiConfigTemplate = `app:
+  name: {{ .Name }}
+server:
+  port: 8080
+`
+
+// ── secured-api template ──────────────────────────────────────────────────────
+
+const securedAPIMainTemplate = `package main
+
+import (
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
+	helix "github.com/enokdev/helix"
+	"github.com/enokdev/helix/config"
+	"github.com/enokdev/helix/core"
+	"github.com/enokdev/helix/security"
+	"github.com/enokdev/helix/starter"
+	webstarter "github.com/enokdev/helix/starter/web"
+	"github.com/enokdev/helix/web"
+)
+
+type appConfig struct {
+	Server struct {
+		Port int ` + "`mapstructure:\"port\"`" + `
+	} ` + "`mapstructure:\"server\"`" + `
+	App struct {
+		Name string ` + "`mapstructure:\"name\"`" + `
+	} ` + "`mapstructure:\"app\"`" + `
+	Security struct {
+		JWT struct {
+			Secret string        ` + "`mapstructure:\"secret\"`" + `
+			Expiry time.Duration ` + "`mapstructure:\"expiry\"`" + `
+		} ` + "`mapstructure:\"jwt\"`" + `
+	} ` + "`mapstructure:\"security\"`" + `
+}
+
+type apiError struct {
+	status  int
+	errType string
+	code    string
+	message string
+}
+
+func (e *apiError) Error() string      { return e.message }
+func (e *apiError) StatusCode() int    { return e.status }
+func (e *apiError) ErrorType() string  { return e.errType }
+func (e *apiError) ErrorCode() string  { return e.code }
+func (e *apiError) ErrorField() string { return "" }
+
+type LoginRequest struct {
+	Username string ` + "`json:\"username\" validate:\"required\"`" + `
+	Password string ` + "`json:\"password\" validate:\"required\"`" + `
+}
+
+type LoginResponse struct {
+	Token     string ` + "`json:\"token\"`" + `
+	TokenType string ` + "`json:\"token_type\"`" + `
+	ExpiresIn int64  ` + "`json:\"expires_in\"`" + `
+	Username  string ` + "`json:\"username\"`" + `
+	Role      string ` + "`json:\"role\"`" + `
+}
+
+type AccountInfo struct {
+	Username string ` + "`json:\"username\"`" + `
+	Role     string ` + "`json:\"role\"`" + `
+}
+
+type DemoAccount struct {
+	Username string
+	Password string
+	Roles    []string
+}
+
+type AuthService struct {
+	helix.Service
+
+	JWTSvc   *security.JWTService ` + "`inject:\"true\"`" + `
+	accounts map[string]DemoAccount
+	mu       sync.Mutex
+	expiry   time.Duration
+}
+
+func NewAuthService(expiry time.Duration) *AuthService {
+	return &AuthService{
+		expiry: expiry,
+		accounts: map[string]DemoAccount{
+			"user":  {Username: "user", Password: "password", Roles: []string{"user"}},
+			"admin": {Username: "admin", Password: "password", Roles: []string{"admin", "user"}},
+		},
+	}
+}
+
+func (s *AuthService) Authenticate(username, password string) (map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	account, exists := s.accounts[username]
+	if !exists || account.Password != password {
+		return nil, &apiError{status: 401, errType: "AuthenticationError", code: "AUTH_ERROR", message: "invalid credentials"}
+	}
+	return map[string]any{"username": account.Username, "roles": account.Roles}, nil
+}
+
+func (s *AuthService) Expiry() time.Duration { return s.expiry }
+
+type AuthController struct {
+	helix.Controller
+
+	AuthSvc *AuthService         ` + "`inject:\"true\"`" + `
+	JWTSvc  *security.JWTService ` + "`inject:\"true\"`" + `
+}
+
+//helix:route POST /auth/login
+func (c *AuthController) Login(ctx web.Context, req LoginRequest) (LoginResponse, error) {
+	claims, err := c.AuthSvc.Authenticate(req.Username, req.Password)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	token, err := c.JWTSvc.Generate(claims)
+	if err != nil {
+		return LoginResponse{}, &apiError{status: 500, errType: "InternalError", code: "INTERNAL_ERROR", message: "failed to generate token"}
+	}
+	ctx.Locals("_helix_custom_status", http.StatusOK)
+	roles, _ := claims["roles"].([]string)
+	role := ""
+	if len(roles) > 0 {
+		role = roles[0]
+	}
+	return LoginResponse{
+		Token:     token,
+		TokenType: "Bearer",
+		ExpiresIn: int64(c.AuthSvc.Expiry().Seconds()),
+		Username:  req.Username,
+		Role:      role,
+	}, nil
+}
+
+type APIController struct {
+	helix.Controller
+}
+
+//helix:route GET /api/profile
+func (c *APIController) Profile(ctx web.Context) (AccountInfo, error) {
+	claims, ok := security.ClaimsFromContext(ctx)
+	if !ok {
+		return AccountInfo{}, web.Unauthorized("no claims found")
+	}
+	username, _ := claims["username"].(string)
+	roles, _ := claims["roles"].([]any)
+	role := ""
+	if len(roles) > 0 {
+		role, _ = roles[0].(string)
+	}
+	return AccountInfo{Username: username, Role: role}, nil
+}
+
+type SecurityConfig struct {
+	helix.SecurityConfigurer
+
+	JWTSvc *security.JWTService ` + "`inject:\"true\"`" + `
+}
+
+func (sc *SecurityConfig) Configure(hs *security.HTTPSecurity) {
+	hs.Route("/auth/**").PermitAll().
+		Route("/api/**").Authenticated()
+}
+
+func newServer(jwtSvc *security.JWTService, expiry time.Duration) (web.HTTPServer, error) {
+	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
+	for _, c := range []any{jwtSvc, NewAuthService(expiry), &AuthController{}, &APIController{}, &SecurityConfig{}} {
+		if err := container.Register(c); err != nil {
+			return nil, err
+		}
+	}
+	var authCtrl *AuthController
+	var apiCtrl *APIController
+	var secCfg *SecurityConfig
+	if err := container.Resolve(&authCtrl); err != nil {
+		return nil, err
+	}
+	if err := container.Resolve(&apiCtrl); err != nil {
+		return nil, err
+	}
+	if err := container.Resolve(&secCfg); err != nil {
+		return nil, err
+	}
+	srv := web.NewServer()
+	if err := web.RegisterController(srv, authCtrl); err != nil {
+		return nil, err
+	}
+	if err := web.RegisterController(srv, apiCtrl); err != nil {
+		return nil, err
+	}
+	httpSecurity := security.NewHTTPSecurity(jwtSvc)
+	secCfg.Configure(httpSecurity)
+	globalGuard := httpSecurity.Build()
+	if err := web.ApplyGlobalGuard(srv, globalGuard); err != nil {
+		return nil, err
+	}
+	return srv, nil
+}
+
+func main() {
+	loader := config.NewLoader(
+		config.WithConfigPaths("config"),
+		config.WithDefaults(map[string]any{
+			"server.port":         8080,
+			"app.name":            "{{ .Name }}",
+			"security.jwt.secret": "change-me-before-production",
+			"security.jwt.expiry": 1 * time.Hour,
+		}),
+	)
+	var cfg appConfig
+	if err := loader.Load(&cfg); err != nil {
+		log.Fatal(err)
+	}
+	jwtSvc, err := security.NewJWTService(cfg.Security.JWT.Secret, cfg.Security.JWT.Expiry)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := helix.Run(helix.App{
+		Starters: []starter.Entry{
+			{Name: "web", Order: starter.OrderWeb, Starter: webstarter.New(loader)},
+		},
+		Components: []any{jwtSvc, NewAuthService(cfg.Security.JWT.Expiry), &AuthController{}, &APIController{}, &SecurityConfig{}},
+	}); err != nil {
+		log.Fatal(err)
+	}
+}
+`
+
+const securedAPITestTemplate = `package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/enokdev/helix/security"
+)
+
+func TestLoginAndProfile(t *testing.T) {
+	jwtSvc, err := security.NewJWTService("test-secret-key", time.Hour)
+	if err != nil {
+		t.Fatalf("NewJWTService() error = %v", err)
+	}
+	srv, err := newServer(jwtSvc, time.Hour)
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+
+	// POST /auth/login
+	loginResp := serveReq(t, srv, http.MethodPost, "/auth/login", ` + "`" + `{"username":"user","password":"password"}` + "`" + `)
+	if loginResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /auth/login status = %d, want %d", loginResp.StatusCode, http.StatusOK)
+	}
+	var login LoginResponse
+	if err := json.NewDecoder(loginResp.Body).Decode(&login); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+	if login.Token == "" {
+		t.Fatal("login.Token is empty")
+	}
+
+	// GET /api/profile with token
+	req := httptest.NewRequest(http.MethodGet, "/api/profile", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Token)
+	profileResp, err := srv.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP error = %v", err)
+	}
+	defer profileResp.Body.Close()
+	if profileResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/profile status = %d, want %d", profileResp.StatusCode, http.StatusOK)
+	}
+
+	// GET /api/profile without token → 401
+	unauthResp := serveReq(t, srv, http.MethodGet, "/api/profile", "")
+	if unauthResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /api/profile (no token) status = %d, want %d", unauthResp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestLoginInvalidCredentials(t *testing.T) {
+	jwtSvc, err := security.NewJWTService("test-secret-key", time.Hour)
+	if err != nil {
+		t.Fatalf("NewJWTService() error = %v", err)
+	}
+	srv, err := newServer(jwtSvc, time.Hour)
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+
+	resp := serveReq(t, srv, http.MethodPost, "/auth/login", ` + "`" + `{"username":"user","password":"wrong"}` + "`" + `)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("POST /auth/login (bad creds) status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func serveReq(t *testing.T, srv interface {
+	ServeHTTP(*http.Request) (*http.Response, error)
+}, method, path, body string,
+) *http.Response {
+	t.Helper()
+	var buf *bytes.Buffer
+	if body != "" {
+		buf = bytes.NewBufferString(body)
+	} else {
+		buf = &bytes.Buffer{}
+	}
+	req := httptest.NewRequest(method, path, buf)
+	if buf.Len() > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := srv.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP(%s %s) error = %v", method, path, err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+`
+
+const securedAPIConfigTemplate = `app:
+  name: {{ .Name }}
+server:
+  port: 8080
+security:
+  jwt:
+    secret: change-me-before-production
+    expiry: 1h
+`
+
+// ── gorm-api template ─────────────────────────────────────────────────────────
+
+const gormAPIMainTemplate = `package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"strconv"
+
+	helix "github.com/enokdev/helix"
+	"github.com/enokdev/helix/config"
+	"github.com/enokdev/helix/core"
+	gormrepo "github.com/enokdev/helix/data/gorm"
+	"github.com/enokdev/helix/starter"
+	webstarter "github.com/enokdev/helix/starter/web"
+	"github.com/enokdev/helix/web"
+	"gorm.io/driver/sqlite"
+	gormlib "gorm.io/gorm"
+)
+
+type User struct {
+	ID    uint   ` + "`json:\"id\" gorm:\"primaryKey\"`" + `
+	Name  string ` + "`json:\"name\"`" + `
+	Email string ` + "`json:\"email\" gorm:\"uniqueIndex\"`" + `
+}
+
+type userInput struct {
+	Name  string ` + "`json:\"name\"  validate:\"required\"`" + `
+	Email string ` + "`json:\"email\" validate:\"required,email\"`" + `
+}
+
+type UserRepository struct {
+	helix.Repository
+
+	repo *gormrepo.Repository[User, uint]
+}
+
+func NewUserRepository(db *gormlib.DB) *UserRepository {
+	return &UserRepository{repo: gormrepo.NewRepository[User, uint](db)}
+}
+
+func (r *UserRepository) FindAll(ctx context.Context) ([]User, error) {
+	return r.repo.FindAll(ctx)
+}
+
+func (r *UserRepository) FindByID(ctx context.Context, id uint) (*User, error) {
+	return r.repo.FindByID(ctx, id)
+}
+
+func (r *UserRepository) Save(ctx context.Context, u *User) error {
+	return r.repo.Save(ctx, u)
+}
+
+func (r *UserRepository) Delete(ctx context.Context, id uint) error {
+	return r.repo.Delete(ctx, id)
+}
+
+type UserService struct {
+	helix.Service
+
+	Repo *UserRepository ` + "`inject:\"true\"`" + `
+}
+
+func (s *UserService) List(ctx context.Context) ([]User, error)      { return s.Repo.FindAll(ctx) }
+func (s *UserService) Get(ctx context.Context, id uint) (*User, error) { return s.Repo.FindByID(ctx, id) }
+func (s *UserService) Create(ctx context.Context, u *User) error      { return s.Repo.Save(ctx, u) }
+func (s *UserService) Delete(ctx context.Context, id uint) error      { return s.Repo.Delete(ctx, id) }
+
+type UserController struct {
+	helix.Controller
+
+	Service *UserService ` + "`inject:\"true\"`" + `
+}
+
+func (c *UserController) Index(ctx web.Context) ([]User, error) { return c.Service.List(ctx.Context()) }
+
+func (c *UserController) Show(ctx web.Context) (*User, error) {
+	id, err := parseID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u, err := c.Service.Get(ctx.Context(), id)
+	if err != nil {
+		return nil, &apiError{status: http.StatusNotFound, errType: "NotFound", code: "NOT_FOUND", message: "user not found"}
+	}
+	return u, nil
+}
+
+func (c *UserController) Create(ctx web.Context, input userInput) (*User, error) {
+	u := &User{Name: input.Name, Email: input.Email}
+	if err := c.Service.Create(ctx.Context(), u); err != nil {
+		return nil, err
+	}
+	ctx.Status(http.StatusCreated)
+	return u, nil
+}
+
+func (c *UserController) Delete(ctx web.Context) error {
+	id, err := parseID(ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.Service.Delete(ctx.Context(), id); err != nil {
+		return &apiError{status: http.StatusNotFound, errType: "NotFound", code: "NOT_FOUND", message: "user not found"}
+	}
+	ctx.Status(http.StatusNoContent)
+	return nil
+}
+
+type apiError struct {
+	status  int
+	errType string
+	code    string
+	message string
+}
+
+func (e *apiError) Error() string      { return e.message }
+func (e *apiError) StatusCode() int    { return e.status }
+func (e *apiError) ErrorType() string  { return e.errType }
+func (e *apiError) ErrorCode() string  { return e.code }
+func (e *apiError) ErrorField() string { return "" }
+
+func parseID(ctx web.Context) (uint, error) {
+	id, err := strconv.ParseUint(ctx.Param("id"), 10, 64)
+	if err != nil {
+		return 0, &apiError{status: http.StatusBadRequest, errType: "BadRequest", code: "BAD_REQUEST", message: "invalid user id"}
+	}
+	return uint(id), nil
+}
+
+func openDB(dsn string) (*gormlib.DB, error) {
+	db, err := gormlib.Open(sqlite.Open(dsn), &gormlib.Config{})
+	if err != nil {
+		return nil, err
+	}
+	return db, db.AutoMigrate(&User{})
+}
+
+func newServer(db *gormlib.DB) (web.HTTPServer, error) {
+	container := core.NewContainer(core.WithResolver(core.NewReflectResolver()))
+	for _, c := range []any{NewUserRepository(db), &UserService{}, &UserController{}} {
+		if err := container.Register(c); err != nil {
+			return nil, err
+		}
+	}
+	var ctrl *UserController
+	if err := container.Resolve(&ctrl); err != nil {
+		return nil, err
+	}
+	srv := web.NewServer()
+	if err := web.RegisterController(srv, ctrl); err != nil {
+		return nil, err
+	}
+	return srv, nil
+}
+
+func main() {
+	loader := config.NewLoader(
+		config.WithConfigPaths("config"),
+		config.WithDefaults(map[string]any{
+			"server.port":  8080,
+			"app.name":     "{{ .Name }}",
+			"database.dsn": "{{ .Name }}.db",
+		}),
+	)
+
+	type appCfg struct {
+		Database struct {
+			DSN string ` + "`mapstructure:\"dsn\"`" + `
+		} ` + "`mapstructure:\"database\"`" + `
+	}
+	var cfg appCfg
+	if err := loader.Load(&cfg); err != nil {
+		log.Fatal(err)
+	}
+
+	db, err := openDB(cfg.Database.DSN)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := helix.Run(helix.App{
+		Starters: []starter.Entry{
+			{Name: "web", Order: starter.OrderWeb, Starter: webstarter.New(loader)},
+		},
+		Components: []any{NewUserRepository(db), &UserService{}, &UserController{}},
+	}); err != nil {
+		log.Fatal(err)
+	}
+}
+`
+
+const gormAPITestTemplate = `//go:build cgo
+
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestGORMUsersCRUD(t *testing.T) {
+	db, err := openDB(":memory:")
+	if err != nil {
+		t.Fatalf("openDB(:memory:) error = %v", err)
+	}
+	srv, err := newServer(db)
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+
+	// POST /users
+	createResp := serveReq(t, srv, http.MethodPost, "/users", ` + "`" + `{"name":"Ada Lovelace","email":"ada@example.com"}` + "`" + `)
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /users status = %d, want %d", createResp.StatusCode, http.StatusCreated)
+	}
+	var created User
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	if created.Name != "Ada Lovelace" {
+		t.Fatalf("created.Name = %q, want Ada Lovelace", created.Name)
+	}
+
+	// GET /users/1
+	showResp := serveReq(t, srv, http.MethodGet, "/users/1", "")
+	if showResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /users/1 status = %d, want %d", showResp.StatusCode, http.StatusOK)
+	}
+
+	// GET /users
+	listResp := serveReq(t, srv, http.MethodGet, "/users", "")
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /users status = %d, want %d", listResp.StatusCode, http.StatusOK)
+	}
+	var list []User
+	if err := json.NewDecoder(listResp.Body).Decode(&list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("list length = %d, want 1", len(list))
+	}
+
+	// DELETE /users/1
+	deleteResp := serveReq(t, srv, http.MethodDelete, "/users/1", "")
+	if deleteResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE /users/1 status = %d, want %d", deleteResp.StatusCode, http.StatusNoContent)
+	}
+}
+
+func serveReq(t *testing.T, srv interface {
+	ServeHTTP(*http.Request) (*http.Response, error)
+}, method, path, body string,
+) *http.Response {
+	t.Helper()
+	var buf *bytes.Buffer
+	if body != "" {
+		buf = bytes.NewBufferString(body)
+	} else {
+		buf = &bytes.Buffer{}
+	}
+	req := httptest.NewRequest(method, path, buf)
+	if buf.Len() > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := srv.ServeHTTP(req)
+	if err != nil {
+		t.Fatalf("ServeHTTP(%s %s) error = %v", method, path, err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+`
+
+const gormAPIConfigTemplate = `app:
+  name: {{ .Name }}
+server:
+  port: 8080
+database:
+  dsn: {{ .Name }}.db
 `

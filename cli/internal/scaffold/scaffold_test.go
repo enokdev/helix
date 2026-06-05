@@ -338,3 +338,170 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(content)
 }
+
+func TestNewAPIAppCreatesBuildableProject(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repoRoot := findRepoRoot(t)
+
+	if err := NewAPIApp(Options{
+		RootDir:          root,
+		Name:             "my-api",
+		HelixReplacePath: repoRoot,
+	}); err != nil {
+		t.Fatalf("NewAPIApp() error = %v", err)
+	}
+
+	appDir := filepath.Join(root, "my-api")
+	for _, name := range []string{"go.mod", "main.go", "main_test.go", filepath.Join("config", "application.yaml")} {
+		if _, err := os.Stat(filepath.Join(appDir, name)); err != nil {
+			t.Fatalf("generated file %s stat error = %v", name, err)
+		}
+	}
+
+	goCmd := lookupGoCmd(t)
+
+	buildCmd := exec.Command(goCmd, "build", "./...")
+	buildCmd.Dir = appDir
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./... error = %v\n%s", err, out)
+	}
+
+	testCmd := exec.Command(goCmd, "test", "./...")
+	testCmd.Dir = appDir
+	if out, err := testCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go test ./... error = %v\n%s", err, out)
+	}
+
+	main := readFile(t, filepath.Join(appDir, "main.go"))
+	if !strings.Contains(main, "helix.Run") {
+		t.Fatal("main.go missing helix.Run call")
+	}
+	if !strings.Contains(main, "UserController") {
+		t.Fatal("main.go missing UserController")
+	}
+}
+
+func TestNewSecuredAPIAppCreatesBuildableProject(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repoRoot := findRepoRoot(t)
+
+	if err := NewSecuredAPIApp(Options{
+		RootDir:          root,
+		Name:             "my-secured",
+		HelixReplacePath: repoRoot,
+	}); err != nil {
+		t.Fatalf("NewSecuredAPIApp() error = %v", err)
+	}
+
+	appDir := filepath.Join(root, "my-secured")
+	for _, name := range []string{"go.mod", "main.go", "main_test.go", filepath.Join("config", "application.yaml")} {
+		if _, err := os.Stat(filepath.Join(appDir, name)); err != nil {
+			t.Fatalf("generated file %s stat error = %v", name, err)
+		}
+	}
+
+	goCmd := lookupGoCmd(t)
+
+	buildCmd := exec.Command(goCmd, "build", "./...")
+	buildCmd.Dir = appDir
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./... error = %v\n%s", err, out)
+	}
+
+	testCmd := exec.Command(goCmd, "test", "./...")
+	testCmd.Dir = appDir
+	if out, err := testCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go test ./... error = %v\n%s", err, out)
+	}
+
+	main := readFile(t, filepath.Join(appDir, "main.go"))
+	if !strings.Contains(main, "security.NewJWTService") {
+		t.Fatal("main.go missing security.NewJWTService call")
+	}
+	if !strings.Contains(main, "AuthController") {
+		t.Fatal("main.go missing AuthController")
+	}
+
+	cfg := readFile(t, filepath.Join(appDir, "config", "application.yaml"))
+	if !strings.Contains(cfg, "jwt:") {
+		t.Fatal("application.yaml missing jwt section")
+	}
+}
+
+func TestNewGORMAPIAppCreatesBuildableProject(t *testing.T) {
+	t.Parallel()
+
+	if !hasCGO(t) {
+		t.Skip("CGo not available: gorm-api requires CGo for SQLite")
+	}
+
+	root := t.TempDir()
+	repoRoot := findRepoRoot(t)
+
+	if err := NewGORMAPIApp(Options{
+		RootDir:          root,
+		Name:             "my-gorm",
+		HelixReplacePath: repoRoot,
+	}); err != nil {
+		t.Fatalf("NewGORMAPIApp() error = %v", err)
+	}
+
+	appDir := filepath.Join(root, "my-gorm")
+	for _, name := range []string{"go.mod", "main.go", "main_test.go", filepath.Join("config", "application.yaml")} {
+		if _, err := os.Stat(filepath.Join(appDir, name)); err != nil {
+			t.Fatalf("generated file %s stat error = %v", name, err)
+		}
+	}
+
+	goCmd := lookupGoCmd(t)
+
+	buildCmd := exec.Command(goCmd, "build", "./...")
+	buildCmd.Dir = appDir
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./... error = %v\n%s", err, out)
+	}
+
+	testCmd := exec.Command(goCmd, "test", "-tags", "cgo", "./...")
+	testCmd.Dir = appDir
+	if out, err := testCmd.CombinedOutput(); err != nil {
+		t.Fatalf("go test -tags cgo ./... error = %v\n%s", err, out)
+	}
+
+	goMod := readFile(t, filepath.Join(appDir, "go.mod"))
+	if !strings.Contains(goMod, "gorm.io/driver/sqlite") {
+		t.Fatal("go.mod missing explicit gorm.io/driver/sqlite require")
+	}
+	if !strings.Contains(goMod, "gorm.io/gorm") {
+		t.Fatal("go.mod missing explicit gorm.io/gorm require")
+	}
+}
+
+func lookupGoCmd(t *testing.T) string {
+	t.Helper()
+	for _, candidate := range []string{
+		"/Users/yacoubakone/.govm/go/bin/go",
+		"go",
+	} {
+		cmd := exec.Command(candidate, "version")
+		if err := cmd.Run(); err == nil {
+			return candidate
+		}
+	}
+	t.Fatal("go binary not found")
+	return ""
+}
+
+func hasCGO(t *testing.T) bool {
+	t.Helper()
+	goCmd := lookupGoCmd(t)
+	cmd := exec.Command(goCmd, "env", "CGO_ENABLED")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "1"
+}
