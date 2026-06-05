@@ -1,0 +1,6 @@
+helix:
+  server:
+    port: 8080
+  starters:
+    observability:
+      enabled: true

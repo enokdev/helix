@@ -220,29 +220,33 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: proposer une integration qui garde les abstractions Helix sans cacher sqlc.
   - Validation: exemple sqlc compile et passe les tests.
 
-- [ ] Evaluer gRPC et WebSocket
+- [x] Evaluer gRPC et WebSocket
   - Domaine: web, futur
   - Pourquoi: l'architecture les mentionne hors perimetre initial, mais ce sont des besoins backend frequents.
   - Action: produire une note de design separee avant toute implementation.
   - Validation: decision documentee: supporter, differer ou exclure.
+  - Preuve: `docs/reference/grpc-websocket-decision.md` et `docs/fr/reference/grpc-websocket-decision.md` crees.
 
-- [ ] Ajouter des verrous distribues pour scheduling
+- [x] Ajouter des verrous distribues pour scheduling
   - Domaine: scheduler, production
   - Pourquoi: les jobs cron en multi-instance peuvent s'executer plusieurs fois.
   - Action: definir une interface de lock distribue optionnelle.
   - Validation: test avec backend fake prouvant qu'une seule instance execute le job.
+  - Preuve: `scheduler/lock.go` ajoute `DistributedLock`, `NoOpLock` et `FakeLock`; `scheduler.NewScheduler(...WithDistributedLock(lock))` encapsule l'execution avec `Acquire/Release`; `scheduler/lock_test.go` couvre l'acquisition simple, la contention multi-instance et le skip si le lock est deja tenu.
 
-- [ ] Construire un exemple deploiement complet
+- [x] Construire un exemple deploiement complet
   - Domaine: docs, adoption
   - Pourquoi: les utilisateurs ont besoin d'un chemin production concret.
   - Action: fournir Dockerfile, healthcheck, config env, migration et observabilite pour une API exemple.
   - Validation: `docker build` et run local exposes `/actuator/health`.
+  - Preuve: `examples/deployment/` contient l'application Helix minimale, `application.yaml`, le `Dockerfile`, `docker-compose.yml` et le `README.md` pour builder l'image, valider `/api/hello` et verifier `/actuator/health` avec le probe `--health-check`.
 
-- [ ] Definir une gouvernance contributeur
+- [x] Definir une gouvernance contributeur
   - Domaine: projet, communaute
   - Pourquoi: si Helix devient public, les issues, PRs, security reports et releases doivent avoir un cadre clair.
   - Action: ajouter issue templates, security policy, contribution flow et labels.
   - Validation: un contributeur externe sait comment reporter un bug, proposer une feature et signaler une faille.
+  - Preuve: `.github/ISSUE_TEMPLATE/bug_report.yml`, `.github/ISSUE_TEMPLATE/feature_request.yml`, `.github/ISSUE_TEMPLATE/config.yml`, `.github/SECURITY.md`, `.github/CONTRIBUTING.md`, `.github/CODE_OF_CONDUCT.md`
 
 ## Nettoyage Continu
 

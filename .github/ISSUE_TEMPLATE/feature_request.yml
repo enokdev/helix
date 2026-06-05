@@ -1,0 +1,42 @@
+name: Feature Request
+description: Suggest an improvement for Helix.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea. Clear problem statements and concrete use cases help maintainers evaluate requests faster.
+  - type: textarea
+    id: problem_description
+    attributes:
+      label: Problem Description
+      description: What problem are you trying to solve?
+      placeholder: Describe the problem, limitation, or friction point.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the change you would like to see.
+      placeholder: Explain the behavior, API, or workflow you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives_considered
+    attributes:
+      label: Alternatives Considered
+      description: Describe any workarounds or alternative solutions you considered.
+      placeholder: List alternatives and why they are not sufficient.
+    validations:
+      required: false
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use Case
+      description: Explain who benefits and how this feature would be used.
+      placeholder: Describe a real-world usage scenario.
+    validations:
+      required: true

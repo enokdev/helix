@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/enokdev/helix/core"
 	"github.com/enokdev/helix/scheduler/internal"
@@ -29,10 +30,16 @@ type Scheduler interface {
 // Compile-time assertions
 var _ core.Lifecycle = (Scheduler)(nil)
 
+const defaultDistributedLockTTL = time.Minute
+
+type Option func(*adapterWrapper)
+
 type adapterWrapper struct {
-	mu     sync.Mutex
-	inner  *internal.CronAdapter
-	byName map[string]registeredJob
+	mu      sync.Mutex
+	inner   *internal.CronAdapter
+	byName  map[string]registeredJob
+	lock    DistributedLock
+	lockTTL time.Duration
 }
 
 type registeredJob struct {
@@ -56,6 +63,7 @@ func (w *adapterWrapper) Register(job Job) error {
 	if !job.AllowConcurrent {
 		fn = WrapSkipIfBusy(fn)
 	}
+	fn = wrapDistributedLock(w.lock, w.lockTTL, name, fn)
 	fn = recoverPanic(name, fn)
 
 	w.mu.Lock()
@@ -103,6 +111,31 @@ func recoverPanic(name string, fn func()) func() {
 	}
 }
 
+func wrapDistributedLock(lock DistributedLock, ttl time.Duration, name string, fn func()) func() {
+	if lock == nil {
+		return fn
+	}
+
+	return func() {
+		ctx := context.Background()
+		acquired, err := lock.Acquire(ctx, name, ttl)
+		if err != nil {
+			slog.Default().Error("scheduler: distributed lock acquire failed", "job", name, "error", err)
+			return
+		}
+		if !acquired {
+			slog.Default().Debug("scheduler: distributed lock busy", "job", name)
+			return
+		}
+		defer func() {
+			if err := lock.Release(ctx, name); err != nil {
+				slog.Default().Error("scheduler: distributed lock release failed", "job", name, "error", err)
+			}
+		}()
+		fn()
+	}
+}
+
 func (w *adapterWrapper) Start() {
 	w.inner.Start()
 }
@@ -124,10 +157,42 @@ var (
 	_ core.Lifecycle = (*adapterWrapper)(nil)
 )
 
-// NewScheduler returns a new Scheduler backed by robfig/cron v3.
-func NewScheduler() Scheduler {
-	return &adapterWrapper{
-		inner:  internal.NewCronAdapter(),
-		byName: make(map[string]registeredJob),
+// WithDistributedLock configures a lock used to suppress duplicate job execution
+// across scheduler instances. Passing nil restores the single-instance default.
+func WithDistributedLock(lock DistributedLock) Option {
+	return func(w *adapterWrapper) {
+		if lock == nil {
+			w.lock = &NoOpLock{}
+			return
+		}
+		w.lock = lock
 	}
+}
+
+// WithDistributedLockTTL overrides the TTL passed to DistributedLock.Acquire.
+// Non-positive values restore the default TTL.
+func WithDistributedLockTTL(ttl time.Duration) Option {
+	return func(w *adapterWrapper) {
+		if ttl <= 0 {
+			w.lockTTL = defaultDistributedLockTTL
+			return
+		}
+		w.lockTTL = ttl
+	}
+}
+
+// NewScheduler returns a new Scheduler backed by robfig/cron v3.
+func NewScheduler(opts ...Option) Scheduler {
+	scheduler := &adapterWrapper{
+		inner:   internal.NewCronAdapter(),
+		byName:  make(map[string]registeredJob),
+		lock:    &NoOpLock{},
+		lockTTL: defaultDistributedLockTTL,
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(scheduler)
+		}
+	}
+	return scheduler
 }

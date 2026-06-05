@@ -42,8 +42,8 @@ This page documents current production limits by package and the recommended mit
 
 ## `scheduler`
 
-- Cron scheduling is process-local. In multi-instance deployments, the same job can run on every replica.
-- Distributed locks are not implemented yet. Use a single scheduler replica or an application-owned lock for jobs with side effects.
+- Cron scheduling is process-local by default. In multi-instance deployments, configure `scheduler.WithDistributedLock(...)` for jobs that must execute only once per trigger.
+- Helix provides the `scheduler.DistributedLock` interface and a `scheduler.NoOpLock` single-instance default; production backends remain application-owned.
 - Long-running jobs should respect context cancellation during shutdown.
 
 ## `starter`
