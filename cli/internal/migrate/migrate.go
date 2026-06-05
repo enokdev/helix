@@ -29,6 +29,7 @@ const (
 
 	migrationLockName          = "up"
 	migrationLockRetryInterval = 25 * time.Millisecond
+	migrationLockTTL           = 15 * time.Minute
 )
 
 var (
@@ -282,6 +283,9 @@ func prepare(ctx context.Context, opts Options) (string, *sql.DB, databaseTarget
 	if err != nil {
 		return "", nil, databaseTarget{}, err
 	}
+	if err := preflightDatabaseTarget(target); err != nil {
+		return "", nil, databaseTarget{}, err
+	}
 	db, err := sql.Open(target.Driver, target.DSN)
 	if err != nil {
 		return "", nil, databaseTarget{}, err
@@ -301,6 +305,9 @@ func loadApplied(ctx context.Context, databaseURL, root string) (map[string]stri
 		return make(map[string]string), nil
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := preflightDatabaseTarget(target); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open(target.Driver, target.DSN)
@@ -408,6 +415,9 @@ func acquireMigrationLock(ctx context.Context, db *sql.DB) (func(), error) {
 	defer ticker.Stop()
 
 	for {
+		if err := deleteExpiredMigrationLock(ctx, db); err != nil {
+			return nil, fmt.Errorf("clear expired migration lock: %w", err)
+		}
 		_, err := db.ExecContext(ctx, "INSERT INTO helix_migration_locks (name, acquired_at) VALUES (?, CURRENT_TIMESTAMP)", migrationLockName)
 		if err == nil {
 			released := false
@@ -427,10 +437,16 @@ func acquireMigrationLock(ctx context.Context, db *sql.DB) (func(), error) {
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("migration lock %q unavailable before context deadline: %w", migrationLockName, ctx.Err())
 		case <-ticker.C:
 		}
 	}
+}
+
+func deleteExpiredMigrationLock(ctx context.Context, db *sql.DB) error {
+	cutoff := time.Now().UTC().Add(-migrationLockTTL).Format("2006-01-02 15:04:05")
+	_, err := db.ExecContext(ctx, "DELETE FROM helix_migration_locks WHERE name = ? AND acquired_at < ?", migrationLockName, cutoff)
+	return err
 }
 
 func isLockConflict(err error) bool {
@@ -522,8 +538,8 @@ func migrationByVersion(migrations []migration, version string) (migration, bool
 }
 
 func runMigration(ctx context.Context, root string, target databaseTarget, action string, m migration) error {
-	if target.Driver == "sqlite3" && cgoDisabled() {
-		return fmt.Errorf("go-sqlite3 requires CGo for SQLite migrations: set CGO_ENABLED=1 and ensure a C compiler is available")
+	if err := preflightDatabaseTarget(target); err != nil {
+		return err
 	}
 	tempDir, err := os.MkdirTemp("", "helix-migration-*")
 	if err != nil {
@@ -587,6 +603,13 @@ func importsHostModule(source []byte, root string) bool {
 func cgoDisabled() bool {
 	value, ok := os.LookupEnv("CGO_ENABLED")
 	return ok && strings.TrimSpace(value) == "0"
+}
+
+func preflightDatabaseTarget(target databaseTarget) error {
+	if target.Driver == "sqlite3" && cgoDisabled() {
+		return fmt.Errorf("go-sqlite3 requires CGo for SQLite migrations: set CGO_ENABLED=1 and ensure a C compiler is available")
+	}
+	return nil
 }
 
 func runnerGoMod(sqlite3Version string) string {

@@ -106,11 +106,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: valider les guards a l'enregistrement et normaliser les chemins avant matching.
   - Validation: tests guard nil, `//`, slash final et patterns wildcard.
 
-- [ ] Ameliorer le contrat des migrations DB
+- [x] Ameliorer le contrat des migrations DB
   - Domaine: CLI, data
   - Pourquoi: les migrations sont centrees SQLite et certains cas crash, lock ou imports du projet hote restent difficiles a diagnostiquer.
   - Action: documenter les limites, ajouter preflight CGo, TTL de lock et meilleurs messages d'erreur.
   - Validation: tests lock persistant, annulation et erreur CGo explicite.
+  - Preuve: `cli/internal/migrate` preflight SQLite/CGo avant l'ouverture du journal et le runner, expire automatiquement les locks de migration de plus de 15 minutes et retourne un diagnostic de lock contextualise; `migrate_test.go` couvre lock persistant, lock frais avec deadline, annulation apres application partielle, erreur CGo preflight et imports du module hote; les docs CLI EN/FR decrivent le format Go, SQLite/CGo, l'isolation du runner et le TTL de lock.
 
 - [ ] Preparer le support multi-dialecte data
   - Domaine: data, GORM

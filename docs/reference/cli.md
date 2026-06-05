@@ -409,7 +409,7 @@ The binary is output to the project root. The Docker flag produces a multi-stage
 
 ## `helix db migrate create`
 
-Create a pair of timestamped migration SQL files.
+Create a timestamped Go migration file.
 
 ```bash
 helix db migrate create <name> [flags]
@@ -433,27 +433,28 @@ helix db migrate create <name> [flags]
 helix db migrate create add-orders-table
 ```
 
-**Generated files:**
+**Generated file:**
 
 ```
-migrations/
-├── 20240115120000_add-orders-table.up.sql    # forward migration
-└── 20240115120000_add-orders-table.down.sql  # rollback
+db/migrations/
+└── 20240115120000_add_orders_table.go
 ```
 
-Fill in the `.up.sql` with your schema change, and the `.down.sql` with the rollback:
+Fill in `Up(ctx, tx)` with the schema change and `Down(ctx, tx)` with the rollback:
 
-```sql
--- 20240115120000_add-orders-table.up.sql
-CREATE TABLE orders (
-    id   TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    total REAL NOT NULL
-);
+```go
+func Up(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "CREATE TABLE orders (id INTEGER PRIMARY KEY)")
+    return err
+}
 
--- 20240115120000_add-orders-table.down.sql
-DROP TABLE IF EXISTS orders;
+func Down(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "DROP TABLE orders")
+    return err
+}
 ```
+
+Migration files are compiled in an isolated temporary module. Keep imports self-contained and do not import packages from the host application module.
 
 ---
 
@@ -476,8 +477,15 @@ helix db migrate up [flags]
 
 ```bash
 helix db migrate up
-helix db migrate up --database-url postgres://localhost/mydb
+helix db migrate up --database-url sqlite://./app.db
 ```
+
+**Current contract:**
+
+- SQLite URLs are supported: `sqlite://`, `sqlite3://`, `file:`, `:memory:`, `.db`, `.sqlite`, `.sqlite3`.
+- PostgreSQL/MySQL execution is not enabled yet; unsupported URLs fail with an explicit error.
+- SQLite migrations use `github.com/mattn/go-sqlite3`, so run them with `CGO_ENABLED=1` and a C compiler available.
+- `up` uses a database-backed migration lock. A stale lock older than 15 minutes is cleared automatically; a fresh lock waits until the command context expires.
 
 ---
 

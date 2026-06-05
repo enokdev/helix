@@ -149,34 +149,33 @@ The binary is placed in the project root. Ship it to any Linux server or contain
 
 ## Database migrations
 
-Helix manages schema migrations with plain SQL files. The workflow:
+Helix manages schema migrations with timestamped Go files. The workflow:
 
-### 1. Create migration files
+### 1. Create a migration file
 
 ```bash
 helix db migrate create add-orders-table
 ```
 
-Two files are created in `migrations/`:
+One file is created in `db/migrations/`:
 
 ```
-migrations/
-├── 20240115120000_add-orders-table.up.sql
-└── 20240115120000_add-orders-table.down.sql
+db/migrations/
+└── 20240115120000_add_orders_table.go
 ```
 
-Edit them with your SQL:
+Edit `Up(ctx, tx)` and `Down(ctx, tx)`:
 
-```sql
--- up.sql
-CREATE TABLE orders (
-    id      TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    total   REAL NOT NULL
-);
+```go
+func Up(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "CREATE TABLE orders (id INTEGER PRIMARY KEY)")
+    return err
+}
 
--- down.sql
-DROP TABLE IF EXISTS orders;
+func Down(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "DROP TABLE orders")
+    return err
+}
 ```
 
 ### 2. Apply migrations
@@ -188,8 +187,10 @@ helix db migrate up
 All pending migrations are applied in chronological order. To target a specific database (overriding `application.yaml`):
 
 ```bash
-helix db migrate up --database-url postgres://user:pass@localhost/mydb
+helix db migrate up --database-url sqlite://./app.db
 ```
+
+SQLite is the supported execution target today. Run migrations with `CGO_ENABLED=1` because the SQLite driver uses CGo. Migration files run inside an isolated temporary module, so they cannot import packages from the host application. `up` uses a database lock; locks older than 15 minutes are considered stale and cleared.
 
 ### 3. Check status
 

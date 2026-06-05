@@ -296,6 +296,8 @@ func TestMigrationLockUsesDatabaseStateAcrossConnections(t *testing.T) {
 	defer cancel()
 	if _, err := acquireMigrationLock(waitCtx, db2); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("acquireMigrationLock(db2) error = %v, want context deadline", err)
+	} else if !strings.Contains(err.Error(), "migration lock") {
+		t.Fatalf("acquireMigrationLock(db2) error = %q, want lock diagnostic", err)
 	}
 
 	release()
@@ -304,6 +306,29 @@ func TestMigrationLockUsesDatabaseStateAcrossConnections(t *testing.T) {
 		t.Fatalf("acquireMigrationLock(db2 after release) error = %v", err)
 	}
 	release2()
+}
+
+func TestMigrationLockExpiresPersistentLock(t *testing.T) {
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := ensureLockTable(context.Background(), db); err != nil {
+		t.Fatalf("ensureLockTable() error = %v", err)
+	}
+	staleTime := time.Now().UTC().Add(-migrationLockTTL - time.Minute).Format("2006-01-02 15:04:05")
+	if _, err := db.Exec("INSERT INTO helix_migration_locks (name, acquired_at) VALUES (?, ?)", migrationLockName, staleTime); err != nil {
+		t.Fatalf("insert stale lock: %v", err)
+	}
+
+	release, err := acquireMigrationLock(context.Background(), db)
+	if err != nil {
+		t.Fatalf("acquireMigrationLock() error = %v", err)
+	}
+	release()
 }
 
 func TestUpCanceledBeforeNextMigrationReportsAppliedThisRun(t *testing.T) {
@@ -326,6 +351,23 @@ func TestUpCanceledBeforeNextMigrationReportsAppliedThisRun(t *testing.T) {
 	assertTableExists(t, dbPath, "users", true)
 	assertTableExists(t, dbPath, "posts", false)
 	assertMigrationCount(t, dbPath, 1)
+}
+
+func TestUpSQLiteCGODisabledReturnsPreflightError(t *testing.T) {
+	root := newProjectFixture(t)
+	dbPath := filepath.Join(root, "app.db")
+	writeConfig(t, root, "sqlite://"+dbPath)
+	t.Setenv("CGO_ENABLED", "0")
+
+	err := Up(context.Background(), Options{RootDir: root})
+	if err == nil {
+		t.Fatal("Up() error = nil, want CGo preflight diagnostic")
+	}
+	for _, want := range []string{"go-sqlite3 requires CGo", "CGO_ENABLED=1", "C compiler"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Up() error = %q, want %q", err, want)
+		}
+	}
 }
 
 func TestRunMigrationSQLiteCGODisabledReturnsActionableError(t *testing.T) {

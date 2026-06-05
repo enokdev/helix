@@ -409,7 +409,7 @@ Le binaire est produit à la racine du projet. Le flag Docker produit un `Docker
 
 ## `helix db migrate create`
 
-Créer une paire de fichiers SQL de migration horodatés.
+Créer un fichier Go de migration horodaté.
 
 ```bash
 helix db migrate create <nom> [flags]
@@ -433,27 +433,28 @@ helix db migrate create <nom> [flags]
 helix db migrate create add-orders-table
 ```
 
-**Fichiers générés :**
+**Fichier généré :**
 
 ```
-migrations/
-├── 20240115120000_add-orders-table.up.sql    # migration avant
-└── 20240115120000_add-orders-table.down.sql  # rollback
+db/migrations/
+└── 20240115120000_add_orders_table.go
 ```
 
-Remplissez le `.up.sql` avec votre changement de schéma, et le `.down.sql` avec le rollback :
+Remplissez `Up(ctx, tx)` avec le changement de schéma et `Down(ctx, tx)` avec le rollback :
 
-```sql
--- 20240115120000_add-orders-table.up.sql
-CREATE TABLE orders (
-    id      TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    total   REAL NOT NULL
-);
+```go
+func Up(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "CREATE TABLE orders (id INTEGER PRIMARY KEY)")
+    return err
+}
 
--- 20240115120000_add-orders-table.down.sql
-DROP TABLE IF EXISTS orders;
+func Down(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "DROP TABLE orders")
+    return err
+}
 ```
+
+Les fichiers de migration sont compilés dans un module temporaire isolé. Gardez les imports autonomes et n'importez pas les packages du module applicatif hôte.
 
 ---
 
@@ -476,8 +477,15 @@ helix db migrate up [flags]
 
 ```bash
 helix db migrate up
-helix db migrate up --database-url postgres://localhost/mydb
+helix db migrate up --database-url sqlite://./app.db
 ```
+
+**Contrat actuel :**
+
+- Les URLs SQLite sont supportées : `sqlite://`, `sqlite3://`, `file:`, `:memory:`, `.db`, `.sqlite`, `.sqlite3`.
+- L'exécution PostgreSQL/MySQL n'est pas encore activée; les URLs non supportées échouent avec une erreur explicite.
+- Les migrations SQLite utilisent `github.com/mattn/go-sqlite3`; exécutez-les donc avec `CGO_ENABLED=1` et un compilateur C disponible.
+- `up` utilise un lock stocké en base. Un lock obsolète de plus de 15 minutes est supprimé automatiquement; un lock récent attend jusqu'à expiration du contexte de commande.
 
 ---
 

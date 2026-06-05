@@ -149,34 +149,33 @@ Le binaire est placé à la racine du projet. Envoyez-le sur n'importe quel serv
 
 ## Migrations de base de données
 
-Helix gère les migrations de schéma avec des fichiers SQL simples.
+Helix gère les migrations de schéma avec des fichiers Go horodatés.
 
-### 1. Créer des fichiers de migration
+### 1. Créer un fichier de migration
 
 ```bash
 helix db migrate create add-orders-table
 ```
 
-Deux fichiers sont créés dans `migrations/` :
+Un fichier est créé dans `db/migrations/` :
 
 ```
-migrations/
-├── 20240115120000_add-orders-table.up.sql
-└── 20240115120000_add-orders-table.down.sql
+db/migrations/
+└── 20240115120000_add_orders_table.go
 ```
 
-Éditez-les avec votre SQL :
+Éditez `Up(ctx, tx)` et `Down(ctx, tx)` :
 
-```sql
--- up.sql
-CREATE TABLE orders (
-    id      TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    total   REAL NOT NULL
-);
+```go
+func Up(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "CREATE TABLE orders (id INTEGER PRIMARY KEY)")
+    return err
+}
 
--- down.sql
-DROP TABLE IF EXISTS orders;
+func Down(ctx context.Context, tx *sql.Tx) error {
+    _, err := tx.ExecContext(ctx, "DROP TABLE orders")
+    return err
+}
 ```
 
 ### 2. Appliquer les migrations
@@ -188,8 +187,10 @@ helix db migrate up
 Toutes les migrations en attente sont appliquées en ordre chronologique. Pour cibler une base de données spécifique (en écrasant `application.yaml`) :
 
 ```bash
-helix db migrate up --database-url postgres://user:pass@localhost/mydb
+helix db migrate up --database-url sqlite://./app.db
 ```
+
+SQLite est la cible d'exécution supportée aujourd'hui. Exécutez les migrations avec `CGO_ENABLED=1`, car le driver SQLite utilise CGo. Les fichiers de migration tournent dans un module temporaire isolé, donc ils ne peuvent pas importer les packages de l'application hôte. `up` utilise un lock en base; les locks de plus de 15 minutes sont considérés obsolètes et supprimés.
 
 ### 3. Vérifier le statut
 
