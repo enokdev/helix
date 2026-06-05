@@ -94,6 +94,61 @@ func TestRegisterController_DerivesRoutePrefix(t *testing.T) {
 	}
 }
 
+func TestRegisterController_UsesExplicitRoutePrefix(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &VersionedUserController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/v1/users", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(index) error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("index StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	resp, err = server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/v1/users/42", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP(show) error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("show StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.shownID != "42" {
+		t.Fatalf("shownID = %q, want 42", controller.shownID)
+	}
+}
+
+func TestRegisterController_UsesNestedExplicitRoutePrefix(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t)
+	controller := &NestedUserController{}
+
+	if err := web.RegisterController(server, controller); err != nil {
+		t.Fatalf("RegisterController() error = %v", err)
+	}
+
+	resp, err := server.ServeHTTP(httptest.NewRequest(http.MethodGet, "/v1/teams/alpha/users/42", nil))
+	if err != nil {
+		t.Fatalf("ServeHTTP() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if controller.teamID != "alpha" || controller.userID != "42" {
+		t.Fatalf("ids = team:%q user:%q, want alpha/42", controller.teamID, controller.userID)
+	}
+}
+
 func TestRegisterController_SupportsSimpleHandlerSignatures(t *testing.T) {
 	t.Parallel()
 
@@ -1194,6 +1249,28 @@ func (c *UserController) Update(ctx web.Context) {
 func (c *UserController) Delete(ctx web.Context) error {
 	c.calls["delete"] = ctx.Param("id")
 	return nil
+}
+
+type VersionedUserController struct {
+	helix.Controller `helix:"route:/v1/users"`
+	shownID          string
+}
+
+func (c *VersionedUserController) Index() {}
+
+func (c *VersionedUserController) Show(ctx web.Context) {
+	c.shownID = ctx.Param("id")
+}
+
+type NestedUserController struct {
+	helix.Controller `helix:"route:/v1/teams/:teamID/users"`
+	teamID           string
+	userID           string
+}
+
+func (c *NestedUserController) Show(ctx web.Context) {
+	c.teamID = ctx.Param("teamID")
+	c.userID = ctx.Param("id")
 }
 
 type BlogPostController struct {

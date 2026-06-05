@@ -136,11 +136,12 @@ Ce fichier liste les prochains travaux qui ne sont pas encore couverts comme une
   - Action: definir une convention `Patch` ou une directive officielle, puis documenter les regles de binding.
   - Validation: controller test avec `PATCH /resources/:id`.
 
-- [ ] Permettre un prefixe de route explicite par controller
+- [x] Permettre un prefixe de route explicite par controller
   - Domaine: web, DX
   - Pourquoi: versioning `/v1`, ressources imbriquees et pluralisation irreguliere ne sont pas bien servis par la convention automatique seule.
   - Action: ajouter une API `RoutePrefix()` ou option equivalente.
   - Validation: tests prefixe `/v1/users` et route imbriquee.
+  - Preuve: le tag `helix:"route:/..."` sur l'embed `helix.Controller` sert d'API explicite de prefixe; `web/router_test.go` couvre `/v1/users`, `/v1/users/:id` et une ressource imbriquee `/v1/teams/:teamID/users/:id`; les guides web EN/FR documentent le contrat et l'exemple imbrique.
 
 - [ ] Retourner plusieurs erreurs de validation
   - Domaine: web, API UX

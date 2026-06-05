@@ -25,6 +25,21 @@ type ProductController struct {
 }
 ```
 
+Le préfixe explicite s'applique à toutes les méthodes conventionnelles. Pour les
+ressources imbriquées, incluez les paramètres de route dans le préfixe; `Show()`
+ajoute toujours `/:id` :
+
+```go
+type TeamUserController struct {
+    helix.Controller `helix:"route:/api/v1/teams/:teamID/users"`
+}
+
+// GET /api/v1/teams/:teamID/users/:id
+func (c *TeamUserController) Show(ctx web.Context) (User, error) {
+    return c.Svc.Get(ctx.Param("teamID"), ctx.Param("id"))
+}
+```
+
 ## Routage par convention
 
 Nommez les méthodes selon les conventions REST et les routes sont enregistrées automatiquement :

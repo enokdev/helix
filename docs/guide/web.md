@@ -25,6 +25,20 @@ type ProductController struct {
 }
 ```
 
+The explicit prefix is used for all conventional methods. For nested resources,
+include route parameters in the prefix; `Show()` still appends `/:id`:
+
+```go
+type TeamUserController struct {
+    helix.Controller `helix:"route:/api/v1/teams/:teamID/users"`
+}
+
+// GET /api/v1/teams/:teamID/users/:id
+func (c *TeamUserController) Show(ctx web.Context) (User, error) {
+    return c.Svc.Get(ctx.Param("teamID"), ctx.Param("id"))
+}
+```
+
 ## Convention Routing
 
 Name methods after REST conventions and routes are registered automatically:
